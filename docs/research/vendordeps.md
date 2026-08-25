@@ -58,14 +58,40 @@ So alpha-7 is in preparation and **it will be a new install-folder generation, n
 alpha-5/6** (unlike alpha-6, which installed straight over alpha-5 and kept the `2027_alpha5`
 string). See §0.3 for why that single string is decisive.
 
-### 0.1b The headline answer: **no, the current vendordeps will not work with alpha-7** **[V]**
+### 0.1b ~~The headline answer: no, the current vendordeps will not work with alpha-7~~ — **WRONG, corrected 2026-08-25 by [#25](https://github.com/Drew-Robotics/2027beta/issues/25)**
 
-REVLib 2027.0.0-alpha-6 declares `"wpilibYear": "2027_alpha5"`. WPILib `main` — the alpha-7 line —
+> ⚠️ **This section compared two *declarations* and never located the *requirement*. REVLib
+> passes the year gate; Commands v3 is what fails it.** See [#25](https://github.com/Drew-Robotics/2027beta/issues/25)
+> for the verified mechanism. The original claim is struck through below and kept for the record.
+
+~~REVLib 2027.0.0-alpha-6 declares `"wpilibYear": "2027_alpha5"`. WPILib `main` — the alpha-7 line —
 expects `2027_alpha7`. **The vendordep is rejected by the year gate before any code is
-compiled.** REV must republish for alpha-7; there is nothing we can do on our side.
+compiled.** REV must republish for alpha-7; there is nothing we can do on our side.~~
+
+**What is actually true [V]:** the gate lives in `WPIVendorDepsExtension.validateDependencies()` in
+**`wpilibsuite/native-utils`** — GradleRIO 2027 carries no vendordep code at all. It compares every
+`vendordeps/*.json`'s `wpilibYear` against **one project-wide value**, `wpi.wpilibYear`, a Gradle
+`Property<String>` whose convention is set in GradleRIO's `WPIExtension.java:63`. That convention is
+**`2027_alpha5`**, bumped 2026-04-27 (`6f99b4a9`) *before* the alpha-6 tag, and the Gradle plugin
+portal carries exactly two 2027 versions, newest `2027.0.0-alpha-6` (2026-05-08). (`v2027.1.1-prealpha-1`
+looks newer and is not — it is a 2025-05-25 tag still using `frcYear`/`2027_alpha1`.) **There is no
+alpha-7 GradleRIO**, so nothing yet requires `2027_alpha7`.
+
+| vendordep | declares | vs the required `2027_alpha5` |
+|---|---|---|
+| REVLib 2027.0.0-alpha-6 (re-fetched live 2026-08-25) | `2027_alpha5` | ✅ passes |
+| Phoenix 6 26.50.0-alpha-1 | `2027_alpha5` | ✅ passes |
+| `CommandsV3.json` from allwpilib `main` | `2027_alpha7` | ❌ **rejected** |
+
+The `2027_alpha7` strings in §0.1 are the **declaring** side running ahead of the **requiring** side.
+Since `CommandsV3.json` has `"mavenUrls": []` and `"version": "wpilib"` — no coordinates, no artifacts,
+no natives — editing its year down to `2027_alpha5` in our checked-in `vendordeps/` costs nothing real.
+That is what [#25](https://github.com/Drew-Robotics/2027beta/issues/25) decided.
 
 Independently, the class-resolution check below shows real API drift has *already* happened on
 main, so the year gate is not merely bureaucratic — it is protecting us from a genuine break.
+**But the break and the gate are unrelated:** the gate never fired on REVLib, and reconciling the
+year strings does not fix `SparkSim` — see §0.2 and §4.5.
 
 The practical question is therefore **do they work against released alpha-6?** — yes — and **what
 breaks on main?** — two specific things, below.
@@ -99,8 +125,11 @@ only consumer is `com.ctre.phoenix6.HootEpilogueBackend`, and **nothing else in 
 references it [V]** — it is an opt-in Hoot/Epilogue bridge. Since we are not using Epilogue, this
 is inert: it only fails if something touches that class.
 
-**Consequence:** pin WPILib to the released **v2027.0.0-alpha-6** for now. If we track `main`,
-SPARK sim is broken until REV republishes.
+~~**Consequence:** pin WPILib to the released **v2027.0.0-alpha-6** for now.~~ **Overtaken by
+[#19](https://github.com/Drew-Robotics/2027beta/issues/19):** released alpha-6 has no `telemetry`,
+no `tunables` and no `mrclib`, so it cannot build this project at all. We track the development
+line, and therefore **SPARK sim is broken until REV republishes** — see §4.5 for how narrow that
+break actually is.
 
 ### 0.3 The `wpilibYear` gate is a hard version lock **[V]**
 
@@ -688,6 +717,28 @@ are published.
 
 See §0.2. `SparkSim` → `MovingAverageFilterSim` → `org.wpilib.math.util.Pair`, which no longer
 exists. Against released alpha-6 it is fine.
+
+**Narrowed 2026-08-25 by [#25](https://github.com/Drew-Robotics/2027beta/issues/25) [V]**, by
+disassembling the jar. `MovingAverageFilterSim` touches only `new Pair(Object,Object)`, `getFirst()`
+and `getSecond()`. **`SparkSim` is the only poisoned class**; `SparkMaxSim` and `SparkFlexSim` die
+with it because they `extend` it. Everything else in `com.revrobotics.sim` is clean —
+`SparkRelativeEncoderSim`, `SparkAbsoluteEncoderSim`, `SparkLimitSwitchSim` and
+`SparkSimFaultManager` reference `org/wpilib/math/util` **zero** times and `SparkSim` **zero**
+times, and the two encoder sims have public constructors taking a `SparkMax`/`SparkFlex` directly.
+
+So physics *can* be pushed into the encoders without `SparkSim`. What is lost with it is
+`iterate(vel, vbus, dt)` — the SPARK's **onboard closed loop** — plus `getAppliedOutput()`,
+`getSetpoint()`, `getClosedLoopSlot()`, `setBusVoltage()`/`setMotorCurrent()` and
+`useDriverStationEnable()`. [#25](https://github.com/Drew-Robotics/2027beta/issues/25) rejected
+replacing those with a hand-written copy of REV's closed loop, and rejected a
+`org.wpilib.math.util.Pair` shim (built and verified working, ~20 lines) as well. **Sim waits for
+REV**, and `Drive.updateSim()` is not written until it lands — class resolution is lazy, so the
+robot is unaffected but desktop sim would throw on its first loop.
+
+**Readiness signal, order corrected:** the first thing to move will be **GradleRIO on the Gradle
+plugin portal** (its `wpilibYear` convention flips, and then it is REVLib's JSON we edit).
+`software-metadata.revrobotics.com/REVLib-2027.json`'s `wpilibYear` is the second, and it is the
+one that lifts this.
 
 Historically relevant **[C]**: SystemcoreTesting issue
 [#284](https://github.com/wpilibsuite/SystemcoreTesting/issues/284) "REVLib - SparkSim does not
