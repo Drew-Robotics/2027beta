@@ -22,6 +22,7 @@ import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
+import org.wpilib.system.Threads;
 import org.wpilib.system.Timer;
 import org.wpilib.telemetry.Telemetry;
 import org.wpilib.telemetry.MultiTelemetryBackend;
@@ -60,6 +61,8 @@ public class LoopBench extends OpModeRobot {
   private final long[] m_work = new long[PHASE_SAMPLES];
   private final long[] m_wake = new long[PHASE_SAMPLES];
   private long m_lastWake;
+  private boolean m_primed;
+  private int m_prioAfter = -1;
   private double m_t;
 
   /** Reads the period from disk so one deploy can be measured at several rates. */
@@ -76,6 +79,15 @@ public class LoopBench extends OpModeRobot {
     System.out.println("LOOPBENCH period=" + m_period);
   }
 
+  private static int readPriority() {
+    try {
+      return Integer.parseInt(
+          Files.readString(Path.of("/home/systemcore/loopbench.priority")).trim());
+    } catch (IOException | NumberFormatException e) {
+      return 0;
+    }
+  }
+
   private static double readPeriod() {
     try {
       return Double.parseDouble(
@@ -86,8 +98,20 @@ public class LoopBench extends OpModeRobot {
   }
 
   @Override
+  @SuppressWarnings({"deprecation", "removal"})
   public void robotPeriodic() {
     long wake = System.nanoTime();
+
+    if (!m_primed) {
+      m_primed = true;
+      int before = Threads.getCurrentThreadPriority();
+      int want = readPriority();
+      boolean returned = want > 0 && Threads.setCurrentThreadPriority(want);
+      m_prioAfter = Threads.getCurrentThreadPriority();
+      System.out.printf(
+          "LOOPBENCH priority before=%d requested=%d returned=%b after=%d thread=%s%n",
+          before, want, returned, m_prioAfter, Thread.currentThread().getName());
+    }
     long start = wake;
 
     if (m_phase >= 2 && m_phase <= 4) {
@@ -233,10 +257,11 @@ public class LoopBench extends OpModeRobot {
     Arrays.sort(work);
     Arrays.sort(wake);
     System.out.printf(
-        "LOOPBENCH %s period=%.4f n=%d work_us p50=%.3f p95=%.3f p99=%.3f max=%.3f"
+        "LOOPBENCH %s period=%.4f prio=%d n=%d work_us p50=%.3f p95=%.3f p99=%.3f max=%.3f"
             + " | wake_ms p50=%.3f p95=%.3f p99=%.3f max=%.3f%n",
         label,
         m_period,
+        m_prioAfter,
         PHASE_SAMPLES,
         pct(work, 50) / 1000.0,
         pct(work, 95) / 1000.0,

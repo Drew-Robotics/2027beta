@@ -174,3 +174,35 @@ Observed directly: the bench logged `ok=0` while `/proc` showed the thread had
 moved to `SCHED_RR` 45. **Check the resulting priority with
 `GetCurrentThreadPriority()`; do not trust the return value.** Both functions
 are also `@Deprecated` upstream, warning that misuse can lock up the system.
+
+### Java gets the same knobs, and much less out of them
+
+Nothing above is C++-only. The two RT HAL threads were measured **in the Java
+process** — they are HAL-level, so a Java robot gets the RT CAN and notifier
+threads identically. `org.wpilib.system.Threads.setCurrentThreadPriority` is the
+Java binding of the same call, and it works: the bench logged
+`before=0 requested=30 returned=false after=30 thread=main`, confirming both that
+the main thread moved to `SCHED_RR` 30 and that the Java binding carries the same
+inverted return value. It is `@Deprecated`, so it needs
+`@SuppressWarnings("deprecation")` to compile under the repo's `-Werror`.
+
+Java at 1000 Hz, 3000 samples per phase:
+
+| period | prio | phase | work p50 | p95 | p99 | wake p95 | wake p99 | **wake max** |
+|---|---|---|---|---|---|---|---|---|
+| 1 ms | 0 | math + NT + WPILOG | 63.4 µs | 130.9 | 226.5 | 1.030 ms | 1.155 | **14.19 ms** |
+| 1 ms | 30 | math + NT + WPILOG | 68.0 µs | 115.0 | 194.8 | **1.011 ms** | **1.021** | **12.33 ms** |
+| 5 ms | 0 | math + NT + WPILOG | 65.9 µs | 117.8 | 205.0 | 5.015 ms | 5.045 | 14.36 ms |
+| 5 ms | 30 | math + NT + WPILOG | 67.7 µs | 124.4 | 220.6 | 5.013 ms | 5.028 | 12.81 ms |
+
+**Java holds 1000 Hz at p99** — 1.021 ms with RT — and JIT-compiled math is
+within ~17% of C++ (33.3 µs vs 28.5 µs for the math-only phase).
+
+**But RT priority buys Java far less than it buys C++.** In C++ it collapsed the
+worst-case wake tail from 725 µs to 37 µs. In Java it improves p95/p99 —
+visibly at 1 kHz, marginally at 5 ms — and leaves the worst case at **12–18 ms**,
+because that tail is GC and JIT, which no scheduling policy touches. Raising the
+loop thread is therefore a p99 optimisation in Java, not a worst-case guarantee.
+
+The WPILOG byte rate was not measured at 1 ms — a 3-second phase is shorter than
+the background writer's flush period, and the file had not grown when sampled.
