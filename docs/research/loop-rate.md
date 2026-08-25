@@ -112,3 +112,65 @@ No CAN hardware and no Driver Station were attached. Eight real `getPosition()`
 calls per loop are **not** in these numbers. Duplicate suppression is on by
 default and ~18 of the 50 logged signals were constants, so the 13.1 MB/match
 figure understates a real log — budget nearer 20 MB.
+
+## Real-time thread priority
+
+Measured 2026-08-25 on the same Pi. Harness:
+[`loop-bench/LoopBenchCpp.cpp`](loop-bench/LoopBenchCpp.cpp), built with
+`:developerRobot:developerRobotCppLinuxsystemcoreExecutable` and deployed with
+`:developerRobot:deployShared`.
+
+**The loop body does not run at real-time priority.** allwpilib's own
+[`design-docs/real-time-thread-priorities.md`](https://github.com/wpilibsuite/allwpilib/blob/main/design-docs/real-time-thread-priorities.md)
+lists exactly two RT threads, and `/proc` on a running robot confirms it — 2 of
+39 threads are `SCHED_RR`, the other 37 are `SCHED_OTHER` at priority 0:
+
+| thread | policy | rt_priority |
+|---|---|---|
+| CAN HAL (`hal/.../systemcore/CAN.cpp`) | `SCHED_RR` (2) | 50 |
+| Notifier HAL (`hal/.../systemcore/Notifier.cpp`) | `SCHED_RR` (2) | 40 |
+| **main thread — runs `loopFunc`/`robotPeriodic`** | **`SCHED_OTHER` (0)** | **0** |
+
+`OpModeRobot.startCompetition()` runs `m_callbacks.runCallbacks(m_notifier)` in
+a `while (true)` on the **calling thread**, so every periodic callback executes
+on the main thread. The RT notifier only *signals* it.
+
+The `robot` systemd unit sets `LimitRTPRIO=50`, so a thread may raise itself to
+`SCHED_RR` up to 50 without `CAP_SYS_NICE`. The C++ deploy additionally runs
+`setcap cap_sys_nice+eip` on the binary; the Java deploy does not, and relies on
+the rlimit.
+
+### C++ at 1000 Hz
+
+Same swerve workload as the Java bench, 5000 samples, `OpModeRobot(1_ms)`:
+
+| requested priority | resulting policy | work p50 | p95 | p99 | max | wake p50 | p95 | p99 | **wake max** |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 | `SCHED_OTHER` | 28.5 µs | 39.0 | 42.6 | 205 µs | 0.9995 ms | 1.0151 | 1.1175 | **1.7245 ms** |
+| 30 | `SCHED_RR` 30 | 28.3 µs | 38.9 | 42.2 | 79 µs | 0.9998 ms | 1.0088 | 1.0142 | **1.0463 ms** |
+| 45 | `SCHED_RR` 45 | 30.8 µs | 40.1 | 42.3 | 81 µs | 0.9999 ms | 1.0067 | 1.0109 | **1.0373 ms** |
+
+**1000 Hz is comfortable in C++**, at ~2.8% duty. Raising the loop thread to
+`SCHED_RR` cuts worst-case wake jitter from **725 µs to 37 µs** — roughly 20x —
+and worst-case work from 205 µs to 79 µs. Priority 30 versus 45 makes no
+meaningful difference; what matters is crossing from `SCHED_OTHER` to `SCHED_RR`.
+
+**The big tails in the Java benchmark were the JVM, not the OS.** C++ at
+`SCHED_OTHER` and a *four times shorter* period still held a 1.72 ms worst case,
+while Java at 5 ms saw 13.4 ms and 32.9 ms gaps. Those are GC and JIT pauses,
+which no scheduling policy fixes — a stop-the-world collection pauses the RT
+thread too.
+
+### Upstream defect: `SetCurrentThreadPriority` returns inverted success
+
+`HAL_Status` is **0 on success**, but both language bindings return the raw
+status as a success boolean, so **they report failure when they succeed**:
+
+- `wpilibc/src/main/native/cpp/system/Threads.cpp` — `return status != 0;`
+  (also in `SetThreadPriority`)
+- `hal/src/main/native/cpp/jni/ThreadsJNI.cpp` — `return static_cast<jboolean>(status);`
+
+Observed directly: the bench logged `ok=0` while `/proc` showed the thread had
+moved to `SCHED_RR` 45. **Check the resulting priority with
+`GetCurrentThreadPriority()`; do not trust the return value.** Both functions
+are also `@Deprecated` upstream, warning that misuse can lock up the system.
