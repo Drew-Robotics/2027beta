@@ -45,7 +45,7 @@ worth different amounts when one of them turns out to be wrong.
 | ADR | Area | Status |
 |---|---|---|
 | [0001](0001-opmoderobot-and-commands-v3.md) | `OpModeRobot` and Commands v3 | **Accepted** — 2026-08-26 |
-| [0002](0002-loop-rate-and-jvm.md) | 200 Hz loop, no JVM tuning, no loop-count assumptions | Not yet written |
+| [0002](0002-loop-rate-and-jvm.md) | 200 Hz loop, no JVM tuning, no loop-count assumptions | **Accepted** — 2026-08-26 |
 | [0003](0003-project-and-package-structure.md) | Project and package structure | **Accepted** — 2026-08-26 |
 | [0004](0004-config-as-code.md) | Config-as-code | Not yet written |
 | [0005](0005-telemetry-and-log-schema.md) | Telemetry and log schema | Not yet written |

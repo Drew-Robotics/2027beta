@@ -56,7 +56,7 @@ public class Robot extends OpModeRobot {
   public final CommandGamepad driver = new CommandGamepad(DRIVER_PORT);
 
   public Robot() {
-    super(LOOP_PERIOD);
+    super(Constants.LOOP_PERIOD.in(Seconds));
     drive.setDefaultCommand(drive.idle());
   }
 

@@ -29,7 +29,7 @@ signals to both NetworkTables and a WPILOG is ~65 µs — a **1.3% duty cycle** 
 5 ms, 4.5% at p99. The Pi holds a 5 ms period with 45 µs of p99 jitter.
 
 **The jitter tail is absolute, not proportional.** Both periods showed
-multi-millisecond hiccups (9.5 ms at 20 ms; 6.7 ms at 5 ms) and scheduler gaps
+multi-millisecond hiccups (9.5 ms at 20 ms; 6.7 ms at 5 ms) and wake gaps
 of 41.1 ms and 32.9 ms. These do not shrink with the period, so the same event
 costs 4x as many iterations at 200 Hz.
 
@@ -157,9 +157,16 @@ meaningful difference; what matters is crossing from `SCHED_OTHER` to `SCHED_RR`
 
 **The big tails in the Java benchmark were the JVM, not the OS.** C++ at
 `SCHED_OTHER` and a *four times shorter* period still held a 1.72 ms worst case,
-while Java at 5 ms saw 13.4 ms and 32.9 ms gaps. Those are GC and JIT pauses,
-which no scheduling policy fixes — a stop-the-world collection pauses the RT
-thread too.
+while Java at 5 ms saw 13.4 ms and 32.9 ms gaps. No scheduling policy reaches
+those, because they are not the scheduler.
+
+⚠️ **They are not GC either, and this bench cannot say what they are.** The
+original wording here read them as "GC and JIT pauses"; that attribution is
+withdrawn — see [`jvm-tuning.md`](jvm-tuning.md), where a run under Epsilon,
+which never collects, carries the same tail. Measured as one continuous phase,
+steady-state worst-case wake is 5.16–5.23 ms at `SCHED_RR` 30, so the gaps
+recorded above are
+very likely this bench's own phase transitions.
 
 ### Upstream defect: `SetCurrentThreadPriority` returns inverted success
 
