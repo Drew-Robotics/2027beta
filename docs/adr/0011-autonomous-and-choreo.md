@@ -2,7 +2,17 @@
 
 ## Status
 
-Accepted — 2026-08-26.
+Accepted — 2026-08-26. Amended by ADR 0012, which owns the pose
+estimator: `Drive.getGyroHeading()` returns a `Rotation3d` rather than a
+`Rotation2d`, and the estimator beside `Drive` is
+`SwerveDrivePoseEstimator3d`. Two statements below survive the widening
+because ADR 0012 keeps them true deliberately rather than by luck —
+*"`PoseEstimator` speaks `Pose2d`"* and `resetPose(Pose2d)`: the 3d
+estimator's own `resetPose` takes a `Pose3d`, and our wrapper keeps the
+2d signature and widens inside it. ADR 0012 also adds one method to
+`Drive` — `maxAbsYawRate` — which is a query about the drive base's own
+past and not a vision type; *"`Drive` never learns cameras exist"* still
+holds.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
