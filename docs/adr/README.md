@@ -48,7 +48,7 @@ worth different amounts when one of them turns out to be wrong.
 | [0002](0002-loop-rate-and-jvm.md) | 200 Hz loop, no JVM tuning, no loop-count assumptions | **Accepted** — 2026-08-26 |
 | [0003](0003-project-and-package-structure.md) | Project and package structure | **Accepted** — 2026-08-26 |
 | [0004](0004-config-as-code.md) | Config-as-code | **Accepted** — 2026-08-26 |
-| [0005](0005-telemetry-and-log-schema.md) | Telemetry and log schema | Not yet written |
+| [0005](0005-telemetry-and-log-schema.md) | Telemetry and the log | **Accepted** — 2026-08-26 |
 | [0006](0006-commands-v3-house-style.md) | Commands v3 house style | **Accepted** — 2026-08-26 |
 | [0007](0007-can-topology-and-frames.md) | CAN bus topology and frame allocation | Not yet written |
 | [0008](0008-closed-loop-on-the-spark.md) | Closed loop on the SPARK | Not yet written |
