@@ -35,8 +35,9 @@ no `Subsystem` type and no `RobotContainer` — mechanisms are fields on
 Four traps that compile fine and fail on the field:
 
 - `Rotation2d` stores cos/sin only, so `getRotations()` returns
-  `[-0.5, 0.5]` while REV absolute encoders return `[0, 1)`. Converting
-  between them is not optional.
+  `[-0.5, 0.5]` while our steer sensor reads `[0, 1)`. Converting
+  between them is not optional. `AbsoluteEncoderConfig.zeroCentered`
+  would delete the mismatch, and does not exist for an analog sensor.
 - `ChassisAccelerations.toWheelAccelerations()` hardcodes ω = 0 and
   silently drops the centripetal term, which dominates during rotation.
   Always use the 2-argument form.
@@ -48,6 +49,28 @@ Four traps that compile fine and fail on the field:
 
 `Alert` exists, at `org.wpilib.util.Alert`, and takes a mandatory `id`.
 Duplicate `(group, id)` throws.
+
+## REVLib 2027 renamed the two calls you use most
+
+Every SPARK snippet on the internet is wrong at the call, not the
+import. Read the sources from `maven.revrobotics.com`, not your memory.
+
+| You will write | It is now |
+|---|---|
+| `controller.setReference(...)` | `controller.setSetpoint(...)` |
+| `spark.set(throttle)` | `spark.setThrottle(throttle)` |
+
+Plain-double getters are gone: reads return `Signal<T>`.
+
+`configure()` throws on failure, except for `kTimeout` and
+`kCannotPersistParametersWhileEnabled`, which it returns. Success is no
+exception *and* `kOk` — checking only one of those misses half the
+failures.
+
+The steer loop closes on the SPARK, against the analog absolute
+encoder. Robot-side code writes a setpoint, never a voltage, and the
+module zero offset is added to that setpoint here, because
+`AnalogSensorConfig` has no `zeroOffset`.
 
 ## Comments
 
