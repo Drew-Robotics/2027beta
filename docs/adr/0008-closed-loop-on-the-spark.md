@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted — 2026-08-26.
+Accepted — 2026-08-26. Superseded in part by ADR 0011: `kA` returns at
+drivebase level, riding `arbFeedforward` on the path-following path only.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -158,11 +159,14 @@ config.closedLoop
 `setSetpoint` overloads also accept an `arbFeedforward` term, and a
 term written in both places is applied twice. See Traps.
 
-There is **no acceleration feedforward**. `kA` is documented as *"only
-applied in MAXMotion control modes"*
+There is **no `kA` on the SPARK**. `FeedForwardConfig.kA` is documented
+as *"only applied in MAXMotion control modes"*
 (`FeedForwardConfig.java:91`) **[source]** and drive takes no profile,
-so `kA` would be configured and ignored. This independently confirms
-what #15 already ruled and bounds what characterisation can aim at.
+so it would be configured and ignored. That is a statement about *this*
+controller, not about acceleration feedforward in general: ADR 0011
+applies a drivebase-level `kA · a` from the trajectory's own
+accelerations, robot-side, as `arbFeedforward`, on the path-following
+path only.
 
 ### Steer takes no profile, and D is tuned together with `dFilter`
 
@@ -226,9 +230,12 @@ budget is ADR 0007's.
   making a REV Hardware Client edit temporary. **[decided]** ADR 0009
   owns the procedure.
 
-- **No acceleration feedforward, on either loop.** `kA` needs MAXMotion
-  and neither loop takes a profile
-  (`FeedForwardConfig.java:91`). **[source]**
+- **No `FeedForwardConfig.kA` on either loop.** It needs MAXMotion and
+  neither loop takes a profile (`FeedForwardConfig.java:91`).
+  **[source]** Acceleration feedforward is not thereby ruled out — it
+  is ruled off the *controller*. ADR 0011 puts a drivebase-level term
+  on the SystemCore side, where the trajectory supplies the
+  acceleration.
 
 - **Steer noise has one lever, and it is `dFilter`.** The analog path
   has no `averageDepth` — that setter belongs to
@@ -463,7 +470,9 @@ before current limits — and it is how a team without
 feedforward on the *robot* side of a loop that runs on the controller,
 recomputed at 200 Hz for a loop iterating at 1 kHz, and because two
 plausible homes for one term is exactly the configuration that produces
-the doubling trap above. `arbFeedforward` stays unused.
+the doubling trap above. `arbFeedforward` carries exactly one thing,
+and it is not a velocity term: ADR 0011's drivebase `kA · a`, on the
+auto path. Teleop passes none at all.
 
 ### Calling `SparkSim.iterate()` for simulation fidelity
 
@@ -502,9 +511,11 @@ ADR 0007. The config rules it inherits are
 [#13](https://github.com/Drew-Robotics/2027beta/issues/13) and
 ADR 0004; the sim seam it hands off to is
 [#14](https://github.com/Drew-Robotics/2027beta/issues/14) and
-ADR 0010; the no-acceleration-feedforward ruling it confirms is
-[#15](https://github.com/Drew-Robotics/2027beta/issues/15); gains and
-characterisation are ADR 0009.
+ADR 0010; the acceleration-feedforward question it settles for *this
+controller only* is
+[#15](https://github.com/Drew-Robotics/2027beta/issues/15) as amended
+by [#32](https://github.com/Drew-Robotics/2027beta/issues/32) and
+ADR 0011; gains and characterisation are ADR 0009.
 
 Research: [`docs/research/vendordeps.md`](../research/vendordeps.md),
 [`docs/research/wpilib-swerve.md`](../research/wpilib-swerve.md).

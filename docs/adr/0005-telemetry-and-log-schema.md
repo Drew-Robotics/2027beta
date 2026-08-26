@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted — 2026-08-26.
+Accepted — 2026-08-26. Superseded in part by ADR 0011, which owns the
+`/Drive/Following` and `/Auto` signals.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -145,13 +146,18 @@ second path to the same fact, carrying less. **[decided]**
 /Drive/Modules/{DesiredStates,MeasuredStates}
 /Drive/Modules/FrontLeft/{DriveOutput,DriveCurrent,SteerSetpoint,SteerAngle,SteerCurrent,Temp,Faults}
 /Drive/Odometry/{EstimatedPose,OdometryOnlyPose,GyroHeading,GyroRate}
-/Drive/Following/{TargetPose,TargetVelocities,ErrorX,ErrorY,ErrorTheta}
+/Drive/Following/{Setpoint,AlongTrackError,CrossTrackError,HeadingError,TimedOut}
+/Auto/{RoutineName,PlannedPath,TimeElapsed}
 ```
 
 `OdometryOnlyPose` sits beside `EstimatedPose` on purpose: with both
 present, vision divergence is visible as the gap between two lines on
 one plot. With only the estimate, a vision update that dragged the pose
 across the field and a wheel that slipped look identical.
+
+The `Following` and `Auto` subtrees are ADR 0011's, including why the
+error is decomposed rather than logged as x and y, and why `Setpoint`
+is one struct rather than a pose and a velocity.
 
 **Per mechanism**, for every mechanism we ever add: setpoint,
 measurement, applied output, current, temperature, faults, current

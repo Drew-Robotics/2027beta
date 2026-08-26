@@ -54,7 +54,7 @@ worth different amounts when one of them turns out to be wrong.
 | [0008](0008-closed-loop-on-the-spark.md) | Closed loop on the SPARK | **Accepted** — 2026-08-26 |
 | [0009](0009-characterisation-and-tuning.md) | Characterisation and tuning | Not yet written |
 | [0010](0010-simulation-architecture.md) | Simulation architecture | Not yet written |
-| [0011](0011-autonomous-and-choreo.md) | Autonomous and Choreo integration | Not yet written |
+| [0011](0011-autonomous-and-choreo.md) | Autonomous and Choreo integration | **Accepted** — 2026-08-26 |
 | [0012](0012-pose-estimation-and-vision.md) | Pose estimation and the vision seam | Not yet written |
 | [0013](0013-ci-and-test-strategy.md) | CI and test strategy | Not yet written |
 | [0014](0014-ai-log-analysis-contract.md) | AI log-analysis contract | Not yet written |
