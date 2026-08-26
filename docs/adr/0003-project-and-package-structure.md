@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted — 2026-08-26.
+Accepted — 2026-08-26. The `SparkSim` breakage that stood under *Open*
+is resolved by ADR 0010 and now sits under *Consequences*.
 
 Claim tags are defined in the index. `[source]` claims here were read
 at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -237,6 +238,20 @@ in GradleRIO's deploy plugin — so output is `journalctl -u robot -f`.
   `annotationProcessor wpi.java.deps.wpilibAnnotations()`
   (`build.gradle:60`) is what supplies the Commands v3 checks. See Traps.
 
+- **`SparkSim` does not run against the pinned checkout, and the
+  no-seam decision does not depend on it.** `SparkSim` reaches
+  `MovingAverageFilterSim`, which reaches `org.wpilib.math.util.Pair` —
+  a class that moved to `org.wpilib.util` after alpha-6 — so `SparkSim`
+  and its two subclasses throw `NoClassDefFoundError`, while every other
+  class in `com.revrobotics.sim` is clean. The hardware path is
+  untouched and class resolution is lazy, so only desktop sim would
+  throw. **[source — `docs/research/vendordeps.md` §4.5, narrowed by
+  #25]** ADR 0010 models the on-SPARK loop rather than calling
+  `SparkSim`, so the class is never named and the breakage is off our
+  critical path. What this ADR asserted — that the vendor sim classes
+  are the seam — is narrowed there to the two sensor sims, which do
+  load.
+
 ## Traps
 
 - **The opmode subpackage forces `public` fields on `Robot`.** This is
@@ -284,19 +299,6 @@ in GradleRIO's deploy plugin — so output is `journalctl -u robot -f`.
   whose last mile nobody has watched work. **[unverified]**
 
 ## Open
-
-- **SPARK sim does not run against the pinned checkout.** `SparkSim`
-  reaches `MovingAverageFilterSim`, which reaches
-  `org.wpilib.math.util.Pair` — a class that moved to `org.wpilib.util`
-  after alpha-6. `SparkSim` and its two subclasses throw
-  `NoClassDefFoundError`; every other class in `com.revrobotics.sim` is
-  clean. The hardware path is untouched, and class resolution is lazy,
-  so the robot is unaffected and only desktop sim would throw.
-  **[source — `docs/research/vendordeps.md` §4.5, narrowed by #25]**
-  *Unblocked by* REVLib publishing a build against a newer WPILib —
-  watch `REVLib-2027.json`'s `wpilibYear`, which flips after GradleRIO's
-  does. Until then the no-seam decision stands on an API we cannot yet
-  execute, and ADR 0010 has nothing to write.
 
 - **Expansion Hub and Smart IO.** Whether a drive base needs them at all
   is unclear, so neither has a place in the layout above.
@@ -363,9 +365,8 @@ the one with a seam.
 
 The AdvantageKit shape, already rejected earlier on the design map. The
 ground is under *The hardware boundary*: one production implementation
-is not a seam. Note this survives the `SparkSim` breakage in Open —
-waiting for a vendor fix is cheaper than carrying an interface layer all
-season.
+is not a seam. Note this survives the `SparkSim` breakage in Consequences — ADR 0010
+needs no vendor fix, and an interface layer would have cost all season.
 
 ### Opmode subpackages by group
 

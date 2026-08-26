@@ -329,9 +329,9 @@ budget is ADR 0007's.
   `kAbsoluteEncoder` versus everything else (`:230-252`), so
   **`kAnalogSensor` silently gets the primary encoder's factor**.
   `m_position` integrates monotonically and never wraps (`:264`), so
-  there is no boundary to cross, and the string "wrap" appears nowhere
-  in the file. **[source]** A sim built on it would agree with itself
-  and disagree with the robot.
+  there is no boundary to cross; the only occurrence of the string
+  "wrap" in the file is an unrelated javadoc (`:61`). **[source]** A sim
+  built on it would agree with itself and disagree with the robot.
 
 - **Every `AbsoluteEncoderConfig` setter silently calls
   `setSparkMaxDataPortConfig()`** — nine of them

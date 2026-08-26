@@ -337,8 +337,8 @@ exists (`Pigeon2SimState.java:210-211`), alongside
 **[source — Phoenix 6]**. `Drive.updateSim()` pushes the simulation's
 angular velocity into it, keeping simulation and real hardware on one
 code path through the buffer — consistent with ADR 0010 putting the
-vendor plumbing in `updateSim` and keeping `frc.robot.sim` vendor-free.
-**[decided]**
+vendor plumbing in `updateSim` and keeping `first.robot.sim`
+vendor-free. **[decided]**
 
 The map's standing note that *"`Pigeon2SimState` sets yaw only, leaving
 roll and pitch at zero"* is **wrong for this Phoenix version** and is

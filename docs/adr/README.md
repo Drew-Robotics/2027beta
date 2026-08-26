@@ -53,7 +53,7 @@ worth different amounts when one of them turns out to be wrong.
 | [0007](0007-can-topology-and-frames.md) | CAN bus topology and frame allocation | **Accepted** — 2026-08-26 |
 | [0008](0008-closed-loop-on-the-spark.md) | Closed loop on the SPARK | **Accepted** — 2026-08-26 |
 | [0009](0009-characterisation-and-tuning.md) | Characterisation and tuning | **Accepted** — 2026-08-26 |
-| [0010](0010-simulation-architecture.md) | Simulation architecture | Not yet written |
+| [0010](0010-simulation-architecture.md) | Simulation architecture | **Accepted** — 2026-08-26 |
 | [0011](0011-autonomous-and-choreo.md) | Autonomous and Choreo integration | **Accepted** — 2026-08-26 |
 | [0012](0012-pose-estimation-and-vision.md) | Pose estimation and the vision seam | **Accepted** — 2026-08-26 |
 | [0013](0013-ci-and-test-strategy.md) | CI and test strategy | Not yet written |
