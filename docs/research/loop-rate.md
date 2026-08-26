@@ -106,6 +106,23 @@ At ~131 bits per extended frame, 1 Mbit gives roughly 6400–7600 frames/s.
 **48–57% utilisation**, plus the Pigeon's 0–5% diagnostic floor. The two 5 ms
 rows are 87% of the traffic and are irreducible at 200 Hz.
 
+⚠️ **Superseded as an allocation — the measurements above still stand.** This
+table was written before the loop placement was settled, and four of its rows
+have since changed. `docs/adr/0007-can-topology-and-frames.md` carries the
+current allocation, at **~3920 frames/s, 52–61%**, and records what each
+correction was:
+
+- the eight Status2 rows split into four drive SPARKs on Status2 and four steer
+  SPARKs on Status3, once steer closed on the analog encoder (#29);
+- `Pigeon2 yaw` is two frames rather than one, because pose estimation reads a
+  quaternion *and* a yaw rate;
+- Status5's default is **20 ms**, not 200 ms, in REVLib 2027 — and the row is
+  zero regardless, because nothing requests the duty-cycle absolute encoder;
+- frames are enabled lazily, so an unread group costs nothing.
+
+The duty cycle, wake jitter, telemetry volume and the ~131 bits/frame ceiling
+are measurements and are unaffected.
+
 ## Caveats
 
 No CAN hardware and no Driver Station were attached. Eight real `getPosition()`
