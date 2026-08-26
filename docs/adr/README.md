@@ -49,7 +49,7 @@ worth different amounts when one of them turns out to be wrong.
 | [0003](0003-project-and-package-structure.md) | Project and package structure | **Accepted** — 2026-08-26 |
 | [0004](0004-config-as-code.md) | Config-as-code | Not yet written |
 | [0005](0005-telemetry-and-log-schema.md) | Telemetry and log schema | Not yet written |
-| [0006](0006-commands-v3-house-style.md) | Commands v3 house style | Not yet written |
+| [0006](0006-commands-v3-house-style.md) | Commands v3 house style | **Accepted** — 2026-08-26 |
 | [0007](0007-can-topology-and-frames.md) | CAN bus topology and frame allocation | Not yet written |
 | [0008](0008-closed-loop-on-the-spark.md) | Closed loop on the SPARK | Not yet written |
 | [0009](0009-characterisation-and-tuning.md) | Characterisation and tuning | Not yet written |
@@ -67,4 +67,7 @@ shape of the set is visible from the start.
 
 - [`CONTEXT.md`](../../CONTEXT.md) — the project glossary. Not yet written.
 - [`VERSIONS.md`](../../VERSIONS.md) — the OS image ↔ allwpilib commit ↔ MRC API triple, vendordep versions, and every departure from the stock template. Not yet written.
+- [`docs/commands-v3-house-style.md`](../commands-v3-house-style.md) — the
+  student-facing teaching document for ADR 0006. The drive base is its
+  worked example.
 - [`docs/research/`](../research/) — the measurements and source readings the ADRs cite, with their methods.
