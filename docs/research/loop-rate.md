@@ -200,9 +200,20 @@ within ~17% of C++ (33.3 µs vs 28.5 µs for the math-only phase).
 
 **But RT priority buys Java far less than it buys C++.** In C++ it collapsed the
 worst-case wake tail from 725 µs to 37 µs. In Java it improves p95/p99 —
-visibly at 1 kHz, marginally at 5 ms — and leaves the worst case at **12–18 ms**,
-because that tail is GC and JIT, which no scheduling policy touches. Raising the
-loop thread is therefore a p99 optimisation in Java, not a worst-case guarantee.
+visibly at 1 kHz, marginally at 5 ms — and leaves the worst case at **12–18 ms**.
+Raising the loop thread is therefore a p99 optimisation in Java, not a
+worst-case guarantee.
+
+⚠️ **The attribution in the line above was wrong, and is corrected by
+[`jvm-tuning.md`](jvm-tuning.md).** That 12–18 ms was read as "GC and JIT". It is
+not GC: a run under Epsilon, which never collects at all, has the same tail. Nor
+is it a standing property of the steady loop — measured as one continuous 150 s
+phase rather than three short ones, worst-case wake away from transitions is
+**5.16–5.23 ms**, about 200 µs of jitter. The tails recorded here are very likely
+this bench's own phase transitions, since it registers a second telemetry backend
+part-way through the run. What is real is **cold code at a transition**: a
+trajectory loaded on the loop thread at autonomous enable costs **63 ms**, and a
+cached one costs **0.135 ms**.
 
 The WPILOG byte rate was not measured at 1 ms — a 3-second phase is shorter than
 the background writer's flush period, and the file had not grown when sampled.
