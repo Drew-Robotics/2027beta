@@ -332,9 +332,16 @@ operator can select.
 
 **`@Utility` opmodes follow every rule above, with no exemptions.** They
 are the ones written in a hurry the night before an event, which is
-exactly why. One extra hard rule: a `@Utility` opmode must be safe to run
-with the robot on blocks, and must not need a field, a driver, or a game
-piece. If it needs any of those, it is a teleop.
+exactly why. One extra hard rule: a `@Utility` opmode never runs
+unattended, and must not need a field, a driver, or a game piece. If it
+needs any of those, it is a teleop.
+
+"Never runs unattended" means somebody is watching it who can disable
+it. It used to read "safe on blocks", which was a proxy for the same
+thing until characterisation needed the robot on the ground — a
+feedforward gain measured off the ground is a measurement of a motor,
+not of a drive base. Characterisation is the one named case that runs
+supervised on the ground; anything else wanting that has to be argued.
 
 ## 11. Triggers and bindings
 

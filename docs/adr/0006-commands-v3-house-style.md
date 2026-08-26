@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted — 2026-08-26.
+Accepted — 2026-08-26. Amended in part by ADR 0009: the `@Utility` rule
+is a supervision requirement, not an on-blocks one.
 
 Claim tags are defined in the index. `[source]` claims here were read at
 `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -257,9 +258,18 @@ pick.** **[decided]**
 **`@Utility` opmodes inherit every rule above with no exemptions** —
 they are the ones most likely to be written in a hurry the night before
 an event. They are named `<Thing>Check` or `<Thing>Calibration`, and they
-carry one hard rule: **a `@Utility` opmode must be safe to run with the
-robot on blocks, and must not require a field, a driver, or a game
-piece.** **[decided]** If it needs any of those, it is a teleop.
+carry one hard rule: **a `@Utility` opmode never runs unattended, and
+must not require a field, a driver, or a game piece.** **[decided]** If
+it needs any of those, it is a teleop.
+
+The rule used to read *safe to run with the robot on blocks*. On blocks
+was a proxy for supervision, and ADR 0009 broke it: characterisation has
+to run on the ground, because on-blocks feedforward gains measure a
+motor rather than a drive base. The proxy is replaced by what it stood
+for rather than given an exception beside it, because a rule with an
+exception beside it is a rule with two meanings. **Characterisation is
+the named supervised-on-ground case**; anything else claiming that
+ground needs its own entry here.
 
 ### Triggers and bindings
 
