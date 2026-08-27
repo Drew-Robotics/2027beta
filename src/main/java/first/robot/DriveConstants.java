@@ -14,7 +14,6 @@ import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Milliseconds;
 import static org.wpilib.units.Units.Pounds;
-import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.Rotations;
 import static org.wpilib.units.Units.Volts;
 
@@ -100,10 +99,6 @@ public final class DriveConstants {
   public static final LinearVelocity MAX_VELOCITY =
       MetersPerSecond.of(
           DCMotor.getNeoVortex(1).freeSpeed / DRIVE_REDUCTION * WHEEL_RADIUS.in(Meters));
-  public static final AngularVelocity MAX_TURN_RATE =
-      RadiansPerSecond.of(
-          MAX_VELOCITY.in(MetersPerSecond)
-              / Math.hypot(TRACK_WIDTH.in(Meters) / 2, WHEELBASE.in(Meters) / 2));
 
   // A pose estimator tuned against a gyro that never wanders is tuned against a robot that does
   // not exist. Roughly a degree a minute, which is the order a Pigeon2 drifts at.

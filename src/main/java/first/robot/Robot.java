@@ -195,6 +195,10 @@ public class Robot extends OpModeRobot {
 
     drive.log();
 
+    // Nothing in OpModeRobot runs the Commands v3 scheduler, so a mechanism whose scheduler is
+    // never run has a default command that never starts and commands that never execute.
+    Scheduler.getDefault().run();
+
     var can = RobotController.getCANStatus(Constants.CAN_BUS);
     canLog.log("Utilization", can.percentBusUtilization);
     canLog.log("ReceiveErrors", can.receiveErrorCount);

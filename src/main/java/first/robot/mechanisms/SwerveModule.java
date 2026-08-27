@@ -164,6 +164,9 @@ final class SwerveModule {
     driveMotor.stopMotor();
     steerMotor.stopMotor();
     desired = new SwerveModuleVelocity(0, getAngle());
+    // The logged setpoint's whole job is to tell a setpoint the SPARK never received from one it
+    // cannot reach, and a stale angle against a coasting module reads as the second.
+    steerSetpointRotations = toSensorRotations(desired.angle, steerOffsetRotations);
     closingLoops = false;
   }
 

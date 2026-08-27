@@ -67,6 +67,8 @@ public class Drive implements Mechanism {
   private final SparkAnalogSensorSim[] steerSensorSims = new SparkAnalogSensorSim[MODULES];
   private final Pigeon2SimState gyroSim;
   private Angle simDrift;
+  private Angle simYaw;
+  private Rotation2d lastTrueRotation;
 
   public Drive(DriveConfig config, TelemetryTable log, TelemetryTable simLog, Scheduler scheduler) {
     this.simLog = simLog;
@@ -91,6 +93,8 @@ public class Drive implements Mechanism {
       physics = new SwerveDriveSim(DriveConstants.simConfig());
       gyroSim = gyro.getSimState();
       simDrift = Radians.zero();
+      simYaw = Radians.zero();
+      lastTrueRotation = physics.truePose().getRotation();
       retry(() -> gyro.getYaw().setUpdateFrequency(DriveConstants.GYRO_SIM_UPDATE_RATE));
       for (int i = 0; i < MODULES; i++) {
         driveLoops[i] =
@@ -169,6 +173,8 @@ public class Drive implements Mechanism {
   }
 
   public Rotation2d getHeading() {
+    // The yaw signal still publishes at its Phoenix default, which is below the loop rate, so
+    // this reads one frame stale during a fast spin until the pose estimator raises it.
     return new Rotation2d(gyro.getYaw().getValue());
   }
 
@@ -191,6 +197,8 @@ public class Drive implements Mechanism {
   }
 
   public void simulationInit() {
+    simYaw = Radians.zero();
+    lastTrueRotation = physics.truePose().getRotation();
     // setYaw's offset is integrated on top of whatever setRawYaw writes, by design, so zeroing
     // one leaves the other's offset in every reading with nothing in the log to show it.
     retry(() -> gyroSim.setRawYaw(0));
@@ -234,8 +242,14 @@ public class Drive implements Mechanism {
 
     RoboRioSim.setVInVoltage(physics.batteryVoltage().in(Volts));
 
+    // The Pigeon integrates what setRawYaw is handed, so it has to be a continuous angle. A
+    // Rotation2d is wrapped, and handing it one steps a whole turn at the boundary, which the
+    // emulated yaw then takes as real rotation the robot never did.
+    var trueRotation = physics.truePose().getRotation();
+    simYaw = simYaw.plus(trueRotation.minus(lastTrueRotation).getMeasure());
+    lastTrueRotation = trueRotation;
     simDrift = simDrift.plus(DriveConstants.GYRO_SIM_DRIFT.times(Constants.LOOP_PERIOD));
-    retry(() -> gyroSim.setRawYaw(physics.truePose().getRotation().getMeasure().plus(simDrift)));
+    retry(() -> gyroSim.setRawYaw(simYaw.plus(simDrift)));
     retry(() -> gyroSim.setAngularVelocityZ(RadiansPerSecond.of(physics.trueVelocity().omega)));
 
     simLog.log("TruePose", physics.truePose(), Pose2d.struct);
