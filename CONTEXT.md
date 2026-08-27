@@ -42,7 +42,9 @@ The index of the ADRs themselves is
   and why; the ADRs are that record moved into the repo.
 - **The second map** — the effort that writes the robot code, opened
   against these documents. Anything an ADR describes but does not
-  build belongs to it.
+  build belongs to it. It carries *map* only because it follows **the
+  map**: it builds decisions it inherits, and resolves no fog of its
+  own.
 - **The frontier** — a map's open, unblocked, unclaimed tickets: the
   edge of what can be worked on right now.
 - **The reviewer** — the PR review agent. Its remit is only what CI

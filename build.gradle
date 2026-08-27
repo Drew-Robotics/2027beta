@@ -2,7 +2,15 @@ plugins {
     id "java"
     id "org.wpilib.GradleRIO" version "2027.0.0-alpha-6"
     id "com.gradleup.shadow" version "9.3.0"
+    // Departs from the template: the analyzers below, seeded from allwpilib's own styleguide.
+    id "com.diffplug.spotless" version "8.4.0"
+    id "com.github.spotbugs" version "6.4.12"
 }
+
+// Departs from the template: 2027 has no stable release line yet, and a pinned development build
+// is evicted from that repository's rolling window within days.
+wpi.maven.useDevelopment = true
+wpi.versions.wpilibVersion = '2027.+'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_25
@@ -82,6 +90,11 @@ dependencies {
 test {
     useJUnitPlatform()
     systemProperty 'junit.jupiter.extensions.autodetection.enabled', 'true'
+    // Departs from the template: GradleRIO adds these to the sim and deploy JVMs but not to test,
+    // and without them a v3 coroutine dies in ContinuationScope's static initialiser.
+    jvmArgs '--add-opens', 'java.base/jdk.internal.vm=ALL-UNNAMED',
+            '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
+            '--enable-native-access=ALL-UNNAMED'
 }
 
 // Simulation configuration (e.g. environment variables).
@@ -108,4 +121,44 @@ wpi.java.configureTestTasks(test)
 // Configure string concat to always inline compile
 tasks.withType(JavaCompile) {
     options.compilerArgs.add '-XDstringConcat=inline'
+}
+
+apply plugin: 'checkstyle'
+apply plugin: 'pmd'
+
+checkstyle {
+    toolVersion = '13.4.0'
+    configDirectory = file('styleguide')
+}
+
+pmd {
+    toolVersion = '7.23.0'
+    consoleOutput = true
+    ruleSetFiles = files('styleguide/pmd-ruleset.xml')
+    ruleSets = []
+}
+
+spotbugs {
+    excludeFilter = file('styleguide/spotbugs-exclude.xml')
+}
+
+spotless {
+    java {
+        target fileTree('src') { include '**/*.java' }
+        toggleOffOn()
+        googleJavaFormat()
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+}
+
+// The v3 test base is a carry, and linting somebody else's file only teaches people to edit it.
+tasks.matching { it.name in ['checkstyleTest', 'pmdTest', 'spotbugsTest'] }.configureEach {
+    enabled = false
+}
+
+// One report reads top-down only if the cheap checks have already run.
+tasks.withType(Test).configureEach {
+    mustRunAfter 'spotlessCheck', 'checkstyleMain', 'pmdMain', 'spotbugsMain'
 }

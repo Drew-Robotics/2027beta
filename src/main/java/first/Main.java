@@ -20,6 +20,8 @@ public final class Main {
    * <p>If you change your main robot class, change the parameter type.
    */
   public static void main(String... args) {
-    RobotBase.startRobot(first.robot.Robot.class);
+    // Departs from the template: the generator still passes a Class, and startRobot now
+    // takes a Supplier.
+    RobotBase.startRobot(first.robot.Robot::new);
   }
 }

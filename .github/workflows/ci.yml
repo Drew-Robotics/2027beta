@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+# A newer push to the same ref makes the run in flight worthless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  build:
+    name: Lint, compile and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # --continue, so a formatting failure cannot hide a test failure.
+      - name: Lint, compile and test
+        id: gradle
+        run: ./gradlew build --continue
+
+      - name: Annotate test failures on the diff
+        if: always()
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: build/test-results/test/TEST-*.xml
+          require_tests: false
+          detailed_summary: true
+
+      - name: Upload the sim log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wpilog-${{ github.run_id }}
+          path: '**/*.wpilog'
+          if-no-files-found: ignore
+
+      - name: Step summary
+        if: always()
+        run: |
+          {
+            if [ "${{ steps.gradle.outcome }}" = "success" ]; then
+              echo "### Lint, compile and test passed"
+            else
+              echo "### Something above is red"
+            fi
+            echo
+            echo "Run the whole of this job on your laptop:"
+            echo
+            echo '```'
+            echo './gradlew build --continue'
+            echo '```'
+            echo
+            echo "A formatting failure is fixed by \`./gradlew spotlessApply\`, and by nothing else."
+            echo
+            echo "Dependencies float \`2027.+\` against WPILib's development repository. A failure"
+            echo "that names dependency resolution is upstream moving, not this branch."
+          } >> "$GITHUB_STEP_SUMMARY"
