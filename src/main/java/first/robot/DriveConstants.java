@@ -5,24 +5,33 @@
 package first.robot;
 
 import static org.wpilib.units.Units.Amps;
+import static org.wpilib.units.Units.DegreesPerSecond;
+import static org.wpilib.units.Units.Hertz;
 import static org.wpilib.units.Units.Inches;
 import static org.wpilib.units.Units.KilogramSquareMeters;
 import static org.wpilib.units.Units.Kilograms;
 import static org.wpilib.units.Units.Meters;
+import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Milliseconds;
 import static org.wpilib.units.Units.Pounds;
+import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.Rotations;
+import static org.wpilib.units.Units.Volts;
 
 import first.robot.sim.SwerveSimConfig;
 import org.wpilib.framework.RobotBase;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.system.DCMotor;
 import org.wpilib.units.measure.Angle;
+import org.wpilib.units.measure.AngularVelocity;
 import org.wpilib.units.measure.Current;
 import org.wpilib.units.measure.Distance;
+import org.wpilib.units.measure.Frequency;
+import org.wpilib.units.measure.LinearVelocity;
 import org.wpilib.units.measure.Mass;
 import org.wpilib.units.measure.MomentOfInertia;
 import org.wpilib.units.measure.Time;
+import org.wpilib.units.measure.Voltage;
 
 public final class DriveConstants {
   public static final int FRONT_LEFT_DRIVE_ID = 1;
@@ -37,6 +46,13 @@ public final class DriveConstants {
 
   // REV's documented SPARK control loop period, which is not the robot's.
   public static final Time CONTROLLER_PERIOD = Milliseconds.of(1);
+
+  // Module angle and wheel travel are what odometry consumes, so they ride at the loop period.
+  // Everything else is a diagnostic and rides slower. Raising one period raises its whole frame
+  // group, because the setters keep the smaller of the requested and the already-set value.
+  public static final Time ODOMETRY_FRAME_PERIOD = Constants.LOOP_PERIOD;
+  public static final Time FAULT_FRAME_PERIOD = Milliseconds.of(50);
+  public static final Time DIAGNOSTIC_FRAME_PERIOD = Milliseconds.of(100);
 
   // === SDS Mk5i, off the manufacturer's layout drawing =========================================
 
@@ -65,6 +81,36 @@ public final class DriveConstants {
 
   // Everything the steer motor turns, about the module's steering axis. Nobody has weighed it.
   public static final MomentOfInertia STEER_INERTIA = KilogramSquareMeters.of(0.004);
+
+  // The drive encoder counts motor rotations; conversion puts every drive quantity in metres, so
+  // kV is Volts per metre per second and a setpoint is a wheel speed.
+  public static final double DRIVE_POSITION_FACTOR =
+      2 * Math.PI * WHEEL_RADIUS.in(Meters) / DRIVE_REDUCTION;
+  // The primary encoder reports velocity in RPM, not rotations per second.
+  public static final double DRIVE_VELOCITY_FACTOR = DRIVE_POSITION_FACTOR / 60;
+
+  // The Thrifty analog is ratiometric and swings the full supply rail over one turn of the
+  // module, and the Flex's analog input reads to that same rail, so the two cancel.
+  public static final Voltage STEER_SENSOR_SPAN = Volts.of(5);
+  // Volts to module rotations, which puts the sensor in [0, 1) and fixes the wrap range with it.
+  public static final double STEER_POSITION_FACTOR = 1 / STEER_SENSOR_SPAN.in(Volts);
+  public static final double STEER_VELOCITY_FACTOR = STEER_POSITION_FACTOR;
+
+  // The nameplate free speed at this reduction, not a measurement of a chassis.
+  public static final LinearVelocity MAX_VELOCITY =
+      MetersPerSecond.of(
+          DCMotor.getNeoVortex(1).freeSpeed / DRIVE_REDUCTION * WHEEL_RADIUS.in(Meters));
+  public static final AngularVelocity MAX_TURN_RATE =
+      RadiansPerSecond.of(
+          MAX_VELOCITY.in(MetersPerSecond)
+              / Math.hypot(TRACK_WIDTH.in(Meters) / 2, WHEELBASE.in(Meters) / 2));
+
+  // A pose estimator tuned against a gyro that never wanders is tuned against a robot that does
+  // not exist. Roughly a degree a minute, which is the order a Pigeon2 drifts at.
+  public static final AngularVelocity GYRO_SIM_DRIFT = DegreesPerSecond.of(1.0 / 60);
+  // The documented ceiling for a Phoenix signal. CTRE simulates CAN latency, and a lagged gyro
+  // makes odometry look broken for a reason that is not our code.
+  public static final Frequency GYRO_SIM_UPDATE_RATE = Hertz.of(1000);
 
   public record DriveMotorGains(double kP, double kS, double kV) {}
 

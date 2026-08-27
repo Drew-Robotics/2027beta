@@ -10,6 +10,7 @@ import static org.wpilib.units.Units.Microseconds;
 import static org.wpilib.units.Units.Milliseconds;
 import static org.wpilib.units.Units.Seconds;
 
+import first.robot.mechanisms.Drive;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import org.wpilib.backend.DataLogTelemetryBackend;
 import org.wpilib.backend.NetworkTablesTelemetryBackend;
+import org.wpilib.command3.Scheduler;
 import org.wpilib.driverstation.DriverStation;
 import org.wpilib.driverstation.MatchState;
 import org.wpilib.driverstation.RobotState;
@@ -43,6 +45,8 @@ import org.wpilib.util.AlertDataJNI.AlertInfo;
  * project.
  */
 public class Robot extends OpModeRobot {
+  public final Drive drive;
+
   private final TelemetryTable robotLog;
   private final TelemetryTable canLog;
   private final TelemetryTable alertLog;
@@ -117,6 +121,17 @@ public class Robot extends OpModeRobot {
           .set(true);
     }
 
+    drive =
+        new Drive(
+            DriveConstants.DRIVE,
+            TelemetryRegistry.getTable("/Drive"),
+            TelemetryRegistry.getTable("/Sim"),
+            Scheduler.getDefault());
+
+    // The safe state of the whole robot is one block a reviewer can read, rather than something
+    // they have to know idle() would have defaulted to.
+    drive.setDefaultCommand(drive.idle());
+
     lastWakeUs = RobotController.getMonotonicTime();
     // The first sendAsync costs ~8 ms while the client starts its machinery, which is over the
     // whole loop period. Paid here, where nothing is timing anything.
@@ -178,12 +193,24 @@ public class Robot extends OpModeRobot {
     // decision on the robot is about to be made against a guess.
     allianceUnknown.set(RobotState.isDSAttached() && alliance.isEmpty());
 
+    drive.log();
+
     var can = RobotController.getCANStatus(Constants.CAN_BUS);
     canLog.log("Utilization", can.percentBusUtilization);
     canLog.log("ReceiveErrors", can.receiveErrorCount);
     canLog.log("TransmitErrors", can.transmitErrorCount);
     canLog.log("BusOff", can.busOffCount);
     canLog.log("TxFull", can.txFullCount);
+  }
+
+  @Override
+  public void simulationInit() {
+    drive.simulationInit();
+  }
+
+  @Override
+  public void simulationPeriodic() {
+    drive.updateSim();
   }
 
   /** This function is called exactly once when the DS first connects. */
