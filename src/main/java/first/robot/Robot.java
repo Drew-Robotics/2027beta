@@ -20,6 +20,7 @@ import org.wpilib.backend.DataLogTelemetryBackend;
 import org.wpilib.backend.NetworkTablesTelemetryBackend;
 import org.wpilib.driverstation.DriverStation;
 import org.wpilib.driverstation.MatchState;
+import org.wpilib.driverstation.RobotState;
 import org.wpilib.framework.OpModeRobot;
 import org.wpilib.hardware.power.PowerDistribution;
 import org.wpilib.networktables.NetworkTableInstance;
@@ -53,6 +54,10 @@ public class Robot extends OpModeRobot {
   // Nothing this class does may take out the constructor, and a hub that is not on the bus is the
   // ordinary state of a robot on a bench.
   private final PowerDistribution pdh;
+
+  // Toggled every loop rather than fired once, so it clears itself when the alliance turns up.
+  private final Alert allianceUnknown =
+      new Alert("alliance-unknown", "Driver Station attached with no alliance", Level.HIGH);
 
   private final HttpClient http =
       HttpClient.newBuilder()
@@ -156,7 +161,22 @@ public class Robot extends OpModeRobot {
       pdhLog.log("TotalEnergy", Joules.of(pdh.getTotalEnergy()));
     }
 
+    // Read every loop, never once. driverStationConnected() fires on the control word's
+    // DS-attached bit, and the alliance station arrives from the FMS some time after that.
+    var alliance = MatchState.getAlliance();
+    matchLog.log("Alliance", alliance.map(Enum::name).orElse("Unknown"));
+    matchLog.log("Station", MatchState.getLocation().orElse(0));
+    matchLog.log("FmsAttached", RobotState.isFMSAttached());
+    matchLog.log("EventName", MatchState.getEventName());
+    matchLog.log("MatchType", MatchState.getMatchType().name());
+    matchLog.log("MatchNumber", MatchState.getMatchNumber());
+    matchLog.log("ReplayNumber", MatchState.getReplayNumber());
+    matchLog.log("GameData", MatchState.getGameData().orElse(""));
     matchLog.log("TimeRemaining", Seconds.of(MatchState.getMatchTime()));
+
+    // A DS that is attached and has not said which alliance it is means every alliance-dependent
+    // decision on the robot is about to be made against a guess.
+    allianceUnknown.set(RobotState.isDSAttached() && alliance.isEmpty());
 
     var can = RobotController.getCANStatus(Constants.CAN_BUS);
     canLog.log("Utilization", can.percentBusUtilization);
@@ -168,15 +188,7 @@ public class Robot extends OpModeRobot {
 
   /** This function is called exactly once when the DS first connects. */
   @Override
-  public void driverStationConnected() {
-    matchLog.log("Alliance", MatchState.getAlliance().map(Enum::name).orElse("None"));
-    matchLog.log("Station", MatchState.getLocation().orElse(0));
-    matchLog.log("EventName", MatchState.getEventName());
-    matchLog.log("MatchType", MatchState.getMatchType().name());
-    matchLog.log("MatchNumber", MatchState.getMatchNumber());
-    matchLog.log("ReplayNumber", MatchState.getReplayNumber());
-    matchLog.log("GameData", MatchState.getGameData().orElse(""));
-  }
+  public void driverStationConnected() {}
 
   /**
    * This function is called periodically anytime when no opmode is selected, including when the

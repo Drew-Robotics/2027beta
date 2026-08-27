@@ -131,7 +131,7 @@ habits below.
 | `/Robot/Radio/{Connected,Status}` | the radio's own HTTP status page, at 0.2 Hz |
 | `/Robot/Alerts` | the active alert set, at 4 Hz — ADR 0004 |
 | `/Match/TimeRemaining` | `MatchState.getMatchTime()` (`:32`) |
-| `/Match/{Alliance,Station,EventName,MatchType,MatchNumber,ReplayNumber,GameData}` | `MatchState` (`:43-101`), written once when the DS connects |
+| `/Match/{Alliance,Station,FmsAttached,EventName,MatchType,MatchNumber,ReplayNumber,GameData}` | `MatchState` (`:43-101`), `RobotState.isFMSAttached()` — every loop, never once |
 
 **[source]** for the accessors, all in
 `wpilibj/src/main/java/org/wpilib/system/RobotController.java` and
@@ -256,6 +256,24 @@ its timeout. The client is warmed in `Robot`'s constructor, because the
 first `sendAsync` costs ~8 ms while it starts its machinery **[measured]**
 — longer than the whole loop period, and exactly the cold-start ADR
 0002 rules is paid at `robotInit`.
+
+**Match state is read every loop, and reading it once is a bug.** The
+alliance arrives from the FMS some time *after* the Driver Station
+attaches, so anything that samples it once samples it too early.
+`OpModeRobot.driverStationConnected()` is not the exception it looks
+like: it fires on the control word's DS-attached bit
+(`OpModeRobot.java:617-619`) **[source]**, which has nothing to do with
+the alliance station, and it fires exactly once. So `/Match` is written
+at the loop rate like everything else, duplicate suppression flattens
+the constants, and the alliance transition lands in the file with the
+timestamp it actually happened at. **[decided]**
+
+The same fact is a fault surface: a Driver Station that is attached and
+has not said which alliance it is means every alliance-dependent
+decision is about to be made against a guess. That raises a `HIGH`
+alert, at the level ADR 0011 sets, cleared as soon as the alliance
+turns up. Nothing alerts when no DS is attached at all, so a bench sits
+quiet. **[executed]**
 
 **Driver Station data is already in the file and is not logged again.**
 `DriverStation.startDataLog(log, true)` writes `DS:controlWord` — a
