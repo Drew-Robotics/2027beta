@@ -3,7 +3,8 @@
 ## Status
 
 Accepted — 2026-08-26. Amended in part by ADR 0009: the `@Utility` rule
-is a supervision requirement, not an on-blocks one.
+is a supervision requirement, not an on-blocks one. Amended 2026-08-27:
+the payoff for injecting a `Scheduler` has been collected.
 
 Claim tags are defined in the index. `[source]` claims here were read at
 `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -302,8 +303,28 @@ the compile-time net **[decided]** — see Traps.
 
 ## Consequences
 
-- **Mechanisms are unit-testable without a `RobotBase`.** The injected
-  `Scheduler` is what a test drives; ADR 0013's Tier 1 rests on it.
+- **Mechanisms are unit-testable without a `RobotBase`, and it has been
+  done.** **[executed —
+  `src/test/java/first/robot/InjectedSchedulerTest.java`]** A plain
+  JUnit test builds a mechanism in the shape above against
+  `Scheduler.createIndependentScheduler()` and runs one command to
+  completion, asserting on elapsed time rather than on cycles.
+
+  The injection is what the second test turns on, and it had to be
+  written to. `Mechanism.run(...)` never touches a scheduler
+  (`Mechanism.java:74`), so a test that only calls
+  `scheduler.schedule(command)` would pass against an un-injected
+  mechanism and prove nothing. `setDefaultCommand` and
+  `getRunningCommands` are the methods that route through
+  `getRegisteredScheduler()` (`Mechanism.java:55, 130`), so the test
+  registers a default command *on the mechanism* and asserts it runs on
+  the test's scheduler and not on the singleton. With the override
+  deleted it fails. **[executed]** The divergence pays.
+
+  What it costs to start a v3 test at all — the `--add-opens` block, the
+  redirected clock, and the HAL that scheduling loads — is ADR 0013's,
+  and is recorded there.
+
 - **Every mechanism constructor grows one parameter**, and every mechanism
   carries one override. That is the whole cost of the divergence.
 - **New students will read upstream and find a shape we do not use.**
@@ -391,22 +412,6 @@ the compile-time net **[decided]** — see Traps.
   bad log.** This is a trap only in the sense that it surprises: the
   builder stages are the enforcement, and there is no way to opt out for
   a quick test.
-
-## Open
-
-- **The payoff for injecting a `Scheduler` has not yet been collected.**
-  The cost is paid on day one, in every mechanism constructor; the return
-  is a unit test, and no v3 test has been run in this repo. There is no
-  shipped v3 test example anywhere in `wpilibjExamples` **[source]**, and
-  whether a v3 test even starts under the stock template's Gradle `test`
-  task is ADR 0013's question, not answered here. **[unverified]** Until a
-  test runs, the divergence rests on reading upstream's suite rather than
-  on having used it.
-  *Unblocked by* ADR 0013's first Tier 1 test —
-  [#19](https://github.com/Drew-Robotics/2027beta/issues/19) — which
-  either builds a mechanism against
-  `Scheduler.createIndependentScheduler()` and asserts on it, or finds out
-  why it cannot.
 
 ## Rejected
 

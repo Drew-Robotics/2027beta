@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted — 2026-08-27. Resolves #25's ruling that Tier 2 and `sim-hitl`
-stay dormant: that dormancy was named against `SparkSim`, and ADR 0010
+Accepted — 2026-08-27. Amended the same day: Tier 1 has been run, and
+it loads the HAL — see *Tier 1 owns every number*. Resolves #25's ruling
+that Tier 2 and `sim-hitl` stay dormant: that dormancy was named against `SparkSim`, and ADR 0010
 put the onboard loop in our own model and stopped loading the class at
 all. Both tiers are live.
 
@@ -86,8 +87,8 @@ can push straight to `main`. **[executed — GitHub API, 2026-08-26]**
 
 ### Tier 1 owns every number
 
-Pure JUnit. No HAL, no vendor jars, no `RobotBase`. It holds ADR 0010's
-physics tests — terminal velocity under a constant voltage, pure
+Plain JUnit. No vendor jars, no `RobotBase`, and nothing the test asks
+of a HAL. It holds ADR 0010's physics tests — terminal velocity under a constant voltage, pure
 rotation producing zero translation, over-command producing skid — and
 ADR 0011's closed autonomous loop: follower → `ChassisVelocities` →
 kinematics → module voltages → `SwerveDriveSim` → pose → back into the
@@ -100,6 +101,35 @@ it parallelises, and it does not queue on anything.
 This tier exists at all because ADR 0010 kept vendor types out of
 `first.robot.sim` by construction. That rule was insurance, and this is
 where it pays.
+
+**It does not run without a HAL, and that is not a choice we get to
+make.** `Scheduler.schedule()` calls `BindingScope.createNarrowestScope`
+(`Scheduler.java:558`), which asks `OpModeFetcher` for the current
+opmode id (`BindingScope.java:29`); the default fetcher reads
+`RobotState.getOpModeId()` (`OpModeFetcher.java:29-39`), and
+`DriverStationBackend`'s static initialiser calls `HAL.initialize()` and
+builds a NetworkTables match-data sender
+(`DriverStationBackend.java:738-755`). **[source]** `libwpiHal`,
+`libwpiHaljni`, `libntcore` and `libwpiutil` are absent from the test
+JVM before the `schedule()` call and present after it. **[executed —
+`/proc/self/maps`, read either side of the call, via #56]**
+
+Nothing changes in practice: GradleRIO's `configureTestTasks` already
+puts the desktop natives on the test JVM's library path **[source]**,
+the load is one-off, and no Tier 1 test asks the HAL a question or
+initialises it on purpose. The escape — a hand-copied `CommandTestBase`
+in a split `org.wpilib.command3` package — is under *Rejected*. The
+sentence to keep is the narrow one: **a Tier 1 test still needs the
+desktop natives to be downloadable**, so a native-resolution failure in
+CI is a Tier 1 failure and not only a Tier 2 one.
+
+The clock is the test's. `Coroutine.wait` and every `SchedulerEvent`
+timestamp read `RobotController.getTime()`, whose default source is
+`getMonotonicTime` — a JNI call (`RobotController.java:26`).
+**[source]** A Tier 1 test redirects it with
+`RobotController.setTimeSource` at a counter it advances by
+`Constants.LOOP_PERIOD` per `Scheduler.run()`, which is also what makes
+ADR 0002's *assert in time, never in ticks* writable here.
 
 ### Tier 2 owns the wiring, and asserts almost nothing
 
@@ -176,10 +206,19 @@ arguments at all. **[source]** The same plugin adds
 **[source]** The `test` task gets none of them.
 
 So the departure is a `test { jvmArgs '--add-opens', … }` block, and it
-carries a one-line comment saying why, under `CLAUDE.md`'s ordinary
-rule — *a workaround for someone else's bug* — and **not** the
-upstream-defect exemption, since we have filed nothing against GradleRIO
-and therefore have no link to cite. **[decided]**
+carries a comment saying why, under `CLAUDE.md`'s ordinary rule — *a
+workaround for someone else's bug* — and **not** the upstream-defect
+exemption, since we have filed nothing against GradleRIO and therefore
+have no link to cite. **[decided]** The comment names the reflective
+accesses rather than the symptom, so that a later GradleRIO supplying
+the flags itself makes the block deletable rather than mysterious:
+Commands v3 opens `jdk.internal.vm.Continuation`,
+`jdk.internal.vm.ContinuationScope` and `java.lang.Thread` through
+`MethodHandles.privateLookupIn` (`Continuation.java:55, 84`,
+`ContinuationScope.java:27`). **[source]** Removing
+`java.base/jdk.internal.vm` and re-running kills a real Tier 1 test in
+`ContinuationScope`'s static initialiser before any assertion.
+**[executed, via #56]**
 
 *Unmodified* becomes a default that **named, justified departures**
 leave, each commented at its own edit exactly as above. Three are
@@ -673,6 +712,17 @@ It would make the job assert that two things we pinned together are
 still pinned together — which is true by construction and tells us
 nothing. The floating build going red against a stale image *is* the ABI
 detector.
+
+### A hand-copied `CommandTestBase` to keep Tier 1 free of the HAL
+
+Upstream's own suite escapes the HAL by overriding `OpModeFetcher`,
+which is package-private (`OpModeFetcher.java:15`) **[source]** — so
+copying that escape here means a split `org.wpilib.command3` package
+under `src/test`, outside ADR 0003's layout, carrying a file taken from
+upstream that has to be kept in sync. Declined: it buys no assertion we
+cannot already write, and the natives it avoids are already on the test
+JVM's path. *Re-raise only* if the HAL being up makes a Tier 1 test slow
+or flaky — which is a measurement, not an opinion.
 
 ### A pre-flight ABI probe
 

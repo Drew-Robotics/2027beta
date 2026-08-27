@@ -374,9 +374,10 @@ The index of the ADRs themselves is
   Deploying the second to the bench Pi is what `sim-hitl` is.
 - **Headless** — running with no display and, in Tier 2's case, no
   real Driver Station either.
-- **Tier 1** — plain JUnit: no HAL, no vendor jars, no `RobotBase`.
-  It is where every numeric assertion in the project goes, because it
-  is deterministic and fast
+- **Tier 1** — plain JUnit: no vendor jars, no `RobotBase`, and no HAL
+  the test initialises or asks anything of — though scheduling a
+  command loads it. It is where every numeric assertion in the project
+  goes, because it is deterministic and fast
   ([ADR 0013](docs/adr/0013-ci-and-test-strategy.md)).
 - **Tier 2** — the real `Robot` constructed in process and headless.
   It owns the **wiring** — opmode registration, bindings, the

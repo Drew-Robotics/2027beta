@@ -4,6 +4,8 @@
 
 package first.robot;
 
+import static org.wpilib.units.Units.Seconds;
+
 import org.wpilib.framework.OpModeRobot;
 
 /**
@@ -18,7 +20,9 @@ public class Robot extends OpModeRobot {
    * This function is run when the robot is first started up and should be used for any
    * initialization code.
    */
-  public Robot() {}
+  public Robot() {
+    super(Constants.LOOP_PERIOD.in(Seconds));
+  }
 
   /** This function is called exactly once when the DS first connects. */
   @Override
