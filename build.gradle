@@ -64,6 +64,15 @@ def includeDesktopSupport = true
 
 // Defining my dependencies. In this case, WPILib (+ friends), and vendor libraries.
 // Also defines JUnit 5.
+// Departs from the template: the two natives GradleRIO's JNI list omits, for the configuration
+// blocks below.
+def wpilibNatives = { String platform, boolean debug ->
+    def classifier = debug ? "${platform}debug" : platform
+    ['org.wpilib.telemetry:telemetry-cpp', 'org.wpilib.tunables:tunables-cpp'].collect {
+        "${it}:${wpi.versions.wpilibVersion.get()}:${classifier}@zip"
+    }
+}
+
 dependencies {
     annotationProcessor wpi.java.deps.wpilibAnnotations()
     implementation wpi.java.deps.wpilib()
@@ -88,6 +97,15 @@ dependencies {
     // from the compile classpath. Delete when wpilib() includes them.
     implementation "org.wpilib.telemetry:telemetry-java:${wpi.versions.wpilibVersion.get()}"
     implementation "org.wpilib.tunables:tunables-java:${wpi.versions.wpilibVersion.get()}"
+
+    // Departs from the template for the same omission one layer down: libwpimath.so declares
+    // libtelemetry.so and libtunables.so as NEEDED, and GradleRIO's JNI list carries neither, so
+    // loading wpimathjni throws. Anything that discretizes a plant hits it. Delete when
+    // wpilibJniRelease includes them.
+    systemcoreDebug wpilibNatives(wpi.platforms.systemcore, true)
+    systemcoreRelease wpilibNatives(wpi.platforms.systemcore, false)
+    nativeDebug wpilibNatives(wpi.platforms.desktop, true)
+    nativeRelease wpilibNatives(wpi.platforms.desktop, false)
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
