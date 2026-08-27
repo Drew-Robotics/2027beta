@@ -57,11 +57,10 @@ worth different amounts when one of them turns out to be wrong.
 | [0011](0011-autonomous-and-choreo.md) | Autonomous and Choreo integration | **Accepted** — 2026-08-26 |
 | [0012](0012-pose-estimation-and-vision.md) | Pose estimation and the vision seam | **Accepted** — 2026-08-26 |
 | [0013](0013-ci-and-test-strategy.md) | CI and test strategy | **Accepted** — 2026-08-27 |
-| [0014](0014-ai-log-analysis-contract.md) | AI log-analysis contract | Not yet written |
+| [0014](0014-ai-log-analysis-contract.md) | AI log-analysis contract | **Accepted** — 2026-08-27 |
 
-Numbering follows decision area, not the date a document landed. Links
-to unwritten ADRs are dead until they land; the row is here so the
-shape of the set is visible from the start.
+Numbering follows decision area, not the date a document landed. The
+set is complete: every row above resolves to a document.
 
 ## Related documents
 
