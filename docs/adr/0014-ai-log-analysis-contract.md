@@ -315,8 +315,7 @@ Inline dependency metadata in the script header. No venv to create, no
 
 It is additive to the stock template, so ADR 0003's *unmodified
 template* is undisturbed — unlike ADR 0013's `--add-opens`, this is a
-new directory rather than a departure, and it needs no `VERSIONS.md`
-entry.
+new directory rather than a departure.
 
 ## Consequences
 

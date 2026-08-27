@@ -182,8 +182,8 @@ upstream-defect exemption, since we have filed nothing against GradleRIO
 and therefore have no link to cite. **[decided]**
 
 *Unmodified* becomes a default that **named, justified departures**
-leave, each listed in `VERSIONS.md`. Three are expected: this block, the
-analyzer wiring, and the WPILib version line.
+leave, each commented at its own edit exactly as above. Three are
+expected: this block, the analyzer wiring, and the WPILib version line.
 
 ### Analyzers: allwpilib's configs minus two rules, `src/main` only
 
@@ -297,11 +297,10 @@ under `backup/vendordeps` (`build.gradle:97`). **[source]**
 **The revert condition is the string itself.** When GradleRIO publishes
 an alpha-7 its convention flips to `2027_alpha7`, and the edit inverts:
 `CommandsV3.json` goes back untouched and REVLib becomes the file we
-edit, until REV republishes. No `VERSIONS.md` entry and no separate
-note — the gate throws at configuration time with a message naming the
-year, so CI catches an overwritten JSON loudly and immediately, and a
-second copy of a fact `git diff` already shows is a second copy that can
-drift.
+edit, until REV republishes. No separate note anywhere — the gate throws
+at configuration time with a message naming the year, so CI catches an
+overwritten JSON loudly and immediately, and a second copy of a fact
+`git diff` already shows is a second copy that can drift.
 
 ### The bench Pi is a second workflow, and it is never a required check
 
@@ -469,8 +468,8 @@ covers, or general code-quality opinion.
   dependency-resolution failure names itself.
 
 - **ADR 0003's *unmodified template* becomes *unmodified except where
-  named*.** Three departures are already known. `VERSIONS.md` is the
-  list, and it is a document this ADR creates demand for.
+  named*.** Three departures are already known. Each is named at its
+  own edit, and `git diff` against the generator's output is the list.
 
 - **ADR 0005's log becomes a tested artifact rather than a described
   one.** The first thing that reads a WPILOG written by this project is

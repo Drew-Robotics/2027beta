@@ -33,8 +33,9 @@ produces it. Team **8852**, which the generator writes into
 
 Our decisions layer on top of that project. We do not rename its
 packages, move its files, or hand-edit its `build.gradle`. When a
-departure from stock becomes necessary, it goes in `VERSIONS.md` so
-there is one list of everything that is not stock.
+departure from stock becomes necessary, it carries a one-line comment
+at the edit saying why, and `git diff` against the generator's output is
+the list of everything that is not stock.
 
 ### Top-level layout
 
@@ -45,7 +46,7 @@ there is one list of everything that is not stock.
 | `src/test/java/first/` | tests, mirroring main |
 | `docs/adr/` | these documents |
 | `docs/research/` | research output, with its measurements and methods |
-| `CONTEXT.md`, `VERSIONS.md` | the glossary; the version triple and the list of departures |
+| `CONTEXT.md` | the glossary |
 | `vendordeps/` | vendor JSONs, committed |
 
 ### Package structure
@@ -199,15 +200,16 @@ While 2027 is in flux we build against the local checkout, with
 release. Only the artifact source changes — the GradleRIO deploy path is
 identical either way. **[decided]**
 
-`VERSIONS.md` records the triple that has to move together: OS image
-build ↔ allwpilib version and commit ↔ MRC API number. The discipline is
-a habit, not a tool: **read the device's `MRC_CheckApiVersion` before
-bumping anything.** A mismatch is not a build error — the HAL calls
-`std::terminate()` at startup, and `robot.service` is `Restart=always`
-with `RestartSec=3` **[source — `docs/research/systemcore-deploy.md`]**,
-so it becomes a crash loop rather than a message. A device on an older
-image was made to crash-loop against a newer allwpilib exactly this way,
-and stopped when the image was flashed forward. **[executed, via #10]**
+Three things move together: OS image build ↔ allwpilib version and
+commit ↔ MRC API number. The discipline is a habit, not a tool: **read
+the device's `MRC_CheckApiVersion` before bumping anything**, and keep
+the bench on the image the checkout expects. A mismatch is not a build
+error — the HAL calls `std::terminate()` at startup, and
+`robot.service` is `Restart=always` with `RestartSec=3`
+**[source — `docs/research/systemcore-deploy.md`]**, so it becomes a
+crash loop rather than a message. A device on an older image was made to
+crash-loop against a newer allwpilib exactly this way, and stopped when
+the image was flashed forward. **[executed, via #10]**
 
 **Never `println` from anything that runs periodically.** A single
 `println` out of `nonePeriodic()` took ~25 ms and tripped the watchdog on
@@ -232,8 +234,10 @@ in GradleRIO's deploy plugin — so output is `journalctl -u robot -f`.
 - **ADR 0013 inherits testability from injection, not from interfaces.**
   A mechanism is testable because its hardware and its telemetry table
   are constructor parameters.
-- **`VERSIONS.md` becomes load-bearing.** "Stock template, unmodified"
-  is only a useful claim if every exception is written down in one place.
+- **"Stock template, unmodified" is checked by `git diff`, not by a
+  list.** Every exception is a commented edit inside the tree the
+  generator produced, so the claim stays verifiable with nothing to
+  maintain.
 - **The compile-time safety net is one line in `build.gradle`.**
   `annotationProcessor wpi.java.deps.wpilibAnnotations()`
   (`build.gradle:60`) is what supplies the Commands v3 checks. See Traps.

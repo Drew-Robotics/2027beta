@@ -66,7 +66,6 @@ set is complete: every row above resolves to a document.
 
 - [`CONTEXT.md`](../../CONTEXT.md) — the project glossary: every term this
   project invents or overloads, pointing at the ADR that owns the concept.
-- [`VERSIONS.md`](../../VERSIONS.md) — the OS image ↔ allwpilib commit ↔ MRC API triple, vendordep versions, and every departure from the stock template. Not yet written.
 - [`docs/commands-v3-house-style.md`](../commands-v3-house-style.md) — the
   student-facing teaching document for ADR 0006. The drive base is its
   worked example.

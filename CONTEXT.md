@@ -64,8 +64,9 @@ The index of the ADRs themselves is
   generator produces. We use it as it produces it
   ([ADR 0003](docs/adr/0003-project-and-package-structure.md)).
 - **Departure** — a named, justified edit to the stock template; every
-  one belongs in `VERSIONS.md`, which is what makes *unmodified* a
-  checkable claim ([ADR 0013](docs/adr/0013-ci-and-test-strategy.md)).
+  one carries a one-line comment at the edit, and `git diff` against the
+  generator's output is what makes *unmodified* a checkable claim
+  ([ADR 0013](docs/adr/0013-ci-and-test-strategy.md)).
   An ADR also uses the word for its own closing section, naming where
   it knowingly differs from the ticket it came from.
 - **Vendordep** — the JSON file in `vendordeps/` that pulls in a
@@ -310,8 +311,9 @@ The index of the ADRs themselves is
 
 - **SystemCore** — the 2027 control system, replacing the roboRIO.
 - **MRC API** — the version number the SystemCore image and the WPILib
-  build must agree on. A mismatch is a crash loop, not a message, and
-  the pairing belongs in `VERSIONS.md`.
+  build must agree on. A mismatch is a crash loop, not a message, so the
+  bench stays on the image the checkout expects
+  ([ADR 0013](docs/adr/0013-ci-and-test-strategy.md)).
 - **The bench Pi** — the single SystemCore-image Raspberry Pi at
   `192.168.1.202` that measurements and hardware CI run on. There is
   one of it, which is why it can never gate anything
