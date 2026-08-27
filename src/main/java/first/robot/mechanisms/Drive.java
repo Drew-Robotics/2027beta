@@ -177,12 +177,14 @@ public class Drive implements Mechanism {
   }
 
   public void log() {
+    var measured = measuredStates();
     chassisLog.log("DesiredVelocities", desiredVelocities, ChassisVelocities.struct);
-    chassisLog.log("MeasuredVelocities", getVelocities(), ChassisVelocities.struct);
+    chassisLog.log(
+        "MeasuredVelocities", kinematics.toChassisVelocities(measured), ChassisVelocities.struct);
     // The array form is what the visualiser consumes and the named subtables are what a human
     // reads, and a corner/index mismatch is only visible if both are written.
     moduleLog.log("DesiredStates", desiredStates(), SwerveModuleVelocity.struct);
-    moduleLog.log("MeasuredStates", measuredStates(), SwerveModuleVelocity.struct);
+    moduleLog.log("MeasuredStates", measured, SwerveModuleVelocity.struct);
     for (var module : modules) {
       module.log();
     }

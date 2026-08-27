@@ -179,10 +179,6 @@ final class SwerveModule {
     return desired;
   }
 
-  String getName() {
-    return name;
-  }
-
   void log() {
     moduleLog.log("DriveOutput", driveMotor.getAppliedOutput().get());
     moduleLog.log("DriveCurrent", Amps.of(driveMotor.getOutputCurrent().get()));
