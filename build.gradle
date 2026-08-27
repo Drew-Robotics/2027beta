@@ -142,6 +142,8 @@ pmd {
 
 spotbugs {
     excludeFilter = file('styleguide/spotbugs-exclude.xml')
+    // allwpilib runs the analysis at this depth, and the exclusions above were written against it.
+    effort = com.github.spotbugs.snom.Effort.MAX
 }
 
 spotless {
