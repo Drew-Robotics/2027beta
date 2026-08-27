@@ -4,8 +4,7 @@
 
 Accepted — 2026-08-26. Amended in part by ADR 0009: the `@Utility` rule
 is a supervision requirement, not an on-blocks one. Amended 2026-08-27:
-the payoff for injecting a `Scheduler` has been collected, and the one
-Open item is closed — see *Consequences*, first bullet.
+the payoff for injecting a `Scheduler` has been collected.
 
 Claim tags are defined in the index. `[source]` claims here were read at
 `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -304,50 +303,27 @@ the compile-time net **[decided]** — see Traps.
 
 ## Consequences
 
-- **Mechanisms are unit-testable without a `RobotBase`, and it has now
-  been done.** **[executed —
-  `src/test/java/first/robot/InjectedSchedulerTest.java`]** A plain JUnit
-  test builds a mechanism in the shape above against
-  `Scheduler.createIndependentScheduler()`, schedules one command and
-  runs it to completion, and a second test shows
-  `Scheduler.getDefault()` never sees it. The divergence pays, and
-  ADR 0013's Tier 1 has somewhere to live.
+- **Mechanisms are unit-testable without a `RobotBase`, and it has been
+  done.** **[executed —
+  `src/test/java/first/robot/InjectedSchedulerTest.java`]** A plain
+  JUnit test builds a mechanism in the shape above against
+  `Scheduler.createIndependentScheduler()` and runs one command to
+  completion, asserting on elapsed time rather than on cycles.
 
-  Two things had to be true for it to start, and neither was visible
-  from the house style:
+  The injection is what the second test turns on, and it had to be
+  written to. `Mechanism.run(...)` never touches a scheduler
+  (`Mechanism.java:74`), so a test that only calls
+  `scheduler.schedule(command)` would pass against an un-injected
+  mechanism and prove nothing. `setDefaultCommand` and
+  `getRunningCommands` are the methods that route through
+  `getRegisteredScheduler()` (`Mechanism.java:55, 130`), so the test
+  registers a default command *on the mechanism* and asserts it runs on
+  the test's scheduler and not on the singleton. With the override
+  deleted it fails. **[executed]** The divergence pays.
 
-  - The test JVM needs `--add-opens java.base/jdk.internal.vm`. Without
-    it both tests die in `ContinuationScope`'s static initialiser with
-    `IllegalAccessException`, before any assertion. **[executed — the
-    flag removed and the tests re-run]** ADR 0013 owns that departure.
-  - `RobotController.setTimeSource` has to be redirected at a clock the
-    test advances. `Coroutine.wait` and every `SchedulerEvent` timestamp
-    read `RobotController.getTime()`, whose default source is
-    `getMonotonicTime` — a JNI call. **[source —
-    `RobotController.java:26`]** Redirecting it is also what lets the
-    assertions be written in time, per ADR 0002.
-
-- **Tier 1 is not HAL-free, and the way out is not worth taking.**
-  `Scheduler.schedule()` calls `BindingScope.createNarrowestScope`,
-  which asks `OpModeFetcher` for the current opmode id; the default
-  fetcher reads `RobotState.getOpModeId()`, and
-  `DriverStationBackend`'s static initialiser calls `HAL.initialize()`
-  and builds a NetworkTables match-data sender. **[source —
-  `BindingScope.java:29`, `OpModeFetcher.java:29-39`,
-  `DriverStationBackend.java:738-755`]** `libwpiHal`, `libwpiHaljni`,
-  `libntcore` and `libwpiutil` are absent from the test JVM before the
-  `schedule()` call and present after it. **[executed —
-  `/proc/self/maps`, read either side of the call]**
-
-  Upstream's own suite escapes this by overriding `OpModeFetcher`, which
-  is package-private (`OpModeFetcher.java:15`) **[source]** — so
-  escaping it here means a hand-copied `CommandTestBase` in a split
-  `org.wpilib.command3` package under `src/test`. Not taken: GradleRIO's
-  `configureTestTasks` already puts the desktop natives on the test
-  JVM's library path, the load is one-off and deterministic, nothing in
-  Tier 1 asks the HAL a question, and the copy would be a carry to keep
-  in sync for no assertion we could not already write. Revisit only if
-  a Tier 1 test is made flaky or slow by the HAL being up.
+  What it costs to start a v3 test at all — the `--add-opens` block, the
+  redirected clock, and the HAL that scheduling loads — is ADR 0013's,
+  and is recorded there.
 
 - **Every mechanism constructor grows one parameter**, and every mechanism
   carries one override. That is the whole cost of the divergence.
@@ -437,11 +413,6 @@ the compile-time net **[decided]** — see Traps.
   builder stages are the enforcement, and there is no way to opt out for
   a quick test.
 
-## Open
-
-None. The one item — whether the injected `Scheduler` buys a unit test —
-is closed under *Consequences*, first bullet. It does.
-
 ## Rejected
 
 ### Command classes and a `commands/` package
@@ -528,12 +499,6 @@ Source read for this ADR, in `~/dev/allwpilib` at `cafb0cc79` (alpha-7):
 `javacPlugin/src/main/java/org/wpilib/javacplugin/CoroutineYieldInLoopDetector.java`;
 `wpilibjExamples/src/main/java/org/wpilib/examples/rebuiltcmdv3/`;
 `wpilibjExamples/src/main/java/org/wpilib/templates/commandv3/`.
-
-Read for the 2026-08-27 amendment, in the same checkout:
-`commandsv3/src/main/java/org/wpilib/command3/` — `BindingScope.java`,
-`OpModeFetcher.java`, `ContinuationScope.java`, `Continuation.java`;
-`wpilibj/src/main/java/org/wpilib/system/RobotController.java`;
-`wpilibj/src/main/java/org/wpilib/driverstation/internal/DriverStationBackend.java`.
 
 ### Departure from #17
 

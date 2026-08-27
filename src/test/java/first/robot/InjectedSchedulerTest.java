@@ -29,8 +29,6 @@ class InjectedSchedulerTest {
 
   private Scheduler scheduler;
   private List<SchedulerEvent> events;
-
-  /** Virtual time since the test started. Reset to zero before each test, advanced only here. */
   private Time now;
 
   @BeforeEach
@@ -50,9 +48,9 @@ class InjectedSchedulerTest {
   }
 
   @Test
-  void oneCommandRunsToCompletionOnAnIndependentScheduler() {
-    var marker = new Marker(scheduler);
-    var command = marker.holdFor(HOLD);
+  void oneCommandRunsToCompletion() {
+    var stopwatch = new Stopwatch(scheduler);
+    var command = stopwatch.holdFor(HOLD);
 
     scheduler.schedule(command);
     var finishedAt = advanceUntilDone(command);
@@ -61,25 +59,30 @@ class InjectedSchedulerTest {
     assertTrue(
         finishedAt.gte(HOLD),
         "the command completed after " + finishedAt + ", before its " + HOLD + " hold elapsed");
+    // The hold can only end on a cycle boundary, so one step of overshoot is the floor.
     assertTrue(
         finishedAt.lte(HOLD.plus(STEP.times(2))),
         "the command completed after " + finishedAt + ", well past its " + HOLD + " hold");
     assertTrue(
-        marker.lastWriteAt.gte(HOLD.minus(STEP)),
-        "the mechanism stopped being written at " + marker.lastWriteAt);
+        stopwatch.lastRunAt.gte(HOLD.minus(STEP)),
+        "the command body stopped running at " + stopwatch.lastRunAt);
   }
 
   @Test
-  void theDefaultSchedulerNeverSeesTheMechanism() {
-    var marker = new Marker(scheduler);
+  void theMechanismRegistersAgainstTheInjectedScheduler() {
+    var stopwatch = new Stopwatch(scheduler);
 
-    scheduler.schedule(marker.holdFor(HOLD));
+    // setDefaultCommand and getRunningCommands are the two Mechanism methods that route through
+    // getRegisteredScheduler(). Drop the override and the registration lands on the singleton.
+    stopwatch.setDefaultCommand(stopwatch.holdFor(HOLD));
     advance();
 
-    assertEquals(1, scheduler.getRunningCommands().size());
+    assertEquals(
+        1, stopwatch.getRunningCommands().size(), "the default command never reached a scheduler");
+    assertEquals(1, scheduler.getRunningCommands().size(), "it did not reach ours");
     assertTrue(
         Scheduler.getDefault().getRunningCommands().isEmpty(),
-        "the mechanism reached the process-wide scheduler");
+        "it reached the process-wide scheduler");
   }
 
   private void advance() {
@@ -99,12 +102,11 @@ class InjectedSchedulerTest {
         .anyMatch(e -> e instanceof SchedulerEvent.Completed c && c.command().equals(command));
   }
 
-  // The throwaway mechanism this test exists to build: a scheduler injected, and one command.
-  private static final class Marker implements Mechanism {
+  private static final class Stopwatch implements Mechanism {
     private final Scheduler scheduler;
-    private Time lastWriteAt = Milliseconds.zero();
+    private Time lastRunAt = Milliseconds.zero();
 
-    Marker(Scheduler scheduler) {
+    Stopwatch(Scheduler scheduler) {
       this.scheduler = scheduler;
     }
 
@@ -117,11 +119,11 @@ class InjectedSchedulerTest {
       return run(coroutine -> {
             var held = Timer.createStarted();
             while (!held.hasElapsed(duration)) {
-              lastWriteAt = RobotController.getMeasureTime();
+              lastRunAt = RobotController.getMeasureTime();
               coroutine.yield();
             }
           })
-          .named("Marker.HoldFor[" + duration.in(Milliseconds) + "ms]");
+          .named("Stopwatch.HoldFor[" + duration.in(Milliseconds) + "ms]");
     }
   }
 }
