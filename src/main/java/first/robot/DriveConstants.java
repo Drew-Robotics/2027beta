@@ -6,13 +6,23 @@ package first.robot;
 
 import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Inches;
+import static org.wpilib.units.Units.KilogramSquareMeters;
+import static org.wpilib.units.Units.Kilograms;
+import static org.wpilib.units.Units.Meters;
+import static org.wpilib.units.Units.Milliseconds;
+import static org.wpilib.units.Units.Pounds;
 import static org.wpilib.units.Units.Rotations;
 
+import first.robot.sim.SwerveSimConfig;
 import org.wpilib.framework.RobotBase;
 import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.math.system.DCMotor;
 import org.wpilib.units.measure.Angle;
 import org.wpilib.units.measure.Current;
 import org.wpilib.units.measure.Distance;
+import org.wpilib.units.measure.Mass;
+import org.wpilib.units.measure.MomentOfInertia;
+import org.wpilib.units.measure.Time;
 
 public final class DriveConstants {
   public static final int FRONT_LEFT_DRIVE_ID = 1;
@@ -24,6 +34,9 @@ public final class DriveConstants {
   public static final int BACK_RIGHT_DRIVE_ID = 7;
   public static final int BACK_RIGHT_STEER_ID = 8;
   public static final int GYRO_ID = 9;
+
+  // REV's documented SPARK control loop period, which is not the robot's.
+  public static final Time CONTROLLER_PERIOD = Milliseconds.of(1);
 
   // === SDS Mk5i, off the manufacturer's layout drawing =========================================
 
@@ -46,6 +59,12 @@ public final class DriveConstants {
 
   public static final Current DRIVE_CURRENT_LIMIT = Amps.of(60);
   public static final Current STEER_CURRENT_LIMIT = Amps.of(40);
+
+  // Competition weight with bumpers and battery.
+  public static final Mass ROBOT_MASS = Pounds.of(125);
+
+  // Everything the steer motor turns, about the module's steering axis. Nobody has weighed it.
+  public static final MomentOfInertia STEER_INERTIA = KilogramSquareMeters.of(0.004);
 
   public record DriveMotorGains(double kP, double kS, double kV) {}
 
@@ -108,6 +127,25 @@ public final class DriveConstants {
 
   public static ModuleGains gains() {
     return RobotBase.isSimulation() ? SIM_GAINS : REAL_GAINS;
+  }
+
+  public static SwerveSimConfig simConfig() {
+    // A quarter of the robot's mass reflected onto the wheel, not the wheel's own inertia: the
+    // drive axis has to accelerate the robot.
+    var driveInertia =
+        KilogramSquareMeters.of(
+            ROBOT_MASS.in(Kilograms) / 4 * Math.pow(WHEEL_RADIUS.in(Meters), 2));
+
+    return new SwerveSimConfig(
+        DRIVE.frontLeft().location(),
+        DRIVE.frontRight().location(),
+        DRIVE.backLeft().location(),
+        DRIVE.backRight().location(),
+        WHEEL_RADIUS,
+        new SwerveSimConfig.Axis(
+            DCMotor.getNeoVortex(1), DRIVE_REDUCTION, driveInertia, DRIVE_CURRENT_LIMIT),
+        new SwerveSimConfig.Axis(
+            DCMotor.getNeoVortex(1), STEER_REDUCTION, STEER_INERTIA, STEER_CURRENT_LIMIT));
   }
 
   private DriveConstants() {}
