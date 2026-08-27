@@ -64,7 +64,8 @@ first/
   Main.java             the generator's launcher; hand it Robot.class and forget it
   robot/
     Robot.java          extends OpModeRobot; mechanisms as public final fields
-    Constants.java      constructs the per-mechanism config records
+    Constants.java      what belongs to no mechanism: loop period, CAN bus, radio
+    DriveConstants.java one per mechanism, holding its config record and its gains
     mechanisms/         one file per mechanism, named for the physical thing
     opmode/             all opmodes, flat
 ```
@@ -105,17 +106,32 @@ How sim is actually driven inside a mechanism belongs to ADR 0010.
 
 ### Constants and configuration
 
-Each mechanism takes a **config record**, and all the records are
-constructed in one `Constants` class:
+Each mechanism takes a **config record**, and a mechanism's record is
+constructed in **that mechanism's own constants file**:
 
 ```java
-record SwerveModuleConfig(int driveId, int turnId, Angle encoderOffset) {}
+record SwerveModuleConfig(int driveId, int steerId, Angle encoderOffset) {}
 ```
 
 A record makes "what does this mechanism need" a single readable
 signature, and a practice-bot variant becomes a second record rather
 than a find-and-replace across scattered `public static final` fields.
 **[decided]**
+
+**`Constants` holds only what is not a mechanism's** — the loop period,
+the CAN bus, the radio address. Everything a mechanism needs lives in
+`DriveConstants`, `ArmConstants` and so on, one file per mechanism,
+next to `Constants` in `first.robot`. **[decided]** One file for all of
+it was the original decision and it does not survive a second
+mechanism: gains, ratios and CAN ids named for the drive base are noise
+to somebody reading an arm, and *one place to look* stops being one
+place the moment the file needs a table of contents.
+
+This is **not** the `constants/` scatter under Rejected. What is
+rejected there is a mechanism's requirements spread across loose
+`public static final` fields; what is required here is the record,
+which keeps them in one signature wherever the file sits. Splitting by
+mechanism moves the record; it does not dissolve it.
 
 *How* a config is applied to hardware and verified is ADR 0004. This ADR
 owns only its shape.
@@ -223,8 +239,10 @@ in GradleRIO's deploy plugin — so output is `journalctl -u robot -f`.
 
 - **Mechanism fields on `Robot` are `public final`.** Opmodes sit in a
   subpackage, so package-private would not be visible to them. See Traps.
-- **`Constants` is a single class that will grow.** That is the trade
-  for one place to look; it is also the file a practice-bot variant edits.
+- **Constants files multiply with mechanisms, one each.** That is the
+  trade for a file whose every line is about the thing you are reading;
+  a practice-bot variant edits the one mechanism that differs rather
+  than a file everything shares.
 - **ADR 0004 inherits a shape it must work with.** Config records are
   constructor-injected, so applying and verifying config happens at
   mechanism construction, not in a separate init pass.
@@ -392,6 +410,11 @@ fields: any subpackage at all is what forces `public`, not its depth.
 What both upstream references do. A mechanism's requirements end up
 spread across a file instead of readable in one signature, and a
 practice-bot variant becomes a find-and-replace.
+
+Note this is a rejection of the **scatter**, not of the split. A
+per-mechanism constants file holding that mechanism's config record is
+the decision above, and it keeps the one-signature property the scatter
+loses.
 
 ### allwpilib's `developerRobot` deploy path
 

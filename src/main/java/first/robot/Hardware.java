@@ -14,7 +14,6 @@ public final class Hardware {
 
   // Broad on purpose: the narrower IllegalStateException is only what REVLib documents itself as
   // throwing today, and nothing a device does may take out Robot's constructor.
-  @SuppressWarnings("PMD.AvoidCatchingGenericException")
   public static void configureSpark(String name, Supplier<REVLibError> apply) {
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       REVLibError status;
@@ -39,7 +38,6 @@ public final class Hardware {
     raise(name, "timed out after " + MAX_ATTEMPTS + " attempts");
   }
 
-  @SuppressWarnings("PMD.AvoidCatchingGenericException")
   public static void configurePhoenix(String name, Supplier<StatusCode> apply) {
     StatusCode status;
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {

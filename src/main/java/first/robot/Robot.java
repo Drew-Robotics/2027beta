@@ -4,15 +4,24 @@
 
 package first.robot;
 
+import static org.wpilib.units.Units.Celsius;
+import static org.wpilib.units.Units.Joules;
 import static org.wpilib.units.Units.Microseconds;
+import static org.wpilib.units.Units.Milliseconds;
 import static org.wpilib.units.Units.Seconds;
 
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import org.wpilib.backend.DataLogTelemetryBackend;
 import org.wpilib.backend.NetworkTablesTelemetryBackend;
 import org.wpilib.driverstation.DriverStation;
+import org.wpilib.driverstation.MatchState;
 import org.wpilib.framework.OpModeRobot;
+import org.wpilib.hardware.power.PowerDistribution;
 import org.wpilib.networktables.NetworkTableInstance;
 import org.wpilib.system.DataLogManager;
 import org.wpilib.system.RobotController;
@@ -21,6 +30,7 @@ import org.wpilib.telemetry.MultiTelemetryBackend;
 import org.wpilib.telemetry.TelemetryRegistry;
 import org.wpilib.telemetry.TelemetryTable;
 import org.wpilib.util.Alert;
+import org.wpilib.util.Alert.Level;
 import org.wpilib.util.AlertDataJNI;
 import org.wpilib.util.AlertDataJNI.AlertInfo;
 
@@ -35,6 +45,21 @@ public class Robot extends OpModeRobot {
   private final TelemetryTable robotLog;
   private final TelemetryTable canLog;
   private final TelemetryTable alertLog;
+  private final TelemetryTable radioLog;
+  private final TelemetryTable matchLog;
+  private final TelemetryTable railLog;
+  private final TelemetryTable pdhLog;
+
+  // Nothing this class does may take out the constructor, and a hub that is not on the bus is the
+  // ordinary state of a robot on a bench.
+  private final PowerDistribution pdh;
+
+  private final HttpClient http =
+      HttpClient.newBuilder()
+          .connectTimeout(
+              java.time.Duration.ofMillis((long) Constants.RADIO_TIMEOUT.in(Milliseconds)))
+          .build();
+  private CompletableFuture<HttpResponse<String>> radioStatus;
 
   private long lastWakeUs;
 
@@ -64,10 +89,16 @@ public class Robot extends OpModeRobot {
     robotLog = TelemetryRegistry.getTable("/Robot");
     canLog = robotLog.getTable("Can").getTable("Bus0");
     alertLog = robotLog.getTable("Alerts");
+    radioLog = robotLog.getTable("Radio");
+    matchLog = TelemetryRegistry.getTable("/Match");
+    railLog = robotLog.getTable("Rail3V3");
+    pdhLog = robotLog.getTable("Pdh");
+    pdh = openPdh();
 
     // A brownout that held for the whole match and a brownout signal that stopped being written
     // are otherwise the same bytes on disk.
     robotLog.keepDuplicates("BrownedOut");
+    radioLog.keepDuplicates("Connected");
     // A property value has to be JSON, so the symbol is quoted inside the string.
     alertLog.setProperty("StartTimes", "unit", "\"s\"");
 
@@ -82,7 +113,22 @@ public class Robot extends OpModeRobot {
     }
 
     lastWakeUs = RobotController.getMonotonicTime();
+    // The first sendAsync costs ~8 ms while the client starts its machinery, which is over the
+    // whole loop period. Paid here, where nothing is timing anything.
+    radioStatus = request();
+
     addPeriodic(this::logAlerts, Constants.ALERT_LOG_PERIOD.in(Seconds));
+    addPeriodic(this::logRadio, Constants.RADIO_LOG_PERIOD.in(Seconds));
+  }
+
+  private static PowerDistribution openPdh() {
+    try {
+      return new PowerDistribution(Constants.CAN_BUS);
+    } catch (RuntimeException e) {
+      new Alert("power-distribution", "No power distribution hub: " + e.getMessage(), Level.LOW)
+          .set(true);
+      return null;
+    }
   }
 
   @Override
@@ -95,8 +141,24 @@ public class Robot extends OpModeRobot {
     robotLog.log("BrownedOut", RobotController.isBrownedOut());
     robotLog.log("CommsDisableCount", RobotController.getCommsDisableCount());
     robotLog.log("CpuTemp", RobotController.getMeasureCPUTemp());
+    robotLog.log("InputVoltage", RobotController.getMeasureInputVoltage());
+    robotLog.log("SysActive", RobotController.isSysActive());
 
-    var can = RobotController.getCANStatus(Constants.DRIVE_BUS);
+    // The 3.3 V rail feeds the sensors. Its fault count is what separates a sensor that failed
+    // from a rail that browned out under it.
+    railLog.log("Voltage", RobotController.getMeasureVoltage3V3());
+    railLog.log("Current", RobotController.getMeasureCurrent3V3());
+    railLog.log("FaultCount", RobotController.getFaultCount3V3());
+
+    if (pdh != null) {
+      robotLog.log("Pdh", pdh);
+      pdhLog.log("Temperature", Celsius.of(pdh.getTemperature()));
+      pdhLog.log("TotalEnergy", Joules.of(pdh.getTotalEnergy()));
+    }
+
+    matchLog.log("TimeRemaining", Seconds.of(MatchState.getMatchTime()));
+
+    var can = RobotController.getCANStatus(Constants.CAN_BUS);
     canLog.log("Utilization", can.percentBusUtilization);
     canLog.log("ReceiveErrors", can.receiveErrorCount);
     canLog.log("TransmitErrors", can.transmitErrorCount);
@@ -106,7 +168,15 @@ public class Robot extends OpModeRobot {
 
   /** This function is called exactly once when the DS first connects. */
   @Override
-  public void driverStationConnected() {}
+  public void driverStationConnected() {
+    matchLog.log("Alliance", MatchState.getAlliance().map(Enum::name).orElse("None"));
+    matchLog.log("Station", MatchState.getLocation().orElse(0));
+    matchLog.log("EventName", MatchState.getEventName());
+    matchLog.log("MatchType", MatchState.getMatchType().name());
+    matchLog.log("MatchNumber", MatchState.getMatchNumber());
+    matchLog.log("ReplayNumber", MatchState.getReplayNumber());
+    matchLog.log("GameData", MatchState.getGameData().orElse(""));
+  }
 
   /**
    * This function is called periodically anytime when no opmode is selected, including when the
@@ -114,6 +184,28 @@ public class Robot extends OpModeRobot {
    */
   @Override
   public void nonePeriodic() {}
+
+  // The request is never waited on: it is started on one callback and read on a later one, so a
+  // radio that has gone away costs this thread nothing rather than its timeout.
+  private void logRadio() {
+    if (!radioStatus.isDone()) {
+      return;
+    }
+    var response = radioStatus.getNow(null);
+    radioLog.log("Connected", response != null && response.statusCode() == 200);
+    radioLog.log("Status", response == null ? "" : response.body());
+    radioStatus = request();
+  }
+
+  private CompletableFuture<HttpResponse<String>> request() {
+    return http.sendAsync(
+            HttpRequest.newBuilder(Constants.RADIO_STATUS)
+                .timeout(
+                    java.time.Duration.ofMillis((long) Constants.RADIO_TIMEOUT.in(Milliseconds)))
+                .build(),
+            HttpResponse.BodyHandlers.ofString())
+        .exceptionally(e -> null);
+  }
 
   private void logAlerts() {
     // Every constructed Alert is in the array whether or not it ever fired, and a zero start time
