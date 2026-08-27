@@ -21,6 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    env:
+      # The summary below quotes this, so what a student runs cannot drift from what CI ran.
+      BUILD_COMMAND: ./gradlew build --continue
+
     steps:
       - uses: actions/checkout@v5
 
@@ -34,7 +38,7 @@ jobs:
       # --continue, so a formatting failure cannot hide a test failure.
       - name: Lint, compile and test
         id: gradle
-        run: ./gradlew build --continue
+        run: ${{ env.BUILD_COMMAND }}
 
       - name: Annotate test failures on the diff
         if: always()
@@ -65,7 +69,7 @@ jobs:
             echo "Run the whole of this job on your laptop:"
             echo
             echo '```'
-            echo './gradlew build --continue'
+            echo "$BUILD_COMMAND"
             echo '```'
             echo
             echo "A formatting failure is fixed by \`./gradlew spotlessApply\`, and by nothing else."
