@@ -90,8 +90,12 @@ dependencies {
 test {
     useJUnitPlatform()
     systemProperty 'junit.jupiter.extensions.autodetection.enabled', 'true'
-    // Departs from the template: GradleRIO adds these to the sim and deploy JVMs but not to test,
-    // and without them a v3 coroutine dies in ContinuationScope's static initialiser.
+    // Departs from the template: GradleRIO adds these to the sim and deploy JVMs but not to test.
+    // Commands v3 opens jdk.internal.vm.Continuation, jdk.internal.vm.ContinuationScope and
+    // java.lang.Thread with MethodHandles.privateLookupIn, which throws IllegalAccessException
+    // without the two --add-opens; scheduling a command loads the HAL natives, which
+    // System.loadLibrary only warns about today and a later JDK will block. Delete this block once
+    // GradleRIO's configureTestTasks supplies the flags itself.
     jvmArgs '--add-opens', 'java.base/jdk.internal.vm=ALL-UNNAMED',
             '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
             '--enable-native-access=ALL-UNNAMED'
