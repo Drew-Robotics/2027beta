@@ -643,6 +643,16 @@ covers, or general code-quality opinion.
   check, past the timing deltas, is open. **[unverified]** *Unblocked by*
   the job existing.
 
+- **Whether Job 2 should be driven by randomised input is open, and it
+  is fog rather than a rejection.** Input-driven testing was ruled out
+  while it needed a rig of its own; Job 2 removes that premise — the
+  same Pi, the same DS, #22's same uinput gamepads, and a simulated
+  chassis that cannot be damaged. What is unsettled is **what to
+  randomise, and what a failure would mean**; neither can sharpen before
+  there are mechanisms to exercise. **[unverified]** *Unblocked by* the
+  first hardware workflow actually running. The **hardware** version —
+  randomised input against a real chassis — stays out of scope.
+
 ## Rejected
 
 ### A hardware stage inside the gated workflow
