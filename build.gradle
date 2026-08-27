@@ -2,7 +2,7 @@ plugins {
     id "java"
     id "org.wpilib.GradleRIO" version "2027.0.0-alpha-6"
     id "com.gradleup.shadow" version "9.3.0"
-    // Departs from the template: the analyzers below, seeded from allwpilib's own styleguide.
+    // Departs from the template: the analyzers wired at the end of this file.
     id "com.diffplug.spotless" version "8.4.0"
     id "com.github.spotbugs" version "6.4.12"
 }
@@ -123,6 +123,8 @@ tasks.withType(JavaCompile) {
     options.compilerArgs.add '-XDstringConcat=inline'
 }
 
+// Departs from the template: allwpilib's own styleguide, minus the two modules that would
+// demand Javadoc on the first public method written here.
 apply plugin: 'checkstyle'
 apply plugin: 'pmd'
 
