@@ -8,6 +8,9 @@ WPILib. It still does not load, and this ADR does not use it — the
 sensor sims beside it are clean, and they are what the decision rests
 on.
 
+The *Open* item asking whether CI runs a headless robot program is
+answered by ADR 0013 and now sits under *Consequences*.
+
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
 `v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7. REVLib
@@ -294,7 +297,18 @@ numbered recipe belongs in the README, not here.
 
 - **#19's Tier 2 and #23's `sim-hitl` un-dormant.** Both named `SparkSim`
   as their sole blocker. **[source, via #19 and #23, read through #29]**
-  Which of them CI actually runs, and at what tier, is ADR 0013's.
+  ADR 0013 runs both: Tier 2 drives the real `OpModeRobot` in process
+  and headless, and `sim-hitl` deploys a `linuxarm64` sim build to the
+  bench Pi.
+
+- **CI does run a headless robot program, and the requirement this ADR
+  set is met.** The sim is drivable with no display, deterministic given
+  a fixed `dt`, and its pose readable programmatically — which is what
+  ADR 0013's Tier 2 needs and all it asks for. The plain-JUnit tests of
+  `SwerveDriveSim` are ours — terminal velocity under a constant
+  voltage, pure rotation producing zero translation, over-command
+  producing skid — and ADR 0013 makes that tier the home of every
+  numeric assertion in the project.
 
 - **The physics behind the seam can be replaced without `Drive`
   noticing.** That is the deliberate purpose of the signature, and it is
@@ -461,13 +475,6 @@ numbered recipe belongs in the README, not here.
   of, who owns the `World`, and that dyn4j's gravity must be zeroed for
   a top-down world. Its cost is also recorded there — it cuts against
   the prefer-built-in-WPILib principle, and it is that map's to confirm.
-
-- **Whether CI runs a headless robot program at all** is ADR 0013's.
-  This ADR states only the *requirement*: the sim must be drivable with
-  no display, deterministic given a fixed `dt`, and its pose readable
-  programmatically. The plain-JUnit tests of `SwerveDriveSim` are ours —
-  terminal velocity under a constant voltage, pure rotation producing
-  zero translation, over-command producing skid.
 
 ## Rejected
 
