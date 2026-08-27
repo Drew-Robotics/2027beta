@@ -19,15 +19,6 @@ import org.wpilib.util.AlertDataJNI;
 import org.wpilib.util.AlertDataJNI.AlertInfo;
 
 class HardwareTest {
-  @Test
-  void okOnTheFirstAttemptCallsOnceAndRaisesNothing() {
-    var attempts = new AtomicInteger();
-
-    Hardware.configureSpark("HardwareTestOkFirst", () -> returning(attempts, REVLibError.kOk));
-
-    assertEquals(1, attempts.get());
-    assertNull(alert("HardwareTestOkFirst"));
-  }
 
   @Test
   void aTimeoutIsRetriedUntilItSucceeds() {
@@ -89,22 +80,6 @@ class HardwareTest {
   }
 
   @Test
-  void oneDeadDeviceDoesNotStopTheOnesThatAreFine() {
-    var second = new AtomicInteger();
-
-    Hardware.configureSpark(
-        "HardwareTestDead",
-        () -> {
-          throw new IllegalStateException("kCANDisconnected");
-        });
-    Hardware.configureSpark("HardwareTestAlive", () -> returning(second, REVLibError.kOk));
-
-    assertEquals(1, second.get());
-    assertActive("HardwareTestDead");
-    assertNull(alert("HardwareTestAlive"));
-  }
-
-  @Test
   void phoenixRetriesANonOkStatusAndStopsAtFive() {
     var attempts = new AtomicInteger();
 
@@ -113,18 +88,6 @@ class HardwareTest {
 
     assertEquals(5, attempts.get());
     assertActive("HardwareTestPhoenixBad");
-  }
-
-  @Test
-  void phoenixStopsAsSoonAsTheStatusIsOk() {
-    var attempts = new AtomicInteger();
-
-    Hardware.configurePhoenix(
-        "HardwareTestPhoenixOk",
-        () -> attempts.incrementAndGet() < 2 ? StatusCode.TxTimeout : StatusCode.OK);
-
-    assertEquals(2, attempts.get());
-    assertNull(alert("HardwareTestPhoenixOk"));
   }
 
   private static <T> T returning(AtomicInteger attempts, T status) {

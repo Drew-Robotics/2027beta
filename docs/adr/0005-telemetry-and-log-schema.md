@@ -123,7 +123,15 @@ habits below.
 | `/Robot/CommsDisableCount` | `RobotController.getCommsDisableCount()` (`:155`) |
 | `/Robot/CpuTemp` | `RobotController.getCPUTemp()` (`:296`) |
 | `/Robot/Can/Bus0/{Utilization,ReceiveErrors,TransmitErrors,BusOff,TxFull}` | `RobotController.getCANStatus(CANBus)` (`:315`), fields on `CANStatus` (`:10-22`) |
+| `/Robot/InputVoltage` | `RobotController.getInputVoltage()` (`:182`) |
+| `/Robot/SysActive` | `RobotController.isSysActive()` (`:136`) |
+| `/Robot/Rail3V3/{Voltage,Current,FaultCount}` | `RobotController.getVoltage3V3()` (`:200`), `getCurrent3V3()` (`:218`), `getFaultCount3V3()` (`:255`) |
+| `/Robot/Pdh/{Current,Voltage,TotalCurrent,SwitchableChannel}` | `PowerDistribution.logTo` (`PowerDistribution.java:248-254`) |
+| `/Robot/Pdh/{Temperature,TotalEnergy}` | `getTemperature()` (`:108`), `getTotalEnergy()` (`:158`) |
+| `/Robot/Radio/{Connected,Status}` | the radio's own HTTP status page, at 0.2 Hz |
 | `/Robot/Alerts` | the active alert set, at 4 Hz — ADR 0004 |
+| `/Match/TimeRemaining` | `MatchState.getMatchTime()` (`:32`) |
+| `/Match/{Alliance,Station,FmsAttached,EventName,MatchType,MatchNumber,ReplayNumber,GameData}` | `MatchState` (`:43-101`), `RobotState.isFMSAttached()` — every loop, never once |
 
 **[source]** for the accessors, all in
 `wpilibj/src/main/java/org/wpilib/system/RobotController.java` and
@@ -237,6 +245,45 @@ combined cost on the Pi at 65 µs of work per loop, a 1.3% duty cycle,
 and 13.1 MB per match with ~50 signals attached **[measured]**, which is
 what makes "log everything at the loop rate" affordable rather than
 merely tidy.
+
+**The radio is not a WPILib signal.** Nothing in WPILib reports on it —
+the roboRIO's radio accessors went with the roboRIO. The radio serves
+its own status page at `10.TE.AM.1/status`, so `/Robot/Radio` is an
+HTTP request rather than a getter, fired at 0.2 Hz and **never waited
+on**: the request is started on one callback and read on a later one,
+so a radio that has gone away costs the loop thread nothing rather than
+its timeout. The client is warmed in `Robot`'s constructor, because the
+first `sendAsync` costs ~8 ms while it starts its machinery **[measured]**
+— longer than the whole loop period, and exactly the cold-start ADR
+0002 rules is paid at `robotInit`.
+
+**Match state is read every loop, and reading it once is a bug.** The
+alliance arrives from the FMS some time *after* the Driver Station
+attaches, so anything that samples it once samples it too early.
+`OpModeRobot.driverStationConnected()` is not the exception it looks
+like: it fires on the control word's DS-attached bit
+(`OpModeRobot.java:617-619`) **[source]**, which has nothing to do with
+the alliance station, and it fires exactly once. So `/Match` is written
+at the loop rate like everything else, duplicate suppression flattens
+the constants, and the alliance transition lands in the file with the
+timestamp it actually happened at. **[decided]**
+
+The same fact is a fault surface: a Driver Station that is attached and
+has not said which alliance it is means every alliance-dependent
+decision is about to be made against a guess. That raises a `HIGH`
+alert, at the level ADR 0011 sets, cleared as soon as the alliance
+turns up. Nothing alerts when no DS is attached at all, so a bench sits
+quiet. **[executed]**
+
+**Driver Station data is already in the file and is not logged again.**
+`DriverStation.startDataLog(log, true)` writes `DS:controlWord` — a
+`ControlWord` struct carrying enabled, mode, opmode id, e-stop,
+FMS-attached and DS-attached — plus `DS:opMode` and per-joystick
+`DS:joystickN/{buttons,axes,povs}`, straight to the `DataLog`
+(`DriverStationBackend.java:270-287, 380-400`). **[source]** Re-logging
+any of it through telemetry would be a second copy under a second name.
+What `DS:` does *not* carry is match identity, which is why `/Match`
+exists above. **[decided]**
 
 There is **one exception**, and it is ADR 0004's: the alert set is
 polled and logged at 4 Hz, through

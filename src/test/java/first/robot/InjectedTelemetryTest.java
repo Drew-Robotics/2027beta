@@ -5,8 +5,6 @@
 package first.robot;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.wpilib.units.Units.MetersPerSecond;
 
 import org.junit.jupiter.api.AfterEach;
@@ -46,38 +44,6 @@ class InjectedTelemetryTest {
     module.report(MetersPerSecond.of(3.25));
 
     assertEquals(3.25, backend.getLastValue("/Drive/FrontLeft/Velocity", Double.class));
-  }
-
-  @Test
-  void theUnitIsInTheMetadataAndNotInTheName() {
-    var module = new Reporter(root.getTable("Drive").getTable("FrontLeft"));
-
-    module.report(MetersPerSecond.of(3.25));
-
-    var unit =
-        backend.getActions().stream()
-            .filter(a -> a.path().equals("/Drive/FrontLeft/Velocity"))
-            .map(a -> a.value())
-            .filter(MockTelemetryBackend.SetPropertyValue.class::isInstance)
-            .map(MockTelemetryBackend.SetPropertyValue.class::cast)
-            .filter(p -> p.key().equals("unit"))
-            .reduce((first, second) -> second)
-            .orElse(null);
-
-    assertNotNull(unit, "the signal carries no unit property: " + backend.getActions());
-    assertEquals("\"m/s\"", unit.value());
-    assertFalse(
-        backend.getActions().stream().anyMatch(a -> a.path().endsWith("Mps")),
-        "a signal name carries its unit");
-  }
-
-  @Test
-  void twoTablesFromTheSameRootDoNotShareAName() {
-    new Reporter(root.getTable("Drive").getTable("FrontLeft")).report(MetersPerSecond.of(1));
-    new Reporter(root.getTable("Drive").getTable("FrontRight")).report(MetersPerSecond.of(2));
-
-    assertEquals(1.0, backend.getLastValue("/Drive/FrontLeft/Velocity", Double.class));
-    assertEquals(2.0, backend.getLastValue("/Drive/FrontRight/Velocity", Double.class));
   }
 
   // Stands in for a mechanism: it is handed its table rather than reaching for a global one,

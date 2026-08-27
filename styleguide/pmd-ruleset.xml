@@ -79,6 +79,10 @@
     <exclude name="AssignmentInOperand" />
     <exclude name="AssignmentToNonFinalStatic" />
     <exclude name="AvoidCatchingThrowable" />
+    <!-- AvoidCatchingGenericException removed: every device this robot opens is guarded by a
+         catch of RuntimeException, because the vendors document IllegalStateException and throw
+         whatever they like, and nothing a device does may take out Robot's constructor. -->
+    <exclude name="AvoidCatchingGenericException" />
     <exclude name="AvoidDuplicateLiterals" />
     <exclude name="AvoidLiteralsInIfCondition" />
     <exclude name="CloseResource" />

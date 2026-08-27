@@ -294,10 +294,20 @@ flips per sample is one that can be asked to flip *mid-path*.
 (`wpilibj/src/main/java/org/wpilib/driverstation/MatchState.java:43`)
 **[source]**. Defaulting silently to blue is right on the bench and
 wrong in a match. An empty `Optional` raises a `Level.HIGH` `Alert`,
-per ADR 0004. `OpModeRobot.driverStationConnected()` exists precisely
+per ADR 0004. `OpModeRobot.driverStationConnected()` advertises itself as the hook
 for code *"needing the alliance information"*
-(`OpModeRobot.java:565-567`) **[source]**, and by the time a follower
-is constructed — after enable — the DS is connected.
+(`OpModeRobot.java:565-567`) **[source]**, and **it is not that hook**:
+it fires on the control word's DS-attached bit
+(`OpModeRobot.java:617-619`) **[source]**, once, and the alliance
+station arrives from the FMS some time after that. Reading the alliance
+there can read `UNKNOWN`. **[executed, via #57]**
+
+This ADR's decision is unaffected, and is what protects against it: the
+flip happens at follower construction — after enable, by which point
+the alliance has long arrived — rather than at load or at DS-connect.
+The correction is to the parenthetical, not to the decision. ADR 0005
+logs the alliance every loop for the same reason and raises this
+alert whenever a DS is attached without one.
 
 ### `kA` is in, at drivebase level, and only on the auto path
 

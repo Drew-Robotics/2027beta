@@ -92,8 +92,10 @@ The index of the ADRs themselves is
   commands read it at once
   ([ADR 0006](docs/adr/0006-commands-v3-house-style.md)).
 - **Config record** — the Java record holding everything one mechanism
-  needs, constructed in `Constants` and handed to that mechanism's
-  constructor ([ADR 0003](docs/adr/0003-project-and-package-structure.md)).
+  needs, constructed in that mechanism's own constants file —
+  `DriveConstants`, `ArmConstants` — and handed to its constructor.
+  `Constants` itself holds only what belongs to no mechanism
+  ([ADR 0003](docs/adr/0003-project-and-package-structure.md)).
   Not the same thing as a *vendor* config object, which a factory
   method per motor role returns fresh every call
   ([ADR 0004](docs/adr/0004-config-as-code.md)).
