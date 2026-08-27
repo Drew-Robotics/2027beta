@@ -28,8 +28,9 @@ public final class Constants {
 
   // === SDS Mk5i, off the manufacturer's layout drawing =========================================
 
-  // R2, the middle of the three pinions the module ships with. Swapping the pinion is the only
-  // change the ratio needs, so the first stage is written as its tooth counts.
+  // The three ratios are the manufacturer's; which of them this robot runs is not confirmed, and
+  // it is the 14T first-stage pinion that says R2. Swapping the pinion is the only change the
+  // ratio needs, so the stages are written as their tooth counts.
   public static final double DRIVE_REDUCTION = (54.0 / 14.0) * (25.0 / 32.0) * (30.0 / 15.0);
   public static final double STEER_REDUCTION = 26.0;
 
@@ -51,11 +52,13 @@ public final class Constants {
   // tuned against kD rather than after it.
   public record SteerGains(double kP, double kD, double dFilter) {}
 
+  public record Gains(DriveGains drive, SteerGains steer) {}
+
   public static final class Real {
     // No characterisation has run. kV is 12 V over the free speed at this reduction and kS is a
     // guess; both are the nameplate rather than a measurement.
-    public static final DriveGains DRIVE_MOTOR = new DriveGains(0.05, 0.15, 2.0);
-    public static final SteerGains STEER_MOTOR = new SteerGains(3.0, 0.05, 0.0);
+    public static final Gains GAINS =
+        new Gains(new DriveGains(0.05, 0.15, 2.0), new SteerGains(3.0, 0.05, 0.0));
 
     private Real() {}
   }
@@ -63,8 +66,8 @@ public final class Constants {
   public static final class Sim {
     // Chosen so the model tracks its setpoint. These are not a prediction of the real robot's
     // gains, and turning them until a test passes turns that test into a tautology.
-    public static final DriveGains DRIVE_MOTOR = new DriveGains(0.1, 0.0, 2.0);
-    public static final SteerGains STEER_MOTOR = new SteerGains(8.0, 0.0, 0.0);
+    public static final Gains GAINS =
+        new Gains(new DriveGains(0.1, 0.0, 2.0), new SteerGains(8.0, 0.0, 0.0));
 
     private Sim() {}
   }
@@ -106,12 +109,8 @@ public final class Constants {
               new Translation2d(HALF_BASE.unaryMinus(), HALF_TRACK.unaryMinus())),
           9);
 
-  public static DriveGains driveGains() {
-    return RobotBase.isSimulation() ? Sim.DRIVE_MOTOR : Real.DRIVE_MOTOR;
-  }
-
-  public static SteerGains steerGains() {
-    return RobotBase.isSimulation() ? Sim.STEER_MOTOR : Real.STEER_MOTOR;
+  public static Gains gains() {
+    return RobotBase.isSimulation() ? Sim.GAINS : Real.GAINS;
   }
 
   private Constants() {}

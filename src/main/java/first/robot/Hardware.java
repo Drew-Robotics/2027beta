@@ -10,13 +10,13 @@ import java.util.function.Supplier;
 import org.wpilib.util.Alert;
 
 public final class Hardware {
-  private static final int ATTEMPTS = 5;
+  private static final int MAX_ATTEMPTS = 5;
 
-  // The helper exists so that nothing a device does takes out Robot's constructor, and the
-  // narrower IllegalStateException is only what REVLib documents itself as throwing today.
+  // Broad on purpose: the narrower IllegalStateException is only what REVLib documents itself as
+  // throwing today, and nothing a device does may take out Robot's constructor.
   @SuppressWarnings("PMD.AvoidCatchingGenericException")
   public static void configureSpark(String name, Supplier<REVLibError> apply) {
-    for (int attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       REVLibError status;
       try {
         status = apply.get();
@@ -36,13 +36,13 @@ public final class Hardware {
         return;
       }
     }
-    raise(name, "timed out after " + ATTEMPTS + " attempts");
+    raise(name, "timed out after " + MAX_ATTEMPTS + " attempts");
   }
 
   @SuppressWarnings("PMD.AvoidCatchingGenericException")
   public static void configurePhoenix(String name, Supplier<StatusCode> apply) {
     StatusCode status;
-    for (int attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         status = apply.get();
       } catch (RuntimeException e) {
@@ -53,7 +53,7 @@ public final class Hardware {
         return;
       }
     }
-    raise(name, "not OK after " + ATTEMPTS + " attempts");
+    raise(name, "not OK after " + MAX_ATTEMPTS + " attempts");
   }
 
   private static void raise(String name, String detail) {

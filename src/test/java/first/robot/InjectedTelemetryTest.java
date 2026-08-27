@@ -41,7 +41,7 @@ class InjectedTelemetryTest {
 
   @Test
   void aSignalWrittenThroughAnInjectedTableIsReadableByName() {
-    var module = new Odometer(root.getTable("Drive").getTable("FrontLeft"));
+    var module = new Reporter(root.getTable("Drive").getTable("FrontLeft"));
 
     module.report(MetersPerSecond.of(3.25));
 
@@ -50,7 +50,7 @@ class InjectedTelemetryTest {
 
   @Test
   void theUnitIsInTheMetadataAndNotInTheName() {
-    var module = new Odometer(root.getTable("Drive").getTable("FrontLeft"));
+    var module = new Reporter(root.getTable("Drive").getTable("FrontLeft"));
 
     module.report(MetersPerSecond.of(3.25));
 
@@ -73,19 +73,19 @@ class InjectedTelemetryTest {
 
   @Test
   void twoTablesFromTheSameRootDoNotShareAName() {
-    new Odometer(root.getTable("Drive").getTable("FrontLeft")).report(MetersPerSecond.of(1));
-    new Odometer(root.getTable("Drive").getTable("FrontRight")).report(MetersPerSecond.of(2));
+    new Reporter(root.getTable("Drive").getTable("FrontLeft")).report(MetersPerSecond.of(1));
+    new Reporter(root.getTable("Drive").getTable("FrontRight")).report(MetersPerSecond.of(2));
 
     assertEquals(1.0, backend.getLastValue("/Drive/FrontLeft/Velocity", Double.class));
     assertEquals(2.0, backend.getLastValue("/Drive/FrontRight/Velocity", Double.class));
   }
 
-  // Stands in for the mechanisms this ticket does not build: it is handed its table rather than
-  // reaching for a global one, which is the whole of what these assertions are about.
-  private static final class Odometer {
+  // Stands in for a mechanism: it is handed its table rather than reaching for a global one,
+  // which is the whole of what these assertions are about.
+  private static final class Reporter {
     private final TelemetryTable log;
 
-    Odometer(TelemetryTable log) {
+    Reporter(TelemetryTable log) {
       this.log = log;
     }
 
