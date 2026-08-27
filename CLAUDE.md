@@ -3,9 +3,9 @@
 FRC team 8852's swerve drive base for the 2027 season, on the SystemCore
 control system. WPILib 2027 alpha, Java 25, Commands v3.
 
-The architecture is being designed on the issue tracker before it is
-built — see the map at issue #1. Until the ADRs land, that map is the
-record of what has been decided.
+The architecture was decided before it was built, and it is written
+down here — see *Where things are*. Read the ADR covering whatever you
+are about to change before you change it.
 
 ## WPILib 2027 is not the WPILib you know
 
@@ -67,10 +67,11 @@ Plain-double getters are gone: reads return `Signal<T>`.
 exception *and* `kOk` — checking only one of those misses half the
 failures.
 
-The steer loop closes on the SPARK, against the analog absolute
-encoder. Robot-side code writes a setpoint, never a voltage, and the
-module zero offset is added to that setpoint here, because
-`AnalogSensorConfig` has no `zeroOffset`.
+`AnalogSensorConfig` has three setters — `inverted`,
+`positionConversionFactor`, `velocityConversionFactor` — and no
+`zeroOffset`. The device cannot hold a module zero, so the offset is
+folded into the setpoint by hand; ADR 0008 owns where the loops run and
+what feeds them.
 
 ## Comments
 
@@ -95,6 +96,10 @@ line and a units line would both be restating the signature.
 
 ## Where things are
 
-<!-- One line per ADR as they land. This file points; it never restates. -->
+<!-- This file points; it never restates. -->
 
+- `docs/adr/` — the architecture decisions, one area per document.
+  `docs/adr/README.md` indexes them.
+- `CONTEXT.md` — the glossary.
+- `docs/commands-v3-house-style.md` — how commands get written here.
 - `docs/research/` — verified findings from the design map, with sources.

@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted — 2026-08-26.
+Accepted — 2026-08-26. The *Open* item asking whether the bus can pay
+for five 200 Hz Pigeon signals is answered by ADR 0007, which budgets
+the two frames they ride, and now sits under *Consequences*.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -452,7 +454,11 @@ older spellings appears anywhere.
 - **The CAN frame budget grows by five signals at 200 Hz** — the yaw
   rate and the four quaternion components. That is a real cost against a
   bus that already carries eight SPARKs and the Pigeon's constant
-  diagnostic overhead, and it lands on ADR 0007.
+  diagnostic overhead, and it lands on ADR 0007, **which pays for it**:
+  five signals are **two frames**, because `getRotation3d()`'s four
+  quaternion signals share one and the yaw rate is the other, and 0007
+  budgets both at 5 ms for **400 frames/s**. **[unverified —
+  arithmetic; ADR 0007 owns the budget]**
 
 - **No simulated vision source and no wiring test.** A sim source feeding
   ADR 0010's true pose back noisily would mostly test
@@ -651,13 +657,6 @@ older spellings appears anywhere.
   is `Field.setOrigin(...)`; for autonomous it is the trajectory flip;
   and the two must agree or vision and the path disagree by a mirror.
   *Unblocked by* the 2027 field release and its AprilTag map.
-
-- **The CAN frame budget for five 200 Hz Pigeon signals.** This ADR
-  requires the rate; ADR 0007 decides whether the bus can pay for it,
-  and what gives way if it cannot. The fallback if it cannot is a lower
-  frequency and a matching sample rate, not a silent default —
-  the trap above is what makes the silent version dangerous.
-  *Unblocked by* ADR 0007.
 
 - **Whether 200 Hz is enough.** The field precedent is 254's 250 Hz
   history, and our loop is 200 Hz. The gap is small and nobody has shown

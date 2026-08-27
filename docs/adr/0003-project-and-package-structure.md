@@ -298,9 +298,16 @@ in GradleRIO's deploy plugin — so output is `journalctl -u robot -f`.
   `WPIJavaDepsExtension.java:84-85`; GradleRIO is not in the local
   checkout, so this one was not re-read for this ADR]**
 
-- **Alert visibility on a dashboard is unverified.** Nothing in-tree
-  publishes `Alert` to NetworkTables. "Faults go to `Alert`" is a rule
-  whose last mile nobody has watched work. **[unverified]**
+- **Alerts reach the Driver Station, not the robot's NetworkTables.**
+  Nothing in-tree publishes `Alert` to NT — the image's native backend
+  does, and the topics land on the *DS* under
+  `/Dscomm/Alerts/{group}/{level}/{id}/{text,active}`, with levels
+  `0`/`1`/`2` = HIGH/MEDIUM/LOW and a topic created at construction
+  rather than at first activation. **[executed, via #22]** The DS's NT
+  server is localhost-only, so anything wanting to see an alert looks at
+  the DS and not at the robot — which is why ADR 0004 logs the alert set
+  itself rather than relying on that path, and why ADR 0013's bench job
+  with no DS attached asserts on no alerts at all.
 
 ## Open
 

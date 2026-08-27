@@ -89,6 +89,19 @@ The index of the ADRs themselves is
   and nothing commands it alone; `PoseEstimator` is not, because many
   commands read it at once
   ([ADR 0006](docs/adr/0006-commands-v3-house-style.md)).
+- **Config record** — the Java record holding everything one mechanism
+  needs, constructed in `Constants` and handed to that mechanism's
+  constructor ([ADR 0003](docs/adr/0003-project-and-package-structure.md)).
+  Not the same thing as a *vendor* config object, which a factory
+  method per motor role returns fresh every call
+  ([ADR 0004](docs/adr/0004-config-as-code.md)).
+- **`Alert`** — `org.wpilib.util.Alert`, this project's designated
+  fault surface. Its `id` is mandatory and `(group, id)` is a
+  project-wide namespace the framework is already in
+  ([ADR 0004](docs/adr/0004-config-as-code.md), which also owns the
+  rule that an alert never blocks enabling and that the active set is
+  logged). Alerts reach the *Driver Station's* NetworkTables, never the
+  robot's ([ADR 0003](docs/adr/0003-project-and-package-structure.md)).
 - **Driver Station** — the FIRST application the drive team runs on a
   laptop. It is what enables the robot, and it is where the opmode is
   selected — nothing in robot code chooses one
@@ -190,6 +203,13 @@ The index of the ADRs themselves is
 - **Tunable** — a value changeable at runtime through
   `org.wpilib.tunable` instead of a redeploy. A tunable is logged
   ([ADR 0004](docs/adr/0004-config-as-code.md)).
+- **Status Logger, `.revlog`** — REVLib's own on-disk record of every
+  REV device, in a proprietary format, left on
+  ([ADR 0009](docs/adr/0009-characterisation-and-tuning.md)). A *sink*
+  rather than a source, so it changes no frame rate
+  ([ADR 0007](docs/adr/0007-can-topology-and-frames.md)), and unreadable
+  by `logtool`
+  ([ADR 0014](docs/adr/0014-ai-log-analysis-contract.md)).
 - **`logtool` / `/analyze-match`** — the CLI that reads any WPILOG and
   knows nothing about our robot, and the skill that supplies every
   fact about it. Neither is built yet
@@ -301,6 +321,11 @@ The index of the ADRs themselves is
   gains. **Tuning** is the shorter loop after it: change a number at a
   bench, watch, change it again
   ([ADR 0009](docs/adr/0009-characterisation-and-tuning.md)).
+- **Sim gains** — the second set of gains, branched on
+  `isSimulation()`, chosen so the simulation model *tracks*. They are
+  not a prediction of the real robot's, which is the whole distinction
+  ([ADR 0009](docs/adr/0009-characterisation-and-tuning.md),
+  [ADR 0010](docs/adr/0010-simulation-architecture.md)).
 - **SysId** — the WPILib tooling that does the above. A
   **quasistatic** test ramps the voltage slowly and a **dynamic** test
   steps it, each forward and reverse; a desktop analyser fits the

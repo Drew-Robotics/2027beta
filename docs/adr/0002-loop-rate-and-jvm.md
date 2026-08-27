@@ -157,10 +157,11 @@ after the fact (ADR 0014). **[decided]**
 
 ## Consequences
 
-- **ADR 0007 inherits a nearly-full bus.** Status2 at 5 ms on eight
-  SPARKs plus eight setpoint writes at 5 ms is **87% of all CAN traffic**
-  — 3200 frames/s of a ~3680 total, **48–57% utilisation** — and it is
-  irreducible at 200 Hz. **[measured]**
+- **ADR 0007 inherits a nearly-full bus.** The two 5 ms encoder frame
+  groups plus eight setpoint writes at 5 ms are **82% of all CAN
+  traffic** — 3200 frames/s of a ~3920 total, **52–61% utilisation** —
+  and irreducible at 200 Hz. **[unverified — arithmetic; ADR 0007 owns
+  the budget]**
 
 - **ADR 0005's logging rule is unchanged, and its `Measure`-per-sample
   habit now has a price on it.** Logging the same fifty signals as

@@ -3,7 +3,9 @@
 ## Status
 
 Accepted — 2026-08-26. Superseded in part by ADR 0011, which owns the
-`/Drive/Following` and `/Auto` signals.
+`/Drive/Following` and `/Auto` signals. The *Open* item asking whether
+an alert is visible during a match is answered by #22 and now sits
+under *Consequences*.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -392,6 +394,12 @@ holds a season.
   one-rate rule**, and the exception is now recorded in the ADR that
   owns the rule rather than only in the one that needed it.
 
+- **An alert is visible during a match, and it is still not in the file
+  for free.** Alerts reach the *Driver Station's* NetworkTables, by a
+  path ADR 0003 records — never this ADR's backend and never the
+  robot's own NT. So it changes nothing here: ADR 0004's 4 Hz alert-set
+  logging remains the only thing that puts an alert in the WPILOG.
+
 - **ADR 0013 inherits an assertion surface.** ADR 0003 hands each
   mechanism its own `TelemetryTable`, so a test constructs one over a
   `MockTelemetryBackend` and asserts on `getLastValue(path, cls)` with
@@ -517,14 +525,6 @@ holds a season.
   exists to prevent. *Unblocked by* someone deciding the tunable set and
   reading `TunableRegistry` for whether a second backend or an explicit
   mirror is the cheaper route.
-
-- **Nothing in the tree publishes alerts to NetworkTables.** `Alert.h`
-  exposes a pluggable native backend, so the dashboard integration is
-  presumably supplied out-of-tree by the SystemCore runtime
-  **[unverified — #2]**. ADR 0004's alert-set logging means the file is
-  covered either way; what is uncertain is whether an alert is visible
-  *during* a match. *Unblocked by* the first bench session with a DS
-  attached.
 
 - **The 13.1 MB and 65 µs figures were measured with ~50 synthetic
   signals**, not with this list attached to real mechanisms

@@ -182,7 +182,7 @@ period is a number nobody can reproduce.
 **That rule does not apply to `kS`, `kV` or `kP` on the SPARK, and this
 is stated here rather than inherited.** Those gains belong to a
 controller that runs at 1 kHz and never sees our 5 ms. Writing
-`Constants.kLoopPeriod` beside them would record a number that misleads
+`Constants.LOOP_PERIOD` beside them would record a number that misleads
 a future reader into rescaling.
 
 WPILib's own analyser says the same thing in the same place it would
@@ -559,7 +559,7 @@ measurements of a motor, not of a drive base. The `@Utility` rule is
 restated as a supervision requirement rather than given an exception,
 because a rule with an exception beside it is a rule with two meanings.
 
-### Recording `Constants.kLoopPeriod` beside the on-SPARK gains
+### Recording `Constants.LOOP_PERIOD` beside the on-SPARK gains
 
 It would satisfy ADR 0002's rule by writing down a number that has
 nothing to do with the controller the gains run on, which is worse than
