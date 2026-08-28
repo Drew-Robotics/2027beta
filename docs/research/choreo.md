@@ -1139,7 +1139,10 @@ the optimizer's output changing is visible in PR review rather than silent.
 Added by the 2026-08-28 re-check, because it is the half of
 [#78](https://github.com/Drew-Robotics/2027beta/issues/78) that has a robot on the other end of it.
 
-**The origin has not moved. Every source that owns a piece of the answer still says blue-corner.**
+**Field-centre is where this is going, and nothing has shipped in it yet.** Every artifact that
+exists today — WPILib's field module, the field layouts, Choreo's editor, the `.traj` schema — still
+says blue-corner. The confirmation that it moves is quoted further down and is not on the public
+record.
 
 - **WPILib.** `~/dev/allwpilib/fields/src/main/java/org/wpilib/fields/Field.java:32-33` — *"Pose3ds
   in the JSON are measured using the normal FRC coordinate system, NWU with the origin at the
@@ -1166,7 +1169,29 @@ a constant. A field-centre field ships as `"origin-fraction": [0.5, 0.5]`, so on
 change is data, not code — which is consistent with it being gated on the map rather than on
 engineering. [U] on whether that is the mechanism they will actually use.
 
-**So our flip is wrong today, and the paths are right.** `FieldConstants.flip(Pose2d)` negates x and
+**Field-centre is confirmed — and it is confirmed off the public record.** WPILib Discord
+`#systemcore`, **2026-04-11**, from a screenshot Drew supplied on 2026-08-28:
+
+> **crueter | 4028A/6032M:** Wait, field-center-origin is becoming a thing?
+> **Peter | WPILib:** yes
+
+Peter Johnson is WPILib's lead and tagged `v2027.0.0-alpha-7` himself, so this is the answer from
+the party that owns it. **[source]**
+
+Everything above and in the [re-check](#re-check-2026-08-28) that reports *no WPILib-side tracking*
+therefore describes the **public** record only: there is no issue, no PR, no milestone entry and no
+docs branch, and on this evidence there need not be one before the change lands. Anyone re-running
+that search will find silence and **must not read it as doubt**.
+
+Two messages earlier in the same exchange, the part that is **not** settled:
+
+> **JS | 6995A | Choreo:** Will previous fields be retroactively converted to field-center-origin?
+> **Peter | WPILib:** hmm. probably a good idea? I think?
+
+Four months old, with nothing since. So the destination is fixed and **the fate of the 2026 layouts
+is open**, which is what decides how the conversion below is written. [U]
+
+**So the flip and the paths are in different frames, and the paths are the half that is behind.** `FieldConstants.flip(Pose2d)` negates x and
 y — a 180° rotation about a **field-centre** origin — while `StraightAhead.traj` (x 2.0–5.0,
 y 4.0) and `SweepLeft.traj` (x 2.0–5.5, y 2.0–5.5) are drawn in Choreo's **blue-corner** frame, as
 their `params.waypoints` confirm (`{"x": {"exp": "2.0 m", "val": 2.0}, "y": {"exp": "2.0 m", …}}`).
@@ -1177,42 +1202,72 @@ On red the flip sends both off the field into the third quadrant.
 mass, bumpers) and `variables`. Regenerating re-optimises the same corner-frame waypoints and emits
 corner-frame samples. Moving to field-centre by hand means subtracting `(L/2, W/2)` from every
 waypoint *and* every sample, which puts the paths at negative coordinates — **outside the GUI's
-`0 → L` canvas**, so the `.chor` project stops being editable in Choreo. That trades a wrong flip
-for an unusable authoring tool.
+`0 → L` canvas**, so the `.chor` project stops being editable in Choreo. The frames have to be
+reconciled where the file is **read**, not where it is authored.
 
-**Recommendation: invert the flip to the corner-origin rotation. Do not regenerate.**
+**Recommendation: go field-centre now, and convert at the two boundaries.**
 
-Note the ADR and the ticket both write the corner-origin flip as *"`x → length − x`, heading
-`→ π − heading`"*. That is a **mirror about the field's long centreline**, which is the right flip
-only for a mirror-symmetric field. Our current flip is a **rotation**, and ChoreoLib agrees: on
-`main`, `ChoreoAllianceFlipUtil.Flipper.FRC_CURRENT = rotatedAround(FIELD_LENGTH, FIELD_WIDTH)`,
-composed from `MirroredX` ∘ `MirroredY`. The corner-origin form of *the rotation we already have* is:
+An earlier draft of this section recommended inverting the flip to a corner-origin rotation,
+reasoning that the public record said blue-corner and nothing else confirmed the move. The Discord
+quote retires that reasoning. The destination is settled, `FieldConstants` and ADR 0011 already
+target it, and the cheaper change is to move the **inputs** into the frame the robot already thinks
+in rather than to move the robot into the frame its inputs happen to arrive in.
 
-| | field-centre (today's code) | blue-corner (what the paths need) |
+- **Paths.** `TrajectoryLoader` subtracts `(L / 2, W / 2)` from each sample pose as it reshapes a
+  `.traj`. It is already the only class that names Choreo and already the one that hard-fails on a
+  schema version. Velocities and accelerations are untouched — a pure translation does not rotate a
+  vector.
+- **Tags, when vision lands.**
+  `Field.setOrigin(new Pose3d(new Translation3d(L / 2, W / 2, 0), Rotation3d.kZero))`.
+  `getTagPose` returns `tag.getPose().relativeTo(m_origin)`
+  (`fields/src/main/java/org/wpilib/fields/Field.java:394`), so the stock layout needs no fork and
+  no hand-edited tag poses; `OriginPosition`'s two members are named presets over that same setter
+  (`:349-357`). Nothing in `src/` reads a layout today. **[V]**
+- **`FieldConstants.flip` does not change.** ADR 0011's rigid transform was right, and stays a
+  rotation about the origin.
+- **At kickoff both conversions delete**, and until then the robot lives in the frame it will ship
+  in — which is where the field-centre traps are found on a bench in September rather than in
+  week 1.
+
+The cost is that every tool in the loop is corner-frame: Choreo's canvas runs `0 → L`, and a robot
+at the blue wall logs `x = -8.27`. Whether AdvantageScope's field view can be told about a centre
+origin is **not established here** and is worth ten minutes with a log before committing. [U]
+
+**Neither conversion may be applied twice, and nothing upstream will say if it is.** The layout JSON
+declares no origin at all — its keys are `name`, `season`, `game`, `field-image`, `field-dimensions`,
+`program`, `field-tags` — so a retroactive conversion of the 2026 layout moves every tag by 8.27 m
+with no schema change and no error. `.traj` at least has the version-3 tripwire; the layout has
+nothing. The discriminator is one line and belongs wherever the layout is read: **in a corner-frame
+layout every tag has x >= 0; in a centre-frame one roughly half are negative.** Assert it and fail
+loudly rather than adapt silently. **[V]** for the absence of an origin key, [U] for whether the
+conversion happens.
+
+**Where the numbers come from.** Each conversion uses the dimensions of the field **its own data was
+drawn against**, not "the current field": the paths use Choreo's `FieldDimensions`
+(`L = 16.541`, `W = 8.0692`), the tags use `field-dimensions` from the layout JSON they came from
+(`16.541 x 8.069` for `2026-rebuilt-welded`). The two agree to rounding but they are two sources,
+and reading each from its own is what keeps them right when only one of them moves. **No 2027 field
+dimension is published anywhere** — the tree has no 2027 layout and there is no 2027 docs branch —
+so these are 2026 numbers standing in until the 2027 map ships. [V]
+
+**ADR 0011's corner-origin row is wrong, and correcting it still matters.** The ADR and #78 both
+write the corner flip as *"`x -> length - x`, heading `-> pi - heading`"* and conclude it costs a
+hand-written per-sample remap. That is a **mirror**, which is the right flip only for a
+mirror-symmetric field, and it is not what ChoreoLib does: on `main`,
+`ChoreoAllianceFlipUtil.Flipper.FRC_CURRENT = rotatedAround(FIELD_LENGTH, FIELD_WIDTH)`, composed
+from `MirroredX` and `MirroredY`. We are not taking the corner path, but that row is part of why
+field-centre looked strictly simpler than it is, and a future reader reaching for the corner form
+should get the rotation rather than the mirror:
+
+| | field-centre (the code, and the destination) | blue-corner, stated correctly |
 |---|---|---|
 | x | `-x` | `L - x` |
 | y | `-y` | `W - y` |
-| heading | `θ + π` | `θ + π` — **unchanged** |
-| vx, vy, ω | `-vx, -vy, ω` | **unchanged** |
-| ax, ay, α | `-ax, -ay, α` | **unchanged** |
+| heading | `theta + pi` | `theta + pi` — **unchanged** |
+| vx, vy, omega | `-vx, -vy, omega` | **unchanged** |
+| ax, ay, alpha | `-ax, -ay, alpha` | **unchanged** |
 
-**The whole change is `FieldConstants.flip(Pose2d)`** — three tokens, `-pose.getX()` →
-`LENGTH - pose.getX()` and the same for y. `flip(HolonomicSample)`, `forAlliance`, `asAuthored` and
-every caller are untouched, and the corner rotation is **still its own inverse**
-(`L - (L - x) = x`), so `asAuthored`'s comment stays true.
-
-**Where the numbers come from, and what they cost.** `L = 16.541`, `W = 8.0692` — Choreo's own
-`FieldDimensions.tsx` / `FieldDimensions.java`, which is the frame the paths were actually drawn in,
-and which agrees with WPILib's `2026-rebuilt-welded.json` `field-dimensions` to within its rounding
-(`16.541 × 8.069`). Use Choreo's, not WPILib's, and take them from the field the paths were authored
-against rather than from "the current field". **No 2027 field dimension is published anywhere** —
-the tree has no 2027 layout and there is no 2027 docs branch — so these are 2026 numbers standing in
-until the 2027 map ships. [V]
-
-Cost to switch back when the origin does move: set the two constants to `0`. The 2027 field is a
-different field with a different game, so **every path is being redrawn at that point anyway** — the
-2026 dimensions are not a debt that outlives the paths that need them. And the `.traj` schema bump
-that `TrajectoryLoader` already fails loudly on is the signal to do it.
+Both forms are their own inverse (`L - (L - x) = x`), so `asAuthored`'s comment holds either way.
 
 ---
 
@@ -1638,7 +1693,11 @@ available as a drop-in if ChoreoLib slips past our integration window.
   converter (takeaway 10) is throwaway or permanent. [U]
 - **Will PathPlanner adopt the new WPILib `Trajectory` types?** The design doc anticipates it;
   nothing public from PathPlanner says so. Affects how clean the fallback swap is. [U]
-- ~~**Coordinate origin.**~~ **Answered on 2026-08-28 for today, still open for the future.** [V]
+- ~~**Coordinate origin.**~~ **Answered on 2026-08-28: field-centre is confirmed as the
+  destination, blue-corner is what every shipped artifact still emits.** Peter Johnson (WPILib),
+  Discord `#systemcore` 2026-04-11: *"field-center-origin is becoming a thing?" / "yes"*.
+  **[source]** The public tracker records none of it — see
+  [§6.4](#64-the-coordinate-origin-and-what-our-flip-must-be-today-v). [V]
   It is **blue-corner** in every source that owns a piece of it — `Field.java:32-33`,
   `OriginPosition` (`:43-48`), Choreo's `FieldDimensions.tsx`, and `JSONFieldImage.tsx`'s
   `"origin-fraction": [0, 0]`. See [§6.4](#64-the-coordinate-origin-and-what-our-flip-must-be-today-v).
@@ -1680,6 +1739,10 @@ available as a drop-in if ChoreoLib slips past our integration window.
   `FRC_2026_REBUILT_WELDED`. Since 2027 kickoff is January 2027, expect this no earlier than then —
   and with it the origin change, the `.traj` schema bump, and a redraw of every path. [V] for the
   absence, [U] for the timing.
+- **Will the 2026 field layouts be retroactively converted to field-centre?** Asked in Discord
+  `#systemcore` on 2026-04-11 and answered *"hmm. probably a good idea? I think?"*, with nothing
+  since. It matters more than it sounds: the layout JSON declares no origin, so a retroactive
+  conversion is a silent 8.27 m move with no schema bump behind it. [U]
 - **When the transitional release lands it will target alpha-7, not alpha-6.** The branch's
   `wpilibVersion = '2027.0.0-alpha-6'` and its `frcYear: "2027_alpha5"` vendordep are both already
   behind the maintainer's stated target. Nothing on the branch reflects alpha-7 yet. [V]
@@ -1709,6 +1772,9 @@ available as a drop-in if ChoreoLib slips past our integration window.
   2026-08-27T03:52Z
 - [wpilibsuite/vendor-json-repo](https://github.com/wpilibsuite/vendor-json-repo)
 - [ChoreoLib-java maven metadata](https://frcmaven.wpi.edu/artifactory/sleipnirgroup-mvn-release/choreo/ChoreoLib-java/maven-metadata.xml)
+- WPILib Discord `#systemcore`, 2026-04-11 — Peter Johnson on field-centre origin, and the
+  unanswered question of retroactive conversion. Supplied by Drew as a screenshot on 2026-08-28;
+  not publicly linkable.
 - Re-check 2026-08-28, read directly:
   `choreolib/src/main/java/choreo/util/{ChoreoAllianceFlipUtil,FieldDimensions,TrajSchemaVersion}.java`
   and `src-core/src/spec/traj_schema_version.rs` on `main` **and** `systemcore-transitional-release`;
