@@ -40,10 +40,12 @@ class DriverInputTest {
 
   @Test
   void theCurveIsSoftBelowTheStraightLineAndConvergesOntoIt() {
-    // Soft where a driver is placing the robot, and indistinguishable from linear where they are
-    // crossing the field.
-    assertTrue(Drive.stick(0.2) < 0.2 / 2, "the curve is not soft at a fifth of travel");
-    assertTrue(Drive.stick(0.9) > 0.9 * 0.9, "the curve has not converged by nine tenths");
+    // Soft where a driver is placing the robot, and close to linear where they are crossing the
+    // field. The bounds are the shape rather than the fit: a curve stiff enough to fail the first
+    // one is the flat-zone-with-an-edge the curve exists to replace.
+    assertTrue(Drive.stick(0.2) < 0.05, "the curve is not soft at a fifth of travel");
+    assertTrue(Drive.stick(0.5) < 0.35, "the curve is not soft at half travel");
+    assertTrue(Drive.stick(0.9) > 0.8, "the curve has not converged by nine tenths");
 
     double previous = 0;
     for (double axis = DEADBAND; axis <= 1; axis += 0.01) {
