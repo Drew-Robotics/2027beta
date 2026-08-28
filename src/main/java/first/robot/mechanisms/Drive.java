@@ -24,10 +24,12 @@ import first.robot.DriveConstants;
 import first.robot.DriveConstants.DriveConfig;
 import first.robot.DriveConstants.SwerveModuleConfig;
 import first.robot.Hardware;
+import first.robot.HolonomicPathFollower;
 import first.robot.sim.OnboardLoopSim;
 import first.robot.sim.SwerveDriveSim;
 import java.util.Arrays;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Mechanism;
@@ -39,11 +41,14 @@ import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.math.kinematics.ChassisAccelerations;
 import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
+import org.wpilib.math.trajectory.HolonomicTrajectory;
 import org.wpilib.simulation.RoboRioSim;
+import org.wpilib.system.Timer;
 import org.wpilib.telemetry.TelemetryTable;
 import org.wpilib.units.measure.Angle;
 
@@ -57,13 +62,18 @@ public class Drive implements Mechanism {
   private final SwerveModule[] modules = new SwerveModule[MODULES];
   private final SwerveDriveKinematics kinematics;
   private final Pigeon2 gyro;
+  private final Function<String, HolonomicTrajectory> trajectories;
+  private final Supplier<Pose2d> pose;
   private final TelemetryTable chassisLog;
   private final TelemetryTable moduleLog;
   private final TelemetryTable odometryLog;
+  private final TelemetryTable followingLog;
+  private final TelemetryTable autoLog;
   private final TelemetryTable simLog;
   private final Scheduler scheduler;
 
   private ChassisVelocities desiredVelocities = new ChassisVelocities();
+  private boolean pathTimedOut;
 
   // The vendor plumbing, and the one place in this project allowed to be saturated with it.
   // Everything it drives is in first.robot.sim, which imports no vendor type at all.
@@ -77,12 +87,26 @@ public class Drive implements Mechanism {
   private Angle simYaw;
   private Rotation2d lastTrueRotation;
 
-  public Drive(DriveConfig config, TelemetryTable log, TelemetryTable simLog, Scheduler scheduler) {
+  // trajectories is a lookup into a cache somebody else filled, and pose is a read-only view of
+  // the estimate. Neither hands this class an estimator, so it still cannot reset pose and still
+  // never learns cameras exist.
+  public Drive(
+      DriveConfig config,
+      Function<String, HolonomicTrajectory> trajectories,
+      Supplier<Pose2d> pose,
+      TelemetryTable log,
+      TelemetryTable autoLog,
+      TelemetryTable simLog,
+      Scheduler scheduler) {
+    this.trajectories = trajectories;
+    this.pose = pose;
+    this.autoLog = autoLog;
     this.simLog = simLog;
     this.scheduler = scheduler;
     chassisLog = log.getTable("Chassis");
     moduleLog = log.getTable("Modules");
     odometryLog = log.getTable("Odometry");
+    followingLog = log.getTable("Following");
 
     var gains = DriveConstants.gains();
     var corners = corners(config);
@@ -158,6 +182,50 @@ public class Drive implements Mechanism {
     return fieldRelative(velocities, this::setVelocities).named("Drive.DriveFieldRelative");
   }
 
+  // The estimator's heading, not the gyro's. The two differ by whatever a resetPose introduced —
+  // Odometry3d assigns the pose and integrates gyro deltas onto it — and a follower whose error is
+  // measured against the estimate has to be converted back in that same frame. The single-argument
+  // form above stays on the gyro deliberately: a driver's forward should not jump when a vision
+  // update moves the estimate.
+  public Command driveFieldRelative(
+      Supplier<ChassisVelocities> velocities, Supplier<ChassisAccelerations> accelerations) {
+    return run(coroutine -> {
+          while (true) {
+            var heading = pose.get().getRotation();
+            var field = velocities.get();
+            setVelocities(
+                field.toRobotRelative(heading), accelerations.get().toRobotRelative(heading));
+            coroutine.yield();
+          }
+        })
+        .whenCanceled(this::stopModules)
+        .named("Drive.DriveFieldRelative");
+  }
+
+  public Command followPath(String pathName) {
+    return run(coroutine -> {
+          var follower =
+              new HolonomicPathFollower(
+                  trajectories.apply(pathName),
+                  pose,
+                  Timer::getTimestamp,
+                  DriveConstants.PATH_FOLLOWER,
+                  followingLog);
+          // A timeout left over from the previous path is indistinguishable from this one's until
+          // this one is over.
+          pathTimedOut = false;
+          followingLog.log("TimedOut", false);
+          autoLog.log("PlannedPath", follower.plannedPath(), Pose2d.struct);
+
+          coroutine.fork(driveFieldRelative(follower::next, follower::acceleration));
+          var result = coroutine.waitUntil(follower::isDone, follower.timeout());
+          pathTimedOut = result.timedOut();
+          followingLog.log("TimedOut", result.timedOut());
+        })
+        .whenCanceled(this::stopModules)
+        .named("Drive.FollowPath[" + pathName + "]");
+  }
+
   // Open loop, unlike everything else that drives: a velocity loop answers a shove by spinning the
   // wheel back to its setpoint, and a driver reads that as the robot arguing. A voltage does what
   // the stick did.
@@ -216,6 +284,17 @@ public class Drive implements Mechanism {
     }
   }
 
+  public void setVelocities(ChassisVelocities velocities, ChassisAccelerations accelerations) {
+    var states = moduleTargets(velocities);
+    // The two-argument form, always: toWheelAccelerations hardcodes omega = 0 and drops the
+    // centripetal term, which dominates during exactly the manoeuvre this feedforward is for.
+    var moduleAccelerations =
+        kinematics.toSwerveModuleAccelerations(accelerations, velocities.omega);
+    for (int i = 0; i < MODULES; i++) {
+      modules[i].setVelocity(states[i], moduleAccelerations[i]);
+    }
+  }
+
   public void setOpenLoopVelocities(ChassisVelocities velocities) {
     var states = moduleTargets(velocities);
     for (int i = 0; i < MODULES; i++) {
@@ -236,6 +315,12 @@ public class Drive implements Mechanism {
       module.stop();
     }
     desiredVelocities = new ChassisVelocities();
+  }
+
+  // followPath returns normally on a timeout rather than throwing, so a routine that awaited it
+  // cannot otherwise tell a path that finished from one that gave up a metre short.
+  public boolean lastPathTimedOut() {
+    return pathTimedOut;
   }
 
   public Rotation3d getGyroHeading() {

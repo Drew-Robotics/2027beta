@@ -5,6 +5,7 @@
 package first.robot;
 
 import static org.wpilib.units.Units.Amps;
+import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.DegreesPerSecond;
 import static org.wpilib.units.Units.Inches;
 import static org.wpilib.units.Units.KilogramSquareMeters;
@@ -15,6 +16,7 @@ import static org.wpilib.units.Units.Milliseconds;
 import static org.wpilib.units.Units.Pounds;
 import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.Rotations;
+import static org.wpilib.units.Units.Seconds;
 import static org.wpilib.units.Units.Volts;
 
 import first.robot.sim.SwerveSimConfig;
@@ -132,6 +134,18 @@ public final class DriveConstants {
   // A pose estimator tuned against a gyro that never wanders is tuned against a robot that does
   // not exist. Roughly a degree a minute, which is the order a Pigeon2 drifts at.
   public static final AngularVelocity GYRO_SIM_DRIFT = DegreesPerSecond.of(1.0 / 60);
+
+  // Volts per metre per second squared at the wheel, handed to the SPARK as arbFeedforward beside
+  // the velocity setpoint. Zero until SysId's dynamic test produces one, which leaves the term
+  // present and inert rather than absent.
+  public static final double DRIVE_KA = 0.0;
+
+  // Metres per second of correction per metre of error, and radians per second per radian. No path
+  // has been driven on a chassis; the gains are a starting point that a bring-up replaces, and the
+  // margin is the worst settling time the simulated paths take past their own duration, rounded up.
+  public static final HolonomicPathFollower.Config PATH_FOLLOWER =
+      new HolonomicPathFollower.Config(
+          5.0, 5.0, 5.0, Meters.of(0.05), Degrees.of(2), Seconds.of(2));
 
   public record DriveMotorGains(double kP, double kS, double kV) {}
 

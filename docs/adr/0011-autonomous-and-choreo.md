@@ -2,7 +2,14 @@
 
 ## Status
 
-Accepted — 2026-08-26. Amended by ADR 0012, which owns the pose
+Accepted — 2026-08-26. Amended 2026-08-28 by the implementation, in two
+places: the follow timeout's margin is settled under *the follower is
+WPILib's own interface* rather than left open, and the field-centre flip
+is written per sample rather than through
+`HolonomicTrajectory.transformBy`, which turns out not to express it —
+see the fourth entry under *Traps*.
+
+Amended by ADR 0012, which owns the pose
 estimator: `Drive.getGyroHeading()` returns a `Rotation3d` rather than a
 `Rotation2d`, and the estimator beside `Drive` is
 `SwerveDrivePoseEstimator3d`. Two statements below survive the widening
@@ -215,11 +222,12 @@ with **one change**:
 ```java
 public Command followPath(String pathName) {
   return run(coroutine -> {
-        var follower = new HolonomicPathFollower(trajectories.apply(pathName), pose, FOLLOWER_GAINS);
-        coroutine.fork(driveFieldRelative(follower::next));
-        var result = coroutine.waitUntil(follower::isDone, FOLLOW_TIMEOUT);
+        var follower = new HolonomicPathFollower(trajectories.apply(pathName), pose, PATH_FOLLOWER);
+        coroutine.fork(driveFieldRelative(follower::next, follower::acceleration));
+        var result = coroutine.waitUntil(follower::isDone, follower.timeout());
         telemetry.log("Following/TimedOut", result.timedOut());
       })
+      .whenCanceled(this::stopModules)
       .named("Drive.FollowPath[" + pathName + "]");
 }
 ```
@@ -250,6 +258,21 @@ against a defender never reports `isDone`, and the untimed
 `waitUntil` is documented to *"only return once the condition is met"*
 (`:658-669`) **[source]** — so one stuck path hangs the entire
 autonomous period with no recovery. **[decided]**
+
+The clock starts inside `waitUntil` — `var timer = Timer.createStarted()`
+(`:723`) **[source]** — not at the command's start, so the value is a
+**margin over the trajectory's `duration`**, not an absolute. The margin
+is **2 s**: the worst settling time the two committed paths take past
+their own duration in simulation, rounded up. **[executed]** That figure
+is dominated by the drive lagging its velocity setpoint with `kA`
+configured zero, so it shrinks when ADR 0009 produces a `kA`.
+
+`isDone` is not the clock alone. A follower that reports done the
+instant `duration` elapses reports done for a robot held against a
+defender at the start of the path, which makes the timeout unreachable
+and hands the next command a robot nowhere near where it assumes. It is
+the clock **and** arrival inside a position and heading tolerance, both
+in the same config record as the gains. **[decided]**
 
 The three PID gains the follower uses live in a **config record next to
 the follower**, per ADR 0004 — not on `Drive`, because a second
@@ -477,14 +500,24 @@ produce it. ADR 0009 owns that.
   path that tracks perfectly on a straight run and diverges the moment
   the robot rotates.
 
-- **A `Transform2d` cannot express the blue-corner flip.**
-  `HolonomicTrajectory.transformBy(Transform2d)`
-  (`HolonomicTrajectory.java:66`) **[source]** applies a rigid
-  transform, which is what a field-centre 180° flip is. A blue-corner
-  flip is a **reflection** — `x → length − x`, heading `→ π − heading`
-  — and no rigid transform is a reflection. Reaching for `transformBy`
-  under a corner origin gives a path that is plausibly shaped, wrong,
-  and produces no error. See Open.
+- **A `Transform2d` cannot express the blue-corner flip, and
+  `transformBy` does not express the field-centre one either.** A
+  blue-corner flip is a **reflection** — `x → length − x`, heading
+  `→ π − heading` — and no rigid transform is a reflection. Reaching
+  for `transformBy` under a corner origin gives a path that is
+  plausibly shaped, wrong, and produces no error.
+
+  `HolonomicTrajectory.transformBy(Transform2d)` does not save the
+  field-centre case: it is rigid **about the trajectory's own first
+  pose** rather than about the origin —
+  `firstPose.transformBy(transform)`, then every later sample by
+  `transformedFirstPose.plus(sample.pose.minus(firstPose))`
+  (`HolonomicTrajectory.java:67-81`) **[source]** — and it carries
+  `sample.velocity` and `sample.acceleration` through **unrotated**
+  (`:72, 82-83`) **[source]**. Under a 180° flip that leaves every velocity
+  pointing the way it did before, which compiles, runs, and drives the
+  mirrored path backwards. The flip is written per sample instead. See
+  Open.
 
 - **A `kV` in `FeedForwardConfig` and a `kV·v` term in
   `arbFeedforward` double the feedforward, and nothing throws.** The
@@ -550,20 +583,13 @@ produce it. ADR 0009 owns that.
 
   | Origin | Flip is | Implementation |
   |---|---|---|
-  | **Field-centre** | 180° rotation about the origin — a **rigid transform** | `trajectory.transformBy(...)`, one call |
+  | **Field-centre** | 180° rotation about the origin — a **rigid transform** | negate x and y, turn the heading half a turn, negate the velocity and acceleration vectors; one function |
   | Blue-corner | a **reflection** (`x → length − x`, heading `→ π − heading`) | a hand-written per-sample remap; `Transform2d` cannot express it |
 
   We target field-centre. The one-function rule is what makes this
   switchable at all. *Unblocked by* the 2027 field release and its
   AprilTag map, at which point the function is re-verified against the
   real thing rather than against a report.
-
-- **The follow timeout has no value yet.** The overload is decided; the
-  duration is not. The clock starts inside `waitUntil` —
-  `var timer = Timer.createStarted()` (`Coroutine.java:723`)
-  **[source]** — not at the command's start, so it is a margin over the
-  trajectory's `duration` rather than an absolute. *Unblocked by* the first paths
-  existing, at which point the margin is a number rather than a guess.
 
 - **Whether the converter is throwaway or permanent.** If ChoreoLib's
   `Trajectory` eventually **extends** `org.wpilib.math.trajectory.Trajectory`
