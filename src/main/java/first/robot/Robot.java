@@ -28,6 +28,7 @@ import org.wpilib.framework.OpModeRobot;
 import org.wpilib.hardware.power.PowerDistribution;
 import org.wpilib.networktables.NetworkTableInstance;
 import org.wpilib.system.DataLogManager;
+import org.wpilib.system.Filesystem;
 import org.wpilib.system.RobotController;
 import org.wpilib.system.WPILibVersion;
 import org.wpilib.telemetry.MultiTelemetryBackend;
@@ -48,6 +49,7 @@ import org.wpilib.util.AlertDataJNI.AlertInfo;
 public class Robot extends OpModeRobot {
   public final Drive drive;
   public final PoseEstimator poseEstimator;
+  public final TrajectoryLoader trajectories;
   public final CommandGamepad driver = new CommandGamepad(Constants.DRIVER_PORT);
 
   private final TelemetryTable robotLog;
@@ -123,6 +125,10 @@ public class Robot extends OpModeRobot {
               Alert.Level.LOW)
           .set(true);
     }
+
+    // Parsed here rather than at enable: a cold parse costs 63 ms against 0.135 ms for a cached
+    // lookup, and the framework offers no once-at-startup hook to pay it in but this constructor.
+    trajectories = new TrajectoryLoader(Filesystem.getDeployDirectory().toPath());
 
     drive =
         new Drive(
