@@ -2,14 +2,22 @@
 
 Research for [Drew-Robotics/2027beta#6](https://github.com/Drew-Robotics/2027beta/issues/6).
 
-**Date of research:** 2026-08-24
+**Date of research:** 2026-08-24, **re-checked 2026-08-28** for
+[#78](https://github.com/Drew-Robotics/2027beta/issues/78) — see
+[Re-check 2026-08-28](#re-check-2026-08-28) for what moved and what did not.
 **Local reference build:** `~/dev/allwpilib` at `v2027.0.0-alpha-6-366-gcafb0cc79`
 (`WPILibVersion.Version = "2027.424242.0.0-alpha-6-20260824110254-366-gcafb0cc79"`).
+On 2026-08-28 a `git fetch` showed the checkout **12 commits behind `origin/main`** and, more
+importantly, **10 commits behind the newly created `v2027.0.0-alpha-7` tag**. Nothing was pulled;
+every file:line below is still the 2026-08-24 tree.
 
 > ⚠️ **Read this before trusting any version number below.**
-> **There is no released WPILib 2027 alpha-7.** `wpilibsuite/allwpilib` has six 2027 tags
-> (`v2027.0.0-alpha-1` … `-6`), and only **alpha-6** has an actual GitHub Release —
-> **2026-05-08**. A *"2027 Alpha 7"* milestone is open but unreleased.
+> On 2026-08-24 this read *"there is no released WPILib 2027 alpha-7"*; **on 2026-08-28 the tag
+> exists but the release still does not.** `wpilibsuite/allwpilib` now has **seven** 2027 tags —
+> `v2027.0.0-alpha-7` is an annotated tag by Peter Johnson dated **2026-08-26**, pointing at
+> `dc7ad0eb3` — but `GET /repos/wpilibsuite/allwpilib/releases` still returns
+> **v2027.0.0-alpha-6 (2026-05-08)** as the newest GitHub Release, and the *"2027 Alpha 7"*
+> milestone is still `state=open` (0 open / 12 closed issues). Tagged, not published. [V]
 >
 > Our checkout is **366 commits past alpha-6 on `main`**. Much of what makes 2027 interesting —
 > **the entire Tunables/Telemetry API including `Selectable`** — landed in
@@ -22,6 +30,63 @@ Research for [Drew-Robotics/2027beta#6](https://github.com/Drew-Robotics/2027bet
 
 Legend: **[V]** = verified against a primary source I read directly. **[U]** = uncertain /
 inferred / subject to change.
+
+---
+
+## Re-check 2026-08-28
+
+Re-verified for [#78](https://github.com/Drew-Robotics/2027beta/issues/78). Everything here was
+followed back to the source that owns it on **2026-08-28**; anything not listed as *unchanged* or
+*changed* below was **not re-checked** and still carries its 2026-08-24 reading.
+
+### What changed
+
+- **WPILib alpha-7 is tagged.** [V] `v2027.0.0-alpha-7`, annotated 2026-08-26 by Peter Johnson at
+  `dc7ad0eb3` (`gh api repos/wpilibsuite/allwpilib/git/tags/e4013ac718…`). **Still no GitHub
+  Release** and the *2027 Alpha 7* milestone is still open. Our local checkout `cafb0cc79`
+  (2026-08-24) is **10 commits before** that tag.
+- **The Choreo maintainer gave a date range, and it is gated on alpha-7.** [V] ChiefDelphi
+  [#522484 post #4](https://www.chiefdelphi.com/t/official-choreo-systemcore-offseason-use/522484/4),
+  Amicus1, **2026-08-27T03:52Z**, verbatim: *"WPILib alpha 7 is working its way through the release
+  process and has a bunch of breakages and fixes that affect ChoreoLib, so there's not much point in
+  releasing something incompatible with alpha 7. I estimate an alpha 7 compatible vendordep within
+  the next 2 weeks, hopefully significantly sooner."* This **supersedes** §1's *"one more evening of
+  CI"* as the live estimate, and it explains the branch's silence: the transitional release is now
+  waiting on alpha-7, not on CI. Prompted by post #3 (noto501, 2026-08-27T03:18Z) asking for exactly
+  this.
+- **A correction to §1, not a change in the world:** this document said Choreo
+  [PR #1481](https://github.com/SleipnirGroup/Choreo/pull/1481) *"flips to field-center (0,0)
+  coordinates"*. That is **true of the runtime flipper and false of everything around it** — see the
+  corrected paragraph in [§1](#the-in-flight-work-v) and the full reading in
+  [§6.4](#64-the-coordinate-origin-and-what-our-flip-must-be-today-v).
+
+### What is unchanged since 2026-08-24 (re-verified, not assumed)
+
+| Claim | Re-checked how | State |
+|---|---|---|
+| No 2027 ChoreoLib release | `gh api repos/SleipnirGroup/Choreo/releases` | newest still **v2026.0.3, 2026-04-06** [V] |
+| `ChoreoLib2027.json` | `curl` | still **404** [V] |
+| `ChoreoLib2027Alpha.json` | `curl` | still **2027.0.0-alpha-1**, `frcYear: "2027_alpha1"`, `edu.wpi.first`-era, gson 2.11.0 [V] |
+| Maven metadata | `frcmaven.wpi.edu/.../ChoreoLib-java/maven-metadata.xml` | `latest`/`release` = **2026.0.3**, `lastUpdated 20260406023046`; only 2027 version is `alpha-1` [V] |
+| `systemcore-transitional-release` tip | `gh api .../commits?sha=…` | still **`05c2779` "Add opmode to run AutoChooser", 2026-08-17**; **no new commits in 11 days**; ahead 2 / behind 30 of `main` [V] |
+| Choreo `main` tip | same | still **`764ff38c`, 2026-08-09** — TrajOptLib/Sleipnir maintenance only [V] |
+| Choreo branch list | `gh api .../branches` | `add-home-page`, `gh-pages`, `main`, `systemcore-alpha`, `systemcore-transitional-release` — **there is no `2027` branch** [V] |
+| PR #1481 | `gh api .../pulls/1481` | still **open, `mergeable_state=dirty`, last touched 2026-07-12**, head `Daniel1464/Choreo:2027-update` [V] |
+| gh-pages / choreo.autos | `gh api .../commits?sha=gh-pages` | still **`a7d73101`, 2026-08-09**, "Deployed 764ff38" — no 2027 banner [V] |
+| `.traj` schema version | `TrajSchemaVersion.java` and `traj_schema_version.rs` on **both** `main` and `systemcore-transitional-release` | still **3** on all four files [V] |
+| Vendor compatibility matrix | `wpilibsuite/SystemcoreTesting` README (`pushed_at` 2026-08-24) | ChoreoLib still **:x:** for alpha-5/6; no alpha-7 column yet [V] |
+| `vendor-json-repo` | `gh api .../contents` | still only `2027_alpha1/` and `2027_alpha5/`; **no `2027_alpha6` or `_alpha7` directory**, no ChoreoLib in either; last commit **2026-08-18** [V] |
+| `OriginPosition` | `~/dev/allwpilib/fields/src/main/java/org/wpilib/fields/Field.java:43-48` | still exactly two members, `BLUE_ALLIANCE_WALL_RIGHT_SIDE` and `RED_ALLIANCE_WALL_RIGHT_SIDE`. **No field-centre member.** [V] |
+| `Field.java` origin doc | `Field.java:32-33` | still *"NWU with the origin at the bottom-right corner of the blue alliance wall"* [V] |
+| 2027 field / AprilTag map | `git ls-files fields` on the local tree | newest FRC layout is **`2026-rebuilt-welded.json` / `-andymark.json`**; `fields/src/generate/fields.json` still has `"defaultField": "FRC_2026_REBUILT_WELDED"`. **No 2027 layout in the tree, tagged or untagged.** [V] |
+| Origin work upstream | `git log HEAD..origin/main` (12 commits, 2026-08-24→27) and issue search | **nothing coordinate- or origin-related.** The 12 are ntcore/wpigui/telemetry/HID/`TwoDeadWheelOdometry`/`CANBus`→`CANPort`. The only `fields`-adjacent diff in the range is a two-line `TrapezoidProfile.java` change. [V] |
+| WPILib 2027 docs | `curl https://docs.wpilib.org/en/2027/…` | **302 → `/en/latest/`**, which is 2026 content. There is no published 2027 docs branch to read a coordinate statement out of. [V] |
+
+### Not checked
+
+C++/Python transitional variants, Elastic PR #366, AdvantageScope's `Selectable` support, the DS
+opmode selector's runtime behaviour, and everything in §§2–5, §7 and §8 were **not re-checked**;
+they stand as of 2026-08-24.
 
 ---
 
@@ -115,7 +180,8 @@ present for 2026.
 
 ### The in-flight work [V]
 
-Branch `systemcore-transitional-release` @ `05c2779` (2026-08-17):
+Branch `systemcore-transitional-release` @ `05c2779` (2026-08-17) — **still the tip on
+2026-08-28, eleven days with no commit**:
 
 ```gradle
 ext.wpilibVersion = '2027.0.0-alpha-6'
@@ -134,9 +200,23 @@ The alpha-6 migration commit touched 50 files: `edu.wpi.first` → `org.wpilib`,
 Gradle 8.14.3 → 9.4.1.
 
 Also open: [PR #1481 "[choreolib] Full Java and C++ upgrade to WPILib 2027"](https://github.com/SleipnirGroup/Choreo/pull/1481)
-— created 2026-05-09, last touched 2026-07-12, **conflicted** (`mergeable_state=dirty`), 51 commits,
-+872/−2386, multiple `CHANGES_REQUESTED` from calcmogul. It flips to field-center (0,0) coordinates
-and **removes `AutoRoutine` and `AutoChooser`** in favour of opmodes.
+— created 2026-05-09, last touched 2026-07-12 (**unchanged on 2026-08-28**), **conflicted**
+(`mergeable_state=dirty`), 51 commits, +872/−2386, multiple `CHANGES_REQUESTED` from calcmogul, head
+`Daniel1464/Choreo:2027-update`. It **removes `AutoRoutine` and `AutoChooser`** in favour of opmodes.
+
+On 2026-08-24 this said the PR *"flips to field-center (0,0) coordinates"*. The 2026-08-28 re-check
+narrows that: **the PR's flipper is field-centre, and nothing else in the PR is.** Read at head
+`40b826ee`, `choreolib/src/main/java/choreo/util/ChoreoAllianceFlipUtil.java` drops the
+`(fieldLength, fieldWidth)` constructor arguments entirely and `MirroredX.flipX` becomes
+`return -x;` — against `main`, where `MirroredX(double fieldLength, double fieldWidth)` and
+`Flipper.FRC_CURRENT = rotatedAround(FIELD_LENGTH, FIELD_WIDTH)` do the corner-origin arithmetic.
+But on the same head, `choreolib/src/main/java/choreo/util/FieldDimensions.java` still reads
+`FIELD_LENGTH = 16.541 / FIELD_WIDTH = 8.0692`, the PR's only edit to
+`choreolib/src/main/native/include/choreo/util/FieldDimensions.hpp` is `units::` → `wpi::units::`
+on those same two constants, and `SwerveSample`/`DifferentialSample` still document *"The X position
+of the sample relative to the blue alliance wall origin."* So the PR is a half-migrated, stale,
+conflicted branch — **not evidence that Choreo has moved its origin**, and it changes nothing about
+what the GUI emits. [V]
 
 [PR #1502 "2026 offseason systemcore release"](https://github.com/SleipnirGroup/Choreo/pull/1502)
 was closed unmerged on 2026-08-17: *"This became a huge mess… Closing and redoing work as
@@ -172,10 +252,32 @@ Post #2, 2026-08-17:
   Station. Simgui does not show alerts and simulation does not work with the real 2027 Driver
   Station currently."
 
+Post #3, 2026-08-27T03:18Z — noto501, a team asking the same question we are: *"Hi was wondering if
+any updates have been made since this last thread and if there are workarounds if not available? Our
+team is currently making a branch to support systemcore without choreo at the moment…"* — i.e.
+another team has independently arrived at our answer, owning the follower rather than waiting. [V]
+
+Post #4, 2026-08-27T03:52Z — Amicus1, **the newest word on the record and the only date range that
+has ever been given**:
+
+- *"WPILib alpha 7 is working its way through the release process and has a bunch of breakages and
+  fixes that affect ChoreoLib, so there's not much point in releasing something incompatible with
+  alpha 7. I estimate an alpha 7 compatible vendordep within the next 2 weeks, hopefully
+  significantly sooner."*
+
+Two things follow. The transitional release is now **blocked on alpha-7 publishing**, not on CI —
+which is why `systemcore-transitional-release` has not moved since 2026-08-17. And when it lands it
+will target **alpha-7**, not alpha-6, so the branch's current `wpilibVersion = '2027.0.0-alpha-6'`
+is already stale. Nothing in post #4 touches the Commands-v2 constraint or the origin. [V]
+
 ### Timeline [U]
 
-There is **no date commitment anywhere**. "One more evening of CI" (2026-08-17) is the only
-estimate and it is a week stale with no subsequent commits. Nothing indicates when the *real* 2027
+As of 2026-08-24 there was **no date commitment anywhere**; as of 2026-08-28 there is a soft one.
+"One more evening of CI" (2026-08-17) has been overtaken by post #4 (2026-08-27): *"I estimate an
+alpha 7 compatible vendordep within the next 2 weeks, hopefully significantly sooner"* — and it is
+now explicitly downstream of WPILib publishing alpha-7, which is **tagged (2026-08-26) but not
+released**. Two weeks from 2026-08-27 is roughly **2026-09-10**, and it is an estimate for a
+**Commands v2** vendordep, which is not a thing we can use. Nothing indicates when the *real* 2027
 ChoreoLib (PR #1481's successor, v3-native) lands; it is gated on the 2027 field AprilTag map for
 the coordinate-origin flip, which realistically means kickoff-adjacent.
 
@@ -1032,6 +1134,141 @@ when ChoreoLib ships; nothing else in the robot code names Choreo.
 treat the `.chor` as the source of truth — a regenerated `.traj` should be a reviewable diff, so
 the optimizer's output changing is visible in PR review rather than silent.
 
+### 6.4 The coordinate origin, and what our flip must be today [V]
+
+Added by the 2026-08-28 re-check, because it is the half of
+[#78](https://github.com/Drew-Robotics/2027beta/issues/78) that has a robot on the other end of it.
+
+**Field-centre is where this is going, and nothing has shipped in it yet.** Every artifact that
+exists today — WPILib's field module, the field layouts, Choreo's editor, the `.traj` schema — still
+says blue-corner. The confirmation that it moves is quoted further down and is not on the public
+record.
+
+- **WPILib.** `~/dev/allwpilib/fields/src/main/java/org/wpilib/fields/Field.java:32-33` — *"Pose3ds
+  in the JSON are measured using the normal FRC coordinate system, NWU with the origin at the
+  bottom-right corner of the blue alliance wall."* `OriginPosition` (`:43-48`) still offers exactly
+  `BLUE_ALLIANCE_WALL_RIGHT_SIDE` and `RED_ALLIANCE_WALL_RIGHT_SIDE`; there is no field-centre
+  member and no third enumerator. Twelve commits landed upstream between 2026-08-24 and 2026-08-27
+  and **none of them touch this**.
+- **The field map.** `git ls-files fields` lists FRC layouts through `2026-rebuilt-welded.json`;
+  `fields/src/generate/fields.json` names `"defaultField": "FRC_2026_REBUILT_WELDED"`. **There is no
+  2027 field or AprilTag layout in the tree.** That is the exact gate the Choreo maintainer named.
+- **The Choreo GUI.** `src/components/field/svg/fields/FieldDimensions.tsx` on **both** `main` and
+  `systemcore-transitional-release` is `FIELD_LENGTH = 16.541 / FIELD_WIDTH = 8.0692`, and
+  `JSONFieldImage.tsx`'s `defaultFieldJSON` declares **`"origin-fraction": [0, 0]`** against
+  `field-size: [FIELD_LENGTH, FIELD_WIDTH]`. The editor's canvas runs `0 → L` by `0 → W` with the
+  origin nailed to a corner.
+- **The `.traj` schema.** `TRAJ_SCHEMA_VERSION` is still **3** in all four places that hold it
+  (`choreolib/src/main/java/choreo/util/TrajSchemaVersion.java` and
+  `src-core/src/spec/traj_schema_version.rs`, on `main` and on the transitional branch). Our
+  `TrajectoryLoader` hard-fail on `version != 3` is therefore **still the tripwire it was built to
+  be, and it has not tripped**.
+
+There is one encouraging detail: `origin-fraction` is already a *field* of the GUI's field JSON, not
+a constant. A field-centre field ships as `"origin-fraction": [0.5, 0.5]`, so on Choreo's side the
+change is data, not code — which is consistent with it being gated on the map rather than on
+engineering. [U] on whether that is the mechanism they will actually use.
+
+**Field-centre is confirmed — and it is confirmed off the public record.** WPILib Discord
+`#systemcore`, **2026-04-11**, from a screenshot Drew supplied on 2026-08-28:
+
+> **crueter | 4028A/6032M:** Wait, field-center-origin is becoming a thing?
+> **Peter | WPILib:** yes
+
+Peter Johnson is WPILib's lead and tagged `v2027.0.0-alpha-7` himself, so this is the answer from
+the party that owns it. **[source]**
+
+Everything above and in the [re-check](#re-check-2026-08-28) that reports *no WPILib-side tracking*
+therefore describes the **public** record only: there is no issue, no PR, no milestone entry and no
+docs branch, and on this evidence there need not be one before the change lands. Anyone re-running
+that search will find silence and **must not read it as doubt**.
+
+Two messages earlier in the same exchange, the part that is **not** settled:
+
+> **JS | 6995A | Choreo:** Will previous fields be retroactively converted to field-center-origin?
+> **Peter | WPILib:** hmm. probably a good idea? I think?
+
+Four months old, with nothing since. So the destination is fixed and **the fate of the 2026 layouts
+is open**, which is what decides how the conversion below is written. [U]
+
+**So the flip and the paths are in different frames, and the paths are the half that is behind.** `FieldConstants.flip(Pose2d)` negates x and
+y — a 180° rotation about a **field-centre** origin — while `StraightAhead.traj` (x 2.0–5.0,
+y 4.0) and `SweepLeft.traj` (x 2.0–5.5, y 2.0–5.5) are drawn in Choreo's **blue-corner** frame, as
+their `params.waypoints` confirm (`{"x": {"exp": "2.0 m", "val": 2.0}, "y": {"exp": "2.0 m", …}}`).
+On red the flip sends both off the field into the third quadrant.
+
+**Regenerating cannot fix this, and that is the deciding fact.** The waypoints live in each
+`.traj`'s own `params` block, not in `2027beta.chor` — the `.chor` holds only `config` (drivetrain,
+mass, bumpers) and `variables`. Regenerating re-optimises the same corner-frame waypoints and emits
+corner-frame samples. Moving to field-centre by hand means subtracting `(L/2, W/2)` from every
+waypoint *and* every sample, which puts the paths at negative coordinates — **outside the GUI's
+`0 → L` canvas**, so the `.chor` project stops being editable in Choreo. The frames have to be
+reconciled where the file is **read**, not where it is authored.
+
+**Recommendation: go field-centre now, and convert at the two boundaries.**
+
+An earlier draft of this section recommended inverting the flip to a corner-origin rotation,
+reasoning that the public record said blue-corner and nothing else confirmed the move. The Discord
+quote retires that reasoning. The destination is settled, `FieldConstants` and ADR 0011 already
+target it, and the cheaper change is to move the **inputs** into the frame the robot already thinks
+in rather than to move the robot into the frame its inputs happen to arrive in.
+
+- **Paths.** `TrajectoryLoader` subtracts `(L / 2, W / 2)` from each sample pose as it reshapes a
+  `.traj`. It is already the only class that names Choreo and already the one that hard-fails on a
+  schema version. Velocities and accelerations are untouched — a pure translation does not rotate a
+  vector.
+- **Tags, when vision lands.**
+  `Field.setOrigin(new Pose3d(new Translation3d(L / 2, W / 2, 0), Rotation3d.kZero))`.
+  `getTagPose` returns `tag.getPose().relativeTo(m_origin)`
+  (`fields/src/main/java/org/wpilib/fields/Field.java:394`), so the stock layout needs no fork and
+  no hand-edited tag poses; `OriginPosition`'s two members are named presets over that same setter
+  (`:349-357`). Nothing in `src/` reads a layout today. **[V]**
+- **`FieldConstants.flip` does not change.** ADR 0011's rigid transform was right, and stays a
+  rotation about the origin.
+- **At kickoff both conversions delete**, and until then the robot lives in the frame it will ship
+  in — which is where the field-centre traps are found on a bench in September rather than in
+  week 1.
+
+The cost is that every tool in the loop is corner-frame: Choreo's canvas runs `0 → L`, and a robot
+at the blue wall logs `x = -8.27`. Whether AdvantageScope's field view can be told about a centre
+origin is **not established here** and is worth ten minutes with a log before committing. [U]
+
+**Neither conversion may be applied twice, and nothing upstream will say if it is.** The layout JSON
+declares no origin at all — its keys are `name`, `season`, `game`, `field-image`, `field-dimensions`,
+`program`, `field-tags` — so a retroactive conversion of the 2026 layout moves every tag by 8.27 m
+with no schema change and no error. `.traj` at least has the version-3 tripwire; the layout has
+nothing. The discriminator is one line and belongs wherever the layout is read: **in a corner-frame
+layout every tag has x >= 0; in a centre-frame one roughly half are negative.** Assert it and fail
+loudly rather than adapt silently. **[V]** for the absence of an origin key, [U] for whether the
+conversion happens.
+
+**Where the numbers come from.** Each conversion uses the dimensions of the field **its own data was
+drawn against**, not "the current field": the paths use Choreo's `FieldDimensions`
+(`L = 16.541`, `W = 8.0692`), the tags use `field-dimensions` from the layout JSON they came from
+(`16.541 x 8.069` for `2026-rebuilt-welded`). The two agree to rounding but they are two sources,
+and reading each from its own is what keeps them right when only one of them moves. **No 2027 field
+dimension is published anywhere** — the tree has no 2027 layout and there is no 2027 docs branch —
+so these are 2026 numbers standing in until the 2027 map ships. [V]
+
+**ADR 0011's corner-origin row is wrong, and correcting it still matters.** The ADR and #78 both
+write the corner flip as *"`x -> length - x`, heading `-> pi - heading`"* and conclude it costs a
+hand-written per-sample remap. That is a **mirror**, which is the right flip only for a
+mirror-symmetric field, and it is not what ChoreoLib does: on `main`,
+`ChoreoAllianceFlipUtil.Flipper.FRC_CURRENT = rotatedAround(FIELD_LENGTH, FIELD_WIDTH)`, composed
+from `MirroredX` and `MirroredY`. We are not taking the corner path, but that row is part of why
+field-centre looked strictly simpler than it is, and a future reader reaching for the corner form
+should get the rotation rather than the mirror:
+
+| | field-centre (the code, and the destination) | blue-corner, stated correctly |
+|---|---|---|
+| x | `-x` | `L - x` |
+| y | `-y` | `W - y` |
+| heading | `theta + pi` | `theta + pi` — **unchanged** |
+| vx, vy, omega | `-vx, -vy, omega` | **unchanged** |
+| ax, ay, alpha | `-ax, -ay, alpha` | **unchanged** |
+
+Both forms are their own inverse (`L - (L - x) = x`), so `asAuthored`'s comment holds either way.
+
 ---
 
 ## 7. Simulation
@@ -1442,8 +1679,11 @@ available as a drop-in if ChoreoLib slips past our integration window.
 
 ## Open questions / unknowns
 
-- **When does the transitional ChoreoLib actually publish?** "One more evening of CI" is a week
-  stale. No date commitment exists. [U]
+- **When does the transitional ChoreoLib actually publish?** As of 2026-08-24, *"one more evening of
+  CI"* with **no date commitment**; as of 2026-08-28 there is a soft one — *"within the next 2
+  weeks, hopefully significantly sooner"* (2026-08-27), now gated on **WPILib alpha-7 publishing**,
+  which is tagged (2026-08-26) but not released. It is still a **Commands v2** vendordep either
+  way, so the date does not change our answer. [U]
 - **When does the *real* v3-native ChoreoLib land?** Gated on PR #1481's successor and on the 2027
   field AprilTag map (for the coordinate-origin flip). Realistically kickoff-adjacent. [U]
 - **Will ChoreoLib 2027 emit `HolonomicTrajectory` JSON?** The *intent* is now documented (issue
@@ -1453,8 +1693,16 @@ available as a drop-in if ChoreoLib slips past our integration window.
   converter (takeaway 10) is throwaway or permanent. [U]
 - **Will PathPlanner adopt the new WPILib `Trajectory` types?** The design doc anticipates it;
   nothing public from PathPlanner says so. Affects how clean the fallback swap is. [U]
-- **Coordinate origin.** Blue-corner today; field-center "when the 2027 field AprilTag map is
-  released." This changes the meaning of alliance flipping. Isolate it behind one predicate. [U]
+- ~~**Coordinate origin.**~~ **Answered on 2026-08-28: field-centre is confirmed as the
+  destination, blue-corner is what every shipped artifact still emits.** Peter Johnson (WPILib),
+  Discord `#systemcore` 2026-04-11: *"field-center-origin is becoming a thing?" / "yes"*.
+  **[source]** The public tracker records none of it — see
+  [§6.4](#64-the-coordinate-origin-and-what-our-flip-must-be-today-v). [V]
+  It is **blue-corner** in every source that owns a piece of it — `Field.java:32-33`,
+  `OriginPosition` (`:43-48`), Choreo's `FieldDimensions.tsx`, and `JSONFieldImage.tsx`'s
+  `"origin-fraction": [0, 0]`. See [§6.4](#64-the-coordinate-origin-and-what-our-flip-must-be-today-v).
+  What remains open is **when** it moves and **by what mechanism** — most likely a new field JSON
+  with `origin-fraction: [0.5, 0.5]` rather than a code change, but that is [U].
 - **Does the DS opmode selector render options published by a non-`OpModeRobot`?** The
   `RobotState.addOpMode`/`publishOpModes` API is public and static, but I verified only its
   existence, not its runtime behaviour from a `TimedRobot`. **This is the single most important
@@ -1482,8 +1730,22 @@ available as a drop-in if ChoreoLib slips past our integration window.
 - **Will the 2027 `.traj` schema stay at version 3?** `loadTrajectoryString` throws on any other
   version. A coordinate-origin change to field-center would almost certainly bump it, invalidating
   every committed `.traj`. Plan on regenerating all paths once the 2027 field map lands. [U]
+  Re-checked 2026-08-28: **still 3** on `main` *and* on `systemcore-transitional-release`, in both
+  the Java and the Rust copy. The tripwire has not tripped. [V]
 - **ChoreoLib alerts are broken on alpha-6** (DS-based alerts, not NetworkTables). Minor, but it
   means the library's own diagnostics are unavailable during bring-up. [V]
+- **Has the 2027 field AprilTag map shipped?** No. `git ls-files fields` in the local tree stops at
+  `2026-rebuilt-welded.json` and `fields/src/generate/fields.json` still defaults to
+  `FRC_2026_REBUILT_WELDED`. Since 2027 kickoff is January 2027, expect this no earlier than then —
+  and with it the origin change, the `.traj` schema bump, and a redraw of every path. [V] for the
+  absence, [U] for the timing.
+- **Will the 2026 field layouts be retroactively converted to field-centre?** Asked in Discord
+  `#systemcore` on 2026-04-11 and answered *"hmm. probably a good idea? I think?"*, with nothing
+  since. It matters more than it sounds: the layout JSON declares no origin, so a retroactive
+  conversion is a silent 8.27 m move with no schema bump behind it. [U]
+- **When the transitional release lands it will target alpha-7, not alpha-6.** The branch's
+  `wpilibVersion = '2027.0.0-alpha-6'` and its `frcYear: "2027_alpha5"` vendordep are both already
+  behind the maintainer's stated target. Nothing on the branch reflects alpha-7 yet. [V]
 
 ---
 
@@ -1505,8 +1767,26 @@ available as a drop-in if ChoreoLib slips past our integration window.
 - [Choreo PR #1502 — 2026 offseason systemcore release (closed)](https://github.com/SleipnirGroup/Choreo/pull/1502)
 - [Choreo branch `systemcore-transitional-release`](https://github.com/SleipnirGroup/Choreo/tree/systemcore-transitional-release)
 - [ChiefDelphi — "[Official Choreo] Systemcore Offseason Use"](https://www.chiefdelphi.com/t/official-choreo-systemcore-offseason-use/522484)
+  — read via `curl -A 'Mozilla/5.0' …/522484.json` (WebFetch 403s); 4 posts as of 2026-08-28, newest
+  [post #4](https://www.chiefdelphi.com/t/official-choreo-systemcore-offseason-use/522484/4)
+  2026-08-27T03:52Z
 - [wpilibsuite/vendor-json-repo](https://github.com/wpilibsuite/vendor-json-repo)
 - [ChoreoLib-java maven metadata](https://frcmaven.wpi.edu/artifactory/sleipnirgroup-mvn-release/choreo/ChoreoLib-java/maven-metadata.xml)
+- WPILib Discord `#systemcore`, 2026-04-11 — Peter Johnson on field-centre origin, and the
+  unanswered question of retroactive conversion. Supplied by Drew as a screenshot on 2026-08-28;
+  not publicly linkable.
+- Re-check 2026-08-28, read directly:
+  `choreolib/src/main/java/choreo/util/{ChoreoAllianceFlipUtil,FieldDimensions,TrajSchemaVersion}.java`
+  and `src-core/src/spec/traj_schema_version.rs` on `main` **and** `systemcore-transitional-release`;
+  `src/components/field/svg/fields/{FieldDimensions.tsx,JSONFieldImage.tsx}` (the GUI's
+  `"origin-fraction": [0, 0]`); `update_field_dimensions.py`;
+  [`Daniel1464/Choreo@40b826ee`](https://github.com/Daniel1464/Choreo/tree/40b826ee4d33da5909ba845da17ca144a7b3ebbc)
+  (PR #1481 head) `choreolib/src/main/java/choreo/util/{ChoreoAllianceFlipUtil,FieldDimensions}.java`;
+  `~/dev/allwpilib` `fields/src/main/java/org/wpilib/fields/Field.java`,
+  `fields/src/generate/fields.json`,
+  `fields/src/main/native/resources/org/wpilib/fields/frc/2026-rebuilt-welded.json`;
+  `git log HEAD..origin/main` and `gh api repos/wpilibsuite/allwpilib/git/tags/e4013ac718…`;
+  this repo's `src/main/deploy/choreo/{2027beta.chor,StraightAhead.traj,SweepLeft.traj}`
 - ChoreoLib Java source, read directly on both branches:
   `choreolib/src/main/java/choreo/Choreo.java`,
   `choreolib/src/main/java/choreo/auto/{AutoFactory,AutoRoutine,AutoTrajectory}.java`,
