@@ -21,6 +21,8 @@ public final class Constants {
   // Every device is on this one bus. REVLib wants its .value, Phoenix wants CANBus.systemcore(n).
   public static final CANBus CAN_BUS = CANBus.CAN_S0;
 
+  public static final int DRIVER_PORT = 0;
+
   public static final Time RADIO_LOG_PERIOD = Seconds.of(5);
   public static final Time RADIO_TIMEOUT = Milliseconds.of(500);
 

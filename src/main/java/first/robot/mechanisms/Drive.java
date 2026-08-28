@@ -11,6 +11,7 @@ import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.Seconds;
 import static org.wpilib.units.Units.Volts;
 
+import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.StatusCode;
 import com.ctre.phoenix6.configs.Pigeon2Configuration;
@@ -26,16 +27,21 @@ import first.robot.Hardware;
 import first.robot.sim.OnboardLoopSim;
 import first.robot.sim.SwerveDriveSim;
 import java.util.Arrays;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Mechanism;
+import org.wpilib.command3.NeedsNameBuilderStage;
 import org.wpilib.command3.Scheduler;
+import org.wpilib.command3.button.CommandGamepad;
 import org.wpilib.framework.RobotBase;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
+import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
+import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.simulation.RoboRioSim;
 import org.wpilib.telemetry.TelemetryTable;
@@ -53,6 +59,7 @@ public class Drive implements Mechanism {
   private final Pigeon2 gyro;
   private final TelemetryTable chassisLog;
   private final TelemetryTable moduleLog;
+  private final TelemetryTable odometryLog;
   private final TelemetryTable simLog;
   private final Scheduler scheduler;
 
@@ -75,6 +82,7 @@ public class Drive implements Mechanism {
     this.scheduler = scheduler;
     chassisLog = log.getTable("Chassis");
     moduleLog = log.getTable("Modules");
+    odometryLog = log.getTable("Odometry");
 
     var gains = DriveConstants.gains();
     var corners = corners(config);
@@ -88,6 +96,18 @@ public class Drive implements Mechanism {
     gyro = new Pigeon2(config.gyroId(), CANBus.systemcore(Constants.CAN_BUS.value));
     Hardware.configurePhoenix(
         "SwerveGyro", () -> gyro.getConfigurator().apply(new Pigeon2Configuration()));
+    // Every one of these publishes below the loop rate at its Phoenix default — the yaw rate at
+    // 10 Hz — so odometry unraised reads the same frame several times over and counts the repeats
+    // as new information.
+    Hardware.configurePhoenix(
+        "SwerveGyroSignals",
+        () ->
+            BaseStatusSignal.setUpdateFrequencyForAll(
+                Constants.LOOP_PERIOD.asFrequency(),
+                gyro.getYaw(),
+                gyro.getPitch(),
+                gyro.getRoll(),
+                gyro.getAngularVelocityZWorld()));
 
     if (RobotBase.isSimulation()) {
       physics = new SwerveDriveSim(DriveConstants.simConfig());
@@ -95,7 +115,6 @@ public class Drive implements Mechanism {
       simDrift = Radians.zero();
       simYaw = Radians.zero();
       lastTrueRotation = physics.truePose().getRotation();
-      retry(() -> gyro.getYaw().setUpdateFrequency(DriveConstants.GYRO_SIM_UPDATE_RATE));
       for (int i = 0; i < MODULES; i++) {
         driveLoops[i] =
             OnboardLoopSim.velocity(gains.drive().kP(), gains.drive().kS(), gains.drive().kV());
@@ -132,37 +151,84 @@ public class Drive implements Mechanism {
   }
 
   public Command driveRobotRelative(Supplier<ChassisVelocities> velocities) {
-    return run(coroutine -> {
-          while (true) {
-            setVelocities(velocities.get());
-            coroutine.yield();
-          }
-        })
-        .whenCanceled(this::stopModules)
-        .named("Drive.DriveRobotRelative");
+    return robotRelative(velocities, this::setVelocities).named("Drive.DriveRobotRelative");
   }
 
   public Command driveFieldRelative(Supplier<ChassisVelocities> velocities) {
+    return fieldRelative(velocities, this::setVelocities).named("Drive.DriveFieldRelative");
+  }
+
+  // Open loop, unlike everything else that drives: a velocity loop answers a shove by spinning the
+  // wheel back to its setpoint, and a driver reads that as the robot arguing. A voltage does what
+  // the stick did.
+  public Command driverControl(CommandGamepad driver) {
+    return fieldRelative(() -> driverVelocities(driver), this::setOpenLoopVelocities)
+        .named("Drive.DriverControl");
+  }
+
+  private NeedsNameBuilderStage robotRelative(
+      Supplier<ChassisVelocities> velocities, Consumer<ChassisVelocities> output) {
     return run(coroutine -> {
           while (true) {
-            setVelocities(velocities.get().toRobotRelative(getHeading()));
+            output.accept(velocities.get());
             coroutine.yield();
           }
         })
-        .whenCanceled(this::stopModules)
-        .named("Drive.DriveFieldRelative");
+        .whenCanceled(this::stopModules);
+  }
+
+  private NeedsNameBuilderStage fieldRelative(
+      Supplier<ChassisVelocities> velocities, Consumer<ChassisVelocities> output) {
+    return run(coroutine -> {
+          while (true) {
+            output.accept(velocities.get().toRobotRelative(getGyroHeading().toRotation2d()));
+            coroutine.yield();
+          }
+        })
+        .whenCanceled(this::stopModules);
+  }
+
+  // Away from the driver station is +x and to the driver's left is +y, and both stick axes read
+  // the other way round.
+  private static ChassisVelocities driverVelocities(CommandGamepad driver) {
+    return new ChassisVelocities(
+        DriveConstants.MAX_VELOCITY.times(stick(-driver.getLeftY())),
+        DriveConstants.MAX_VELOCITY.times(stick(-driver.getLeftX())),
+        DriveConstants.MAX_ANGULAR_VELOCITY.times(stick(-driver.getRightX())));
+  }
+
+  // Asymptotically linear: the curve eases out of zero over the width and then converges onto the
+  // straight line, so there is one line for muscle memory to learn rather than a flat zone whose
+  // edge the driver has to find. The hard zero is narrower than the easing and lands where the
+  // curve is already worth about a fifth of a percent, so it is a step nobody can feel.
+  static double stick(double axis) {
+    if (Math.abs(axis) < DriveConstants.DRIVER_DEADBAND) {
+      return 0;
+    }
+    double width = DriveConstants.DRIVER_CURVE_WIDTH;
+    return (axis - width * Math.tanh(axis / width)) / (1 - width * Math.tanh(1 / width));
   }
 
   public void setVelocities(ChassisVelocities velocities) {
-    desiredVelocities = velocities;
-    var target = velocities.discretize(Constants.LOOP_PERIOD.in(Seconds));
-    var states =
-        SwerveDriveKinematics.desaturateWheelVelocities(
-            kinematics.toSwerveModuleVelocities(target),
-            DriveConstants.MAX_VELOCITY.in(MetersPerSecond));
+    var states = moduleTargets(velocities);
     for (int i = 0; i < MODULES; i++) {
       modules[i].setVelocity(states[i]);
     }
+  }
+
+  public void setOpenLoopVelocities(ChassisVelocities velocities) {
+    var states = moduleTargets(velocities);
+    for (int i = 0; i < MODULES; i++) {
+      modules[i].setOpenLoopVelocity(states[i]);
+    }
+  }
+
+  private SwerveModuleVelocity[] moduleTargets(ChassisVelocities velocities) {
+    desiredVelocities = velocities;
+    var target = velocities.discretize(Constants.LOOP_PERIOD.in(Seconds));
+    return SwerveDriveKinematics.desaturateWheelVelocities(
+        kinematics.toSwerveModuleVelocities(target),
+        DriveConstants.MAX_VELOCITY.in(MetersPerSecond));
   }
 
   public void stopModules() {
@@ -172,10 +238,24 @@ public class Drive implements Mechanism {
     desiredVelocities = new ChassisVelocities();
   }
 
-  public Rotation2d getHeading() {
-    // The yaw signal still publishes at its Phoenix default, which is below the loop rate, so
-    // this reads one frame stale during a fast spin until the pose estimator raises it.
-    return new Rotation2d(gyro.getYaw().getValue());
+  public Rotation3d getGyroHeading() {
+    // Not Pigeon2.getRotation3d(): through 26.50.0-alpha-1 nothing drives the four quaternion
+    // signals it reads in simulation, so it answers identity there for ever. Yaw, pitch and roll
+    // are driven, and are the same three numbers.
+    return new Rotation3d(
+        gyro.getRoll().getValue(), gyro.getPitch().getValue(), gyro.getYaw().getValue());
+  }
+
+  public SwerveModulePosition[] getModulePositions() {
+    var positions = new SwerveModulePosition[MODULES];
+    for (int i = 0; i < MODULES; i++) {
+      positions[i] = modules[i].getPosition();
+    }
+    return positions;
+  }
+
+  public SwerveDriveKinematics getKinematics() {
+    return kinematics;
   }
 
   public ChassisVelocities getVelocities() {
@@ -191,6 +271,8 @@ public class Drive implements Mechanism {
     // reads, and a corner/index mismatch is only visible if both are written.
     moduleLog.log("DesiredStates", desiredStates(), SwerveModuleVelocity.struct);
     moduleLog.log("MeasuredStates", measured, SwerveModuleVelocity.struct);
+    odometryLog.log("GyroHeading", getGyroHeading(), Rotation3d.struct);
+    odometryLog.log("GyroRate", gyro.getAngularVelocityZWorld().getValue());
     for (var module : modules) {
       module.log();
     }
@@ -223,9 +305,18 @@ public class Drive implements Mechanism {
         double wheelSpeed =
             state[i].wheelVelocityRadPerSec() * DriveConstants.WHEEL_RADIUS.in(Meters);
         double sensor = modules[i].toSensorRotations(state[i].azimuth());
-        boolean closing = modules[i].isClosingLoops();
-        driveVolts[i] = closing ? driveLoops[i].calculate(wheelSpeed, SUB_STEP) : 0;
-        steerVolts[i] = closing ? steerLoops[i].calculate(sensor, SUB_STEP) : 0;
+        if (!modules[i].isClosingLoops()) {
+          driveVolts[i] = 0;
+          steerVolts[i] = 0;
+        } else {
+          // An open-loop module was written a voltage, so there is no loop here to model: the
+          // number the SPARK was handed is the number the plant gets.
+          driveVolts[i] =
+              modules[i].isOpenLoop()
+                  ? SwerveModule.openLoopVolts(modules[i].getDriveSetpoint())
+                  : driveLoops[i].calculate(wheelSpeed, SUB_STEP);
+          steerVolts[i] = steerLoops[i].calculate(sensor, SUB_STEP);
+        }
       }
       state = physics.update(driveVolts, steerVolts, SUB_STEP);
     }

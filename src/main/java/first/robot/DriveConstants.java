@@ -6,7 +6,6 @@ package first.robot;
 
 import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.DegreesPerSecond;
-import static org.wpilib.units.Units.Hertz;
 import static org.wpilib.units.Units.Inches;
 import static org.wpilib.units.Units.KilogramSquareMeters;
 import static org.wpilib.units.Units.Kilograms;
@@ -14,18 +13,22 @@ import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Milliseconds;
 import static org.wpilib.units.Units.Pounds;
+import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.Rotations;
 import static org.wpilib.units.Units.Volts;
 
 import first.robot.sim.SwerveSimConfig;
 import org.wpilib.framework.RobotBase;
 import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.math.linalg.Matrix;
+import org.wpilib.math.linalg.VecBuilder;
+import org.wpilib.math.numbers.N1;
+import org.wpilib.math.numbers.N4;
 import org.wpilib.math.system.DCMotor;
 import org.wpilib.units.measure.Angle;
 import org.wpilib.units.measure.AngularVelocity;
 import org.wpilib.units.measure.Current;
 import org.wpilib.units.measure.Distance;
-import org.wpilib.units.measure.Frequency;
 import org.wpilib.units.measure.LinearVelocity;
 import org.wpilib.units.measure.Mass;
 import org.wpilib.units.measure.MomentOfInertia;
@@ -100,12 +103,36 @@ public final class DriveConstants {
       MetersPerSecond.of(
           DCMotor.getNeoVortex(1).freeSpeed / DRIVE_REDUCTION * WHEEL_RADIUS.in(Meters));
 
+  // Half the diagonal between opposite modules: the radius the corner wheels travel on in a spin.
+  private static final Distance DRIVE_RADIUS =
+      Meters.of(Math.hypot(TRACK_WIDTH.in(Meters), WHEELBASE.in(Meters)) / 2);
+
+  // The spin that puts the corner modules at MAX_VELOCITY. Asking for this and a translation at
+  // once oversaturates the wheels, which desaturateWheelVelocities then scales back together.
+  public static final AngularVelocity MAX_ANGULAR_VELOCITY =
+      RadiansPerSecond.of(MAX_VELOCITY.in(MetersPerSecond) / DRIVE_RADIUS.in(Meters));
+
+  // The offset a used controller sits at with nobody touching it. Below this the command is
+  // exactly zero, because even a small omega steers all four modules to a rotation angle.
+  public static final double DRIVER_DEADBAND = 0.05;
+
+  // The width of the soft region in the stick curve. A linear rescale leaves a flat zone whose
+  // edge the driver cannot feel; easing out of zero over this much travel and then converging on
+  // the straight line keeps one line for muscle memory to learn.
+  public static final double DRIVER_CURVE_WIDTH = 0.15;
+
+  // A SPARK told to apply a voltage holds it against battery sag, so the driver's stick means the
+  // same wheel speed at the end of a match as at the start.
+  public static final Voltage NOMINAL_VOLTAGE = Volts.of(12);
+
+  // The pose estimator's trust in the wheels as standard deviations over [x, y, z, theta], so
+  // larger is less trust. WPILib's own defaults, until a bring-up drives a known distance and
+  // measures the drift.
+  public static final Matrix<N4, N1> STATE_STD_DEVS = VecBuilder.fill(0.1, 0.1, 0.1, 0.1);
+
   // A pose estimator tuned against a gyro that never wanders is tuned against a robot that does
   // not exist. Roughly a degree a minute, which is the order a Pigeon2 drifts at.
   public static final AngularVelocity GYRO_SIM_DRIFT = DegreesPerSecond.of(1.0 / 60);
-  // The documented ceiling for a Phoenix signal. CTRE simulates CAN latency, and a lagged gyro
-  // makes odometry look broken for a reason that is not our code.
-  public static final Frequency GYRO_SIM_UPDATE_RATE = Hertz.of(1000);
 
   public record DriveMotorGains(double kP, double kS, double kV) {}
 

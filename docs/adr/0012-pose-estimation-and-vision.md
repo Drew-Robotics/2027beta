@@ -6,6 +6,13 @@ Accepted — 2026-08-26. The *Open* item asking whether the bus can pay
 for five 200 Hz Pigeon signals is answered by ADR 0007, which budgets
 the two frames they ride, and now sits under *Consequences*.
 
+Amended 2026-08-28, on two things found while building it. The heading
+is read off yaw, pitch and roll rather than `getRotation3d()`, because
+nothing drives the quaternion in simulation — see *3d wherever
+possible*. And `odometryUpdate` stamps the odometry buffer itself,
+because `update()` keys it on a clock the vision seam does not use —
+see *Traps*.
+
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
 `v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7. Phoenix 6
@@ -135,12 +142,24 @@ is not.
 
 Four consequences, all of them mechanical:
 
-- **`Drive.getGyroHeading()` returns `Rotation3d`** — an amendment to
-  ADR 0011, which had it as `Rotation2d`. ⚠️ #20 flagged this as
-  assuming a full 3d rotation from the Pigeon2 and could not check.
-  **It is there**: `Pigeon2.getRotation3d()` returns
+- **`Drive.getGyroHeading()` returns `Rotation3d`**, built as
+  `new Rotation3d(roll, pitch, yaw)` over the Pigeon's own three angle
+  signals — an amendment to ADR 0011, which had it as `Rotation2d`.
+  **[decided]** The Pigeon does expose a full 3d rotation, which is
+  what #20 could not check: `Pigeon2.getRotation3d()` returns
   `new Rotation3d(getQuaternion())` (`Pigeon2.java:252-253`)
-  **[source — Phoenix 6]**, over the four quaternion signals.
+  **[source — Phoenix 6]**.
+
+  **We do not call it, because its four quaternion signals are never
+  driven in simulation.** With the HAL up and a `Pigeon2SimState` fed
+  `setRawYaw`, `setPitch` and `setRoll`, `getYaw()`, `getPitch()`,
+  `getRoll()` and `getAngularVelocityZWorld()` all read back the values
+  written, while `getQuatW/X/Y/Z()` stay at `0.0` with a status of `OK`
+  and `getRotation3d()` answers `Quaternion(1, 0, 0, 0)`. **[executed —
+  Phoenix 6 `26.50.0-alpha-1`]** Yaw, pitch and roll are the same
+  rotation on hardware and the only one that exists on a laptop, so they
+  are one code path for both. They are the heading signals the frequency
+  call below raises.
 - **`getEstimatedPose()` flattens once, internally, to `Pose2d`**, with
   `getEstimatedPose3d()` alongside it for the log. Every consumer we
   have is 2d — ADR 0011's follower, its along-track/cross-track
@@ -298,13 +317,13 @@ So the frequency is raised explicitly, with
 place ADR 0004 configures the rest of the hardware. **[decided]**
 
 **The same applies to the heading itself, and that is the more
-surprising half.** `getRotation3d()` goes through `getQuaternion()`,
-which refreshes four signals — `BaseStatusSignal.refreshAll(m_quatWGetter,
-m_quatXGetter, m_quatYGetter, m_quatZGetter)` (`Pigeon2.java:261-263`)
-**[source — Phoenix 6]** — and those default to 50 Hz on CAN 2.0 and
-100 Hz on CAN FD (`CorePigeon2.java:679-680`) **[source — Phoenix 6]**.
-Odometry at 200 Hz against a 100 Hz heading is reading every value
-twice. The signals go in the same `setUpdateFrequencyForAll` call.
+surprising half.** Pigeon signals default well below our loop — the
+quaternion signals at 50 Hz on CAN 2.0 and 100 Hz on CAN FD
+(`CorePigeon2.java:679-680`) **[source — Phoenix 6]**, and the yaw,
+pitch and roll signals the heading is built from at their own defaults
+**[unverified — not read at this Phoenix version]**. Odometry at 200 Hz
+against a 100 Hz heading is reading every value twice. The heading
+signals go in the same `setUpdateFrequencyForAll` call as the rate.
 
 ⚠️ **No source ticket raised the heading signal's rate** — #27 asked
 only about `AngularVelocityZWorld`. This half was surfaced by reading
@@ -451,14 +470,13 @@ older spellings appears anywhere.
   getting it wrong; it does not change who decides it, and it is still
   unresolved upstream. See Open.
 
-- **The CAN frame budget grows by five signals at 200 Hz** — the yaw
-  rate and the four quaternion components. That is a real cost against a
-  bus that already carries eight SPARKs and the Pigeon's constant
-  diagnostic overhead, and it lands on ADR 0007, **which pays for it**:
-  five signals are **two frames**, because `getRotation3d()`'s four
-  quaternion signals share one and the yaw rate is the other, and 0007
-  budgets both at 5 ms for **400 frames/s**. **[unverified —
-  arithmetic; ADR 0007 owns the budget]**
+- **The CAN frame budget grows by the heading and the yaw rate at
+  200 Hz.** That is a real cost against a bus that already carries eight
+  SPARKs and the Pigeon's constant diagnostic overhead, and it lands on
+  ADR 0007, **which pays for it**: the heading signals share one frame
+  and the yaw rate is the other, and 0007 budgets both at 5 ms for
+  **400 frames/s**. **[unverified — arithmetic, and the grouping of yaw,
+  pitch and roll into one status frame; ADR 0007 owns the budget]**
 
 - **No simulated vision source and no wiring test.** A sim source feeding
   ADR 0010's true pose back noisily would mostly test
@@ -494,8 +512,23 @@ older spellings appears anywhere.
   timestamp *and* the yaw-rate buffer's keys, or `subMap` returns empty
   and every frame fails closed instead.
 
+  ⚠️ **`update()` would not have keyed the buffer on that clock**, which
+  is why `odometryUpdate` calls
+  `updateWithTime(Timer.getMonotonicTimestamp(), ...)` on both estimators
+  instead. **[decided]** `PoseEstimator3d.update()` passes
+  `MathSharedStore.getTimestamp()` (`PoseEstimator3d.java:381`)
+  **[source]**, and `RobotBase` points `MathShared.getTimestamp()` at
+  `Timer.getTimestamp()`
+  (`wpilibj/src/main/java/org/wpilib/framework/RobotBase.java:72-89`)
+  **[source]** — the modifiable one, not the monotonic one this trap
+  requires. The two are the same number until somebody calls
+  `RobotController.setTimeSource`. Stamping the update ourselves makes
+  the rule above a property of the code rather than a coincidence
+  between two libraries, and one clock read feeds both estimators, so
+  they cannot be keyed apart either.
+
   `/Drive/Vision/Age` is the diagnostic that makes this findable in one
-  glance.
+  glance, and it is computed against the same clock.
 
 - **The ~1 m sanity gate is recommended by javadoc, is not implemented,
   and must not be added.**
@@ -636,6 +669,17 @@ older spellings appears anywhere.
   symptom to notice, which is why `setUpdateFrequencyForAll` is not
   optional and why the fallback under Open is a matching sample rate
   rather than a silent default.
+
+- **`Pigeon2.getRotation3d()` compiles, is the obvious call, and is
+  identity for ever in simulation.** The evidence is under *Decision*.
+  What it looks like is a robot whose odometry translates and never
+  turns, and whose field-relative driving never rotates its frame —
+  under `simulateJava`, which is the only place most of this project is
+  ever run. Nothing throws, and every quaternion signal reports `OK`
+  while reading `0.0`. Read the heading off yaw, pitch and roll.
+  *Re-raise* when a Phoenix release drives the quaternion in
+  simulation, at which point the two are interchangeable and the
+  simpler call wins.
 
 - **Do not synthesise yaw rate by differencing `getGyroHeading()`.** It
   compiles and it is one line, which is the whole danger; Decision owns

@@ -257,8 +257,11 @@ is exactly what would let somebody stop noticing that.
   goes through default to **50 Hz** on CAN 2.0
   (`com/ctre/phoenix6/hardware/core/CorePigeon2.java:667-680`), and
   `getAngularVelocityZWorld()` defaults to **10 Hz** (`:1625-1639`).
-  **[source]** ADR 0012 raises both to loop rate; this ADR budgets the
-  two frames that costs. Because our bus runs classic framing, the CAN
+  **[source]** ADR 0012 raises the heading and the rate to loop rate;
+  this ADR budgets the two frames that costs. The heading is read off
+  **yaw, pitch and roll** rather than the quaternion — ADR 0012 owns
+  why — so it is three signals in one frame rather than four in one.
+  **[unverified — that yaw, pitch and roll share one status frame]** Because our bus runs classic framing, the CAN
   2.0 column is the one that applies — the FD column's 100 Hz is not
   available to us and never will be while SPARKs share the bus.
 
@@ -449,8 +452,7 @@ them resolvable here.
   Priced in the Decision as a conditional row.
 
 - **"Pigeon2 yaw, 5 ms, ~200" → two frames, 400.** #28 wrote that
-  before pose estimation was decided. ADR 0012 reads `getRotation3d()`,
-  which refreshes the four quaternion signals, **and**
+  before pose estimation was decided. ADR 0012 reads the heading **and**
   `getAngularVelocityZWorld()`, and raises both to loop rate. Those are
   two different frames — their CAN 2.0 defaults differ, 50 Hz against
   10 Hz (`CorePigeon2.java:667-680, 1625-1639`) **[source]** — so two
