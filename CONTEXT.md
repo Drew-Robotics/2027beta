@@ -257,6 +257,11 @@ The index of the ADRs themselves is
   `.chor` project and a `.traj` per path, both committed; nothing from
   ChoreoLib ships on the robot
   ([ADR 0011](docs/adr/0011-autonomous-and-choreo.md)).
+- **Eager cache** — a cache filled at startup rather than on first
+  use. A cache that exists to keep work off a transition and is filled
+  lazily pays the whole cost at the moment it was built to protect, so
+  every cache with that purpose is filled in `Robot`'s constructor
+  ([ADR 0011](docs/adr/0011-autonomous-and-choreo.md)).
 - **The flip** — turning a trajectory authored for one alliance into
   the other alliance's version of it, applied once when the follower
   is constructed

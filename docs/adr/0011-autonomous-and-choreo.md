@@ -57,13 +57,15 @@ Paths are drawn in the Choreo GUI and committed as the `.chor` project
 plus its `.traj` files, under `src/main/deploy/choreo/` — where the
 tool writes them, and which ADR 0003 already deploys. **[decided]**
 
-At runtime the robot loads them through WPILib:
-`HolonomicTrajectory.loadFromFile(String)`
-(`wpimath/src/main/java/org/wpilib/math/trajectory/HolonomicTrajectory.java:151`)
-**[source]**, resolved against
+At runtime the robot reads them into WPILib's
+`HolonomicTrajectory`, from a directory resolved against
 `Filesystem.getDeployDirectory()`
 (`wpilibj/src/main/java/org/wpilib/system/Filesystem.java:57`)
-**[source]**.
+**[source]**. **Not through
+`HolonomicTrajectory.loadFromFile(String)`**
+(`wpimath/src/main/java/org/wpilib/math/trajectory/HolonomicTrajectory.java:151`)
+**[source]**: that deserialises WPILib's own JSON, and a `.traj` is not
+it. The next section is the reason.
 
 **There is no ChoreoLib vendordep, and there will not be one this
 season.** See Rejected.
@@ -85,7 +87,8 @@ The mapping is 1:1 with no arithmetic in it, and it lives in one class:
 
 ```java
 public final class TrajectoryLoader {
-  public HolonomicTrajectory load(String name) { ... }
+  public TrajectoryLoader(Path deployDirectory) { ... }  // reads every .traj, once
+  public HolonomicTrajectory get(String name) { ... }    // a lookup, never a read
 }
 ```
 
@@ -406,14 +409,19 @@ produce it. ADR 0009 owns that.
 - **A missing or malformed `.traj` kills `Robot`'s constructor.** That
   is the intended behaviour and the reason the cache is eager for a
   second time: the failure lands while a student is standing at the
-  bench, not three seconds into a match. Unlike Choreo's own loader,
-  which swallows every failure into `Optional.empty()` **[source —
-  #6]**, `HolonomicTrajectory.loadFromFile` throws `IOException`
-  (`HolonomicTrajectory.java:140-152`) **[source]**.
+  bench, not three seconds into a match. Choreo's own loader swallows
+  every failure into `Optional.empty()` **[source — #6]**; ours throws,
+  and it throws on the empty sample list a path added in the GUI and
+  never generated leaves behind, which parses clean and follows in
+  zero seconds.
 
-- **Trajectory hot-reload in simulation is two lines.** Clear the cache
-  when `RobotBase.isSimulation()`, which is the one genuinely good idea
-  in ChoreoLib's source worth keeping. Costs nothing on the robot.
+- **Trajectory hot-reload in simulation is a re-read, not a clear.**
+  ChoreoLib empties its cache under `RobotBase.isSimulation()` and
+  fills it again on the next lookup, which is the one genuinely good
+  idea in its source worth keeping. Ours is eager, so emptying it
+  leaves every lookup throwing: the simulation version re-reads the
+  directory rather than clearing it. Nothing asks for it yet, and it
+  costs nothing on the robot.
 
 - **ADR 0009 owes a `kA` figure.** SysId's dynamic test is the only
   source for it, and until it exists the follower's acceleration term
