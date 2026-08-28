@@ -101,11 +101,25 @@ memory rather than a new one each season. **[field — 604, slide 17]**
 ```
 
 with a hard zero below `DRIVER_DEADBAND`, which is **narrower than the
-curve's width** and lands where the curve is already worth about a
-fifth of a percent — so the step is one nobody can feel, and a resting
-stick still commands exactly nothing. That last part is not cosmetic: a
-small non-zero ω steers all four modules to a rotation angle and holds
-them there.
+curve's width** and lands where the curve is already worth five parts in
+ten thousand — so the step is one nobody can feel, and a resting stick
+still commands exactly nothing. That last part is not cosmetic: a small
+non-zero ω steers all four modules to a rotation angle and holds them
+there.
+
+**The width is fitted, not chosen.** 604's slide plots the curve and
+gives no equation, so the width was fitted to the plotted line at eleven
+points: `DRIVER_CURVE_WIDTH = 0.35` reproduces it to within 0.021
+everywhere, which is inside the width of their drawn line. **[field —
+604, slide 17; the fit is ours]** The red and blue curves on the same
+slide were used to check the reading: they resolve to a linear rescale
+with a deadband near 0.07 and its square, which is what they are
+labelled.
+
+⚠️ **A first attempt shipped 0.15 and was about twice as stiff as
+604's** — 0.41 at half travel against their 0.30. It is recorded because
+the shape looked right at a glance and only the fit caught it: this
+family is easy to get qualitatively right and quantitatively wrong.
 
 Both constants are **provisional and are meant to stay put once set**.
 Consistency across seasons is the whole argument; rewriting the drive
