@@ -12,9 +12,5 @@ import org.wpilib.opmode.Teleop;
 public class DefaultTeleop implements OpMode {
   public DefaultTeleop(Robot robot) {
     robot.drive.setDefaultCommand(robot.drive.driverControl(robot.driver));
-
-    // Field-relative has no answer for a heading the driver has stopped believing. Holding the
-    // bumper drives the chassis frame directly; releasing it goes back.
-    robot.driver.leftBumper().whileTrue(robot.drive.driverControlRobotRelative(robot.driver));
   }
 }

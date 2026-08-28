@@ -27,6 +27,7 @@ import first.robot.Hardware;
 import first.robot.sim.OnboardLoopSim;
 import first.robot.sim.SwerveDriveSim;
 import java.util.Arrays;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Mechanism;
@@ -42,7 +43,6 @@ import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
-import org.wpilib.math.util.MathUtil;
 import org.wpilib.simulation.RoboRioSim;
 import org.wpilib.telemetry.TelemetryTable;
 import org.wpilib.units.measure.Angle;
@@ -151,35 +151,37 @@ public class Drive implements Mechanism {
   }
 
   public Command driveRobotRelative(Supplier<ChassisVelocities> velocities) {
-    return robotRelative(velocities).named("Drive.DriveRobotRelative");
+    return robotRelative(velocities, this::setVelocities).named("Drive.DriveRobotRelative");
   }
 
   public Command driveFieldRelative(Supplier<ChassisVelocities> velocities) {
-    return fieldRelative(velocities).named("Drive.DriveFieldRelative");
+    return fieldRelative(velocities, this::setVelocities).named("Drive.DriveFieldRelative");
   }
 
+  // Open loop, unlike everything else that drives: a velocity loop answers a shove by spinning the
+  // wheel back to its setpoint, and a driver reads that as the robot arguing. A voltage does what
+  // the stick did.
   public Command driverControl(CommandGamepad driver) {
-    return fieldRelative(() -> driverVelocities(driver)).named("Drive.DriverControl");
+    return fieldRelative(() -> driverVelocities(driver), this::setOpenLoopVelocities)
+        .named("Drive.DriverControl");
   }
 
-  public Command driverControlRobotRelative(CommandGamepad driver) {
-    return robotRelative(() -> driverVelocities(driver)).named("Drive.DriverControlRobotRelative");
-  }
-
-  private NeedsNameBuilderStage robotRelative(Supplier<ChassisVelocities> velocities) {
+  private NeedsNameBuilderStage robotRelative(
+      Supplier<ChassisVelocities> velocities, Consumer<ChassisVelocities> output) {
     return run(coroutine -> {
           while (true) {
-            setVelocities(velocities.get());
+            output.accept(velocities.get());
             coroutine.yield();
           }
         })
         .whenCanceled(this::stopModules);
   }
 
-  private NeedsNameBuilderStage fieldRelative(Supplier<ChassisVelocities> velocities) {
+  private NeedsNameBuilderStage fieldRelative(
+      Supplier<ChassisVelocities> velocities, Consumer<ChassisVelocities> output) {
     return run(coroutine -> {
           while (true) {
-            setVelocities(velocities.get().toRobotRelative(getGyroHeading().toRotation2d()));
+            output.accept(velocities.get().toRobotRelative(getGyroHeading().toRotation2d()));
             coroutine.yield();
           }
         })
@@ -195,20 +197,38 @@ public class Drive implements Mechanism {
         DriveConstants.MAX_ANGULAR_VELOCITY.times(stick(-driver.getRightX())));
   }
 
-  private static double stick(double axis) {
-    return MathUtil.applyDeadband(axis, DriveConstants.DRIVER_DEADBAND);
+  // Asymptotically linear: the curve eases out of zero over the width and then converges onto the
+  // straight line, so there is one line for muscle memory to learn rather than a flat zone whose
+  // edge the driver has to find. The hard zero is narrower than the easing and lands where the
+  // curve is already worth about a fifth of a percent, so it is a step nobody can feel.
+  static double stick(double axis) {
+    if (Math.abs(axis) < DriveConstants.DRIVER_DEADBAND) {
+      return 0;
+    }
+    double width = DriveConstants.DRIVER_CURVE_WIDTH;
+    return (axis - width * Math.tanh(axis / width)) / (1 - width * Math.tanh(1 / width));
   }
 
   public void setVelocities(ChassisVelocities velocities) {
-    desiredVelocities = velocities;
-    var target = velocities.discretize(Constants.LOOP_PERIOD.in(Seconds));
-    var states =
-        SwerveDriveKinematics.desaturateWheelVelocities(
-            kinematics.toSwerveModuleVelocities(target),
-            DriveConstants.MAX_VELOCITY.in(MetersPerSecond));
+    var states = moduleTargets(velocities);
     for (int i = 0; i < MODULES; i++) {
       modules[i].setVelocity(states[i]);
     }
+  }
+
+  public void setOpenLoopVelocities(ChassisVelocities velocities) {
+    var states = moduleTargets(velocities);
+    for (int i = 0; i < MODULES; i++) {
+      modules[i].setOpenLoopVelocity(states[i]);
+    }
+  }
+
+  private SwerveModuleVelocity[] moduleTargets(ChassisVelocities velocities) {
+    desiredVelocities = velocities;
+    var target = velocities.discretize(Constants.LOOP_PERIOD.in(Seconds));
+    return SwerveDriveKinematics.desaturateWheelVelocities(
+        kinematics.toSwerveModuleVelocities(target),
+        DriveConstants.MAX_VELOCITY.in(MetersPerSecond));
   }
 
   public void stopModules() {
@@ -285,9 +305,18 @@ public class Drive implements Mechanism {
         double wheelSpeed =
             state[i].wheelVelocityRadPerSec() * DriveConstants.WHEEL_RADIUS.in(Meters);
         double sensor = modules[i].toSensorRotations(state[i].azimuth());
-        boolean closing = modules[i].isClosingLoops();
-        driveVolts[i] = closing ? driveLoops[i].calculate(wheelSpeed, SUB_STEP) : 0;
-        steerVolts[i] = closing ? steerLoops[i].calculate(sensor, SUB_STEP) : 0;
+        if (!modules[i].isClosingLoops()) {
+          driveVolts[i] = 0;
+          steerVolts[i] = 0;
+        } else {
+          // An open-loop module was written a voltage, so there is no loop here to model: the
+          // number the SPARK was handed is the number the plant gets.
+          driveVolts[i] =
+              modules[i].isOpenLoop()
+                  ? SwerveModule.openLoopVolts(modules[i].getDriveSetpoint())
+                  : driveLoops[i].calculate(wheelSpeed, SUB_STEP);
+          steerVolts[i] = steerLoops[i].calculate(sensor, SUB_STEP);
+        }
       }
       state = physics.update(driveVolts, steerVolts, SUB_STEP);
     }

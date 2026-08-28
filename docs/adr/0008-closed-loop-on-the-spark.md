@@ -5,6 +5,12 @@
 Accepted — 2026-08-26. Superseded in part by ADR 0011: `kA` returns at
 drivebase level, riding `arbFeedforward` on the path-following path only.
 
+Amended 2026-08-28. *Writes a setpoint, never a voltage* holds for
+everything the software drives and no longer for the driver: **teleop
+drives the wheels open loop, on a voltage**. Steer is untouched, and so
+is every path-following and autonomous velocity. See *Teleop drives open
+loop*.
+
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
 `v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7. REVLib
@@ -54,9 +60,56 @@ encoder**, with position wrapping enabled. **Drive velocity** closes on
 the SPARK against the **primary encoder**, with `kS` + `kV` + `kP`.
 **[decided]**
 
-Robot-side code **writes a setpoint, never a voltage**. Once per loop a
-module hands the SPARK an angle and a speed; the controller does the
-rest at 1 kHz. Nothing in `Drive` computes a motor output.
+Robot-side code **writes a setpoint, never a voltage** — with one
+exception, the driver's own wheel speed, which the next section owns.
+Once per loop a module hands the SPARK an angle and a speed; the
+controller does the rest at 1 kHz. Nothing in `Drive` computes a gain
+against a measurement.
+
+### Teleop drives open loop, and the driver's stick is asymptotically linear
+
+The **driver's** wheel speed is written as a voltage —
+`SparkBase.setVoltage(double)` — and not as a velocity setpoint.
+**[decided]** Every other velocity in the project, path following
+included, still closes the loop described above.
+
+A velocity loop answers a shove by spinning the wheel back to its
+setpoint, and answers a wheel that is being dragged by pushing harder.
+A driver reads both as the robot arguing with them. Open loop, the
+stick is the wheel: the same stick position is the same wheel speed
+whatever the carpet is doing, and there is no gain to be mistuned in
+the one mode where a mistuned gain is a match. **[field — 604,
+*Thumbs on the Sticks*, FIRST Mentor Conference 2025]**
+
+It is a **voltage rather than a throttle** because a SPARK holds a
+commanded voltage against bus sag: a stick position means the same
+wheel speed on a flat battery as on a fresh one. The mapping is the
+free-speed relationship inverted — the share of `MAX_VELOCITY` the
+driver asked for, spent as that share of the rail — so it carries no
+gain and duplicates no term that lives in `FeedForwardConfig`.
+
+**The stick curve is asymptotically linear with a deadband, not linear
+and not squared.** **[decided]** Square and cubic curves buy low-speed
+resolution and are too sensitive at the speeds a driver spends most of
+a match at; a linear rescale leaves a flat zone whose edge the driver
+cannot feel. The curve used eases out of zero over a width and then
+converges onto the straight line, so there is one line for muscle
+memory rather than a new one each season. **[field — 604, slide 17]**
+
+```java
+(axis - width * Math.tanh(axis / width)) / (1 - width * Math.tanh(1 / width))
+```
+
+with a hard zero below `DRIVER_DEADBAND`, which is **narrower than the
+curve's width** and lands where the curve is already worth about a
+fifth of a percent — so the step is one nobody can feel, and a resting
+stick still commands exactly nothing. That last part is not cosmetic: a
+small non-zero ω steers all four modules to a rotation angle and holds
+them there.
+
+Both constants are **provisional and are meant to stay put once set**.
+Consistency across seasons is the whole argument; rewriting the drive
+curve every year is what the argument is against.
 
 ### Steer closes on the analog absolute encoder
 
@@ -462,6 +515,17 @@ does not exist — the Flex's analog input reaches the supply rail.
 *Do not re-raise* unless steer noise is measured to matter and
 `dFilter` is measured not to fix it.
 
+### Closing the driver's velocity loop, for consistency with autonomous
+
+One control path is simpler to describe than two, and the drive `kS`
+and `kV` are configured either way because autonomous needs them. It is
+rejected on what a driver feels rather than on what the code looks
+like: the loop's corrections are indistinguishable from the robot
+disobeying, and they arrive exactly when a driver is fighting for
+position. **[field]** The cost is that the teleop path never exercises
+the drive velocity loop, so a `kV` that is wrong is found in autonomous
+or in characterisation and not by driving — which ADR 0009 already owns.
+
 ### `arbFeedforward` as the home for `kS` and `kV`
 
 It works — the term is applied in Volts, after the control mode and
@@ -491,6 +555,12 @@ restated here because a controller mid-tune is exactly when someone
 reaches for the GUI.
 
 ## Source
+
+The teleop amendment — open-loop voltage for the driver's wheel speed
+and the asymptotically-linear stick curve — is
+[#60](https://github.com/Drew-Robotics/2027beta/issues/60), on 604's
+*Thumbs on the Sticks* (Eugene Fang, FIRST Mentor Conference 2025),
+whose slide 17 carries the scaling argument.
 
 Decided in
 [#29](https://github.com/Drew-Robotics/2027beta/issues/29), which

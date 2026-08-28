@@ -112,9 +112,18 @@ public final class DriveConstants {
   public static final AngularVelocity MAX_ANGULAR_VELOCITY =
       RadiansPerSecond.of(MAX_VELOCITY.in(MetersPerSecond) / DRIVE_RADIUS.in(Meters));
 
-  // A stick that never quite returns to centre is the normal state of a used controller, and
-  // field-relative driving turns that offset into a robot that walks away from its driver.
-  public static final double DRIVER_DEADBAND = 0.1;
+  // The offset a used controller sits at with nobody touching it. Below this the command is
+  // exactly zero, because even a small omega steers all four modules to a rotation angle.
+  public static final double DRIVER_DEADBAND = 0.05;
+
+  // The width of the soft region in the stick curve. A linear rescale leaves a flat zone whose
+  // edge the driver cannot feel; easing out of zero over this much travel and then converging on
+  // the straight line keeps one line for muscle memory to learn.
+  public static final double DRIVER_CURVE_WIDTH = 0.15;
+
+  // A SPARK told to apply a voltage holds it against battery sag, so the driver's stick means the
+  // same wheel speed at the end of a match as at the start.
+  public static final Voltage NOMINAL_VOLTAGE = Volts.of(12);
 
   // The pose estimator's trust in the wheels as standard deviations over [x, y, z, theta], so
   // larger is less trust. WPILib's own defaults, until a bring-up drives a known distance and

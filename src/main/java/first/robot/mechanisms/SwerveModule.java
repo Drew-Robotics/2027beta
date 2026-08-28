@@ -6,8 +6,10 @@ package first.robot.mechanisms;
 
 import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Celsius;
+import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Milliseconds;
 import static org.wpilib.units.Units.Rotations;
+import static org.wpilib.units.Units.Volts;
 
 import com.revrobotics.PersistMode;
 import com.revrobotics.RelativeEncoder;
@@ -46,6 +48,7 @@ final class SwerveModule {
   private SwerveModuleVelocity desired = new SwerveModuleVelocity();
   private double steerSetpointRotations;
   private boolean closingLoops;
+  private boolean openLoop;
 
   SwerveModule(SwerveModuleConfig config, ModuleGains gains, TelemetryTable log) {
     name = config.name();
@@ -150,13 +153,35 @@ final class SwerveModule {
   }
 
   void setVelocity(SwerveModuleVelocity target) {
+    command(target, false);
+  }
+
+  void setOpenLoopVelocity(SwerveModuleVelocity target) {
+    command(target, true);
+  }
+
+  private void command(SwerveModuleVelocity target, boolean open) {
     var angle = getAngle();
     desired = target.optimize(angle).cosineScale(angle);
     steerSetpointRotations = toSensorRotations(desired.angle, steerOffsetRotations);
+    openLoop = open;
 
-    driveController.setSetpoint(desired.velocity, ControlType.kVelocity);
+    if (open) {
+      driveMotor.setVoltage(openLoopVolts(desired.velocity));
+    } else {
+      driveController.setSetpoint(desired.velocity, ControlType.kVelocity);
+    }
     steerController.setSetpoint(steerSetpointRotations, ControlType.kPosition);
     closingLoops = true;
+  }
+
+  // The share of the free speed the driver asked for, spent as the same share of the rail. It is
+  // the free-speed relationship inverted, which is what makes a stick position mean a wheel speed
+  // without a loop measuring anything.
+  static double openLoopVolts(double velocity) {
+    return DriveConstants.NOMINAL_VOLTAGE.in(Volts)
+        * velocity
+        / DriveConstants.MAX_VELOCITY.in(MetersPerSecond);
   }
 
   void stop() {
@@ -213,6 +238,10 @@ final class SwerveModule {
 
   boolean isClosingLoops() {
     return closingLoops;
+  }
+
+  boolean isOpenLoop() {
+    return openLoop;
   }
 
   double getDriveSetpoint() {
