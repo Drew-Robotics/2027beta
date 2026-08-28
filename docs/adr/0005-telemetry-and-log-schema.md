@@ -5,7 +5,8 @@
 Accepted — 2026-08-26. Superseded in part by ADR 0011, which owns the
 `/Drive/Following` and `/Auto` signals. The *Open* item asking whether
 an alert is visible during a match is answered by #22 and now sits
-under *Consequences*.
+under *Consequences*. Amended 2026-08-28: the signal list gains
+`/Check`, the opmode-scoped root the utility checks report under.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -158,6 +159,7 @@ second path to the same fact, carrying less. **[decided]**
 /Drive/Odometry/{EstimatedPose,OdometryOnlyPose,GyroHeading,GyroRate}
 /Drive/Following/{Setpoint,AlongTrackError,CrossTrackError,HeadingError,TimedOut}
 /Auto/{RoutineName,PlannedPath,TimeElapsed}
+/Check/DrivePath/{Residual,ResidualDistance,ResidualRotation,Complete}
 ```
 
 `OdometryOnlyPose` sits beside `EstimatedPose` on purpose: with both
@@ -168,6 +170,15 @@ across the field and a wheel that slipped look identical.
 The `Following` and `Auto` subtrees are ADR 0011's, including why the
 error is decomposed rather than logged as x and y, and why `Setpoint`
 is one struct rather than a pose and a velocity.
+
+`/Check` is opmode-scoped like `/Auto`, and is not a mechanism subtree:
+`DrivePathCheck` drives a closed square, so the pose it ends on is the
+odometry error, and that number belongs to the check rather than to the
+drive. It is written off the odometry-only estimate, because a vision
+update would otherwise correct the residual away and leave the check
+reporting perfect wheels. `Complete` earns its place by separating a
+residual from a run that finished from one a disable cut in half — the
+two are the same four bytes otherwise. **[decided]**
 
 **Per mechanism**, for every mechanism we ever add: setpoint,
 measurement, applied output, current, temperature, faults, current

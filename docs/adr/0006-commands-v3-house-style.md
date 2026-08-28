@@ -4,7 +4,10 @@
 
 Accepted — 2026-08-26. Amended in part by ADR 0009: the `@Utility` rule
 is a supervision requirement, not an on-blocks one. Amended 2026-08-27:
-the payoff for injecting a `Scheduler` has been collected.
+the payoff for injecting a `Scheduler` has been collected. Amended
+2026-08-28: an opmode's bindings are scoped to the Driver Station's
+selection rather than to the opmode object, so an opmode that binds a
+trigger unbinds it in `close()`.
 
 Claim tags are defined in the index. `[source]` claims here were read at
 `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -284,7 +287,18 @@ scope is fixed in its constructor (`Trigger.java:112`, read back at
 (`Trigger.java:564-565` calls `BindingScope.createNarrowestScope`).
 **[source]** So a trigger held as a `Robot` field is global-scoped and
 never unbound, while a binding made on it inside an opmode constructor is
-opmode-scoped and is still torn down when the opmode exits.
+opmode-scoped.
+
+**Opmode-scoped means the operator's selection, not the opmode object.**
+`ForOpmode.active()` compares against `RobotState.getOpModeId()` — what
+is picked on the Driver Station (`BindingScope.java:70-74`).
+**[source]** Selecting something else ends the scope and the bindings
+go. *Disabling* does not: `OpModeRobot` closes the opmode and forces a
+rebuild on the enabled→disabled edge while leaving the selection alone
+(`OpModeRobot.java:659-665`, `:744-766`). **[source]** So **an opmode
+that binds a trigger overrides `close()` and unbinds it**, or every
+re-enable leaves the previous run's binding live beside the new one —
+see *Traps*.
 
 **`CommandGamepad`, not `CommandXboxController`.** Both upstream
 references use the layout-neutral form — `faceUp()`, `rightBumper()`
@@ -408,10 +422,46 @@ the compile-time net **[decided]** — see Traps.
   reintroduces exactly the coupling the injected `Scheduler` was taken to
   remove — and it does it in a class that otherwise looks correct.
 
+- **A disable rebuilds the opmode and leaves its bindings behind.** The
+  binding scope is the Driver Station's *selection*
+  (`BindingScope.java:70-74`), and `OpModeRobot` destroys and rebuilds
+  the opmode object on the enabled→disabled edge without changing it
+  (`OpModeRobot.java:659-665`). **[source]** None of the three sweeps
+  fire, because all three test that same still-active scope:
+  `Trigger.clearStaleBindings` (`Trigger.java:438`, called from `poll`
+  at `:393`), `Scheduler.cancelStaleBindings` (`Scheduler.java:825`) and
+  `Scheduler.unbindStaleTriggers` (`:836`). **[source]** The second
+  enable therefore runs the first run's binding *and* the rebuilt one.
+  On `DrivePathCheck` that is two copies of the same square interrupting
+  each other a leg per loop, finishing in a tenth of the time, and both
+  writing a near-zero residual that reads as perfect odometry. The fix
+  is `close() { trigger.unbind(); }`, which cancels the bound commands
+  and clears the bindings (`Trigger.java:537-546`). **[source]** Read
+  out of the sources named, not run: the REVLib native blocks
+  constructing a `Robot`, so no opmode in this project has executed.
+
 - **Names are mandatory, so an unnamed command is a compile error, not a
   bad log.** This is a trap only in the sense that it surprises: the
   builder stages are the enforcement, and there is no way to opt out for
   a quick test.
+
+## Open
+
+- **A shared `Robot`-field trigger has no per-opmode teardown.**
+  `Trigger.unbind()` clears *every* binding on the trigger
+  (`Trigger.java:537-546`) **[source]**, and there is no per-binding
+  removal API, so an opmode cannot drop its own binding without taking
+  every other opmode's with it. The trigger behind
+  `CommandGamepad.faceUp()` is cached per button and per event loop
+  (`CommandGenericHID.java:147-151`) **[source]**, so it is shared by
+  construction: the first `driver.faceUp().onTrue(...)` written in an
+  opmode inherits the duplicate-on-re-enable trap above with nothing to
+  override. Nothing in this repo binds a shared trigger in an opmode
+  yet — `DefaultTeleop` only sets a default command — so this is a hole
+  ahead of us rather than a live defect. **Unblocked by** the first
+  opmode that needs one, which forces the choice: upstream grows
+  per-binding removal, or the house style rules that an opmode binds
+  only triggers it constructed itself.
 
 ## Rejected
 
