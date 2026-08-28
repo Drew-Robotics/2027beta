@@ -26,6 +26,8 @@ import org.wpilib.driverstation.MatchState;
 import org.wpilib.driverstation.RobotState;
 import org.wpilib.framework.OpModeRobot;
 import org.wpilib.hardware.power.PowerDistribution;
+import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.math.trajectory.HolonomicTrajectory;
 import org.wpilib.networktables.NetworkTableInstance;
 import org.wpilib.system.DataLogManager;
 import org.wpilib.system.Filesystem;
@@ -133,7 +135,12 @@ public class Robot extends OpModeRobot {
     drive =
         new Drive(
             DriveConstants.DRIVE,
+            this::trajectory,
+            // A method reference, not a lambda over the field: the estimator is built from the
+            // drive base two statements below this one, so the field is still blank here.
+            this::estimatedPose,
             TelemetryRegistry.getTable("/Drive"),
+            TelemetryRegistry.getTable("/Auto"),
             TelemetryRegistry.getTable("/Sim"),
             Scheduler.getDefault());
 
@@ -157,6 +164,16 @@ public class Robot extends OpModeRobot {
 
     addPeriodic(this::logAlerts, Constants.ALERT_LOG_PERIOD.in(Seconds));
     addPeriodic(this::logRadio, Constants.RADIO_LOG_PERIOD.in(Seconds));
+  }
+
+  private Pose2d estimatedPose() {
+    return poseEstimator.getEstimatedPose();
+  }
+
+  // The cache holds every path exactly as it was authored, and the flip is applied here — on a
+  // lookup, which autonomous makes once per schedule and therefore once per enable.
+  public HolonomicTrajectory trajectory(String name) {
+    return FieldConstants.forAlliance(trajectories.get(name));
   }
 
   private static PowerDistribution openPdh() {

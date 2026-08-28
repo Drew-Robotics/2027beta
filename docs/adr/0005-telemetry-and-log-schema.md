@@ -158,7 +158,7 @@ second path to the same fact, carrying less. **[decided]**
 /Drive/Modules/FrontLeft/{DriveOutput,DriveCurrent,SteerSetpoint,SteerAngle,SteerCurrent,Temp,Faults}
 /Drive/Odometry/{EstimatedPose,OdometryOnlyPose,GyroHeading,GyroRate}
 /Drive/Following/{Setpoint,AlongTrackError,CrossTrackError,HeadingError,TimedOut}
-/Auto/{RoutineName,PlannedPath,TimeElapsed}
+/Auto/{RoutineName,PlannedPath,TimeElapsed,ZoneEntry,Complete}
 /Check/DrivePath/{Residual,ResidualDistance,ResidualRotation,Complete}
 ```
 
@@ -169,7 +169,11 @@ across the field and a wheel that slipped look identical.
 
 The `Following` and `Auto` subtrees are ADR 0011's, including why the
 error is decomposed rather than logged as x and y, and why `Setpoint`
-is one struct rather than a pose and a velocity.
+is one struct rather than a pose and a velocity. `Complete` earns its
+place there for the same reason it does under `/Check` below, and
+`ZoneEntry` is the pose a routine's pose `Trigger` fired at — the one
+thing a time marker cannot report, written where the robot was rather
+than when the clock said.
 
 `/Check` is opmode-scoped like `/Auto`, and is not a mechanism subtree:
 `DrivePathCheck` drives a closed square, so the pose it ends on is the

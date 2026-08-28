@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import first.robot.DriveConstants;
 import org.junit.jupiter.api.Test;
 import org.wpilib.math.geometry.Rotation2d;
+import org.wpilib.math.kinematics.SwerveModuleAcceleration;
 
 class SwerveModuleTest {
   private static final double TOLERANCE = 1e-9;
@@ -46,5 +47,22 @@ class SwerveModuleTest {
         1.0,
         DriveConstants.STEER_SENSOR_SPAN.magnitude() * DriveConstants.STEER_POSITION_FACTOR,
         TOLERANCE);
+  }
+
+  // The kinematics hand back an unsigned magnitude and a direction, so a module driving the other
+  // way is braking and its share has to come back negative.
+  @Test
+  void aWheelDrivenAgainstTheAccelerationBrakesAgainstIt() {
+    var acceleration = new SwerveModuleAcceleration(4.0, Rotation2d.kZero);
+
+    assertEquals(4.0, SwerveModule.accelerationAlong(acceleration, Rotation2d.kZero), TOLERANCE);
+    assertEquals(-4.0, SwerveModule.accelerationAlong(acceleration, Rotation2d.kPi), TOLERANCE);
+  }
+
+  @Test
+  void aWheelTurnedAcrossTheAccelerationTakesNoneOfIt() {
+    var acceleration = new SwerveModuleAcceleration(4.0, Rotation2d.kZero);
+
+    assertEquals(0, SwerveModule.accelerationAlong(acceleration, Rotation2d.kCCW_Pi_2), TOLERANCE);
   }
 }

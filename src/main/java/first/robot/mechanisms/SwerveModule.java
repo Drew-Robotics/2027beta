@@ -14,9 +14,11 @@ import static org.wpilib.units.Units.Volts;
 import com.revrobotics.PersistMode;
 import com.revrobotics.RelativeEncoder;
 import com.revrobotics.ResetMode;
+import com.revrobotics.spark.ClosedLoopSlot;
 import com.revrobotics.spark.FeedbackSensor;
 import com.revrobotics.spark.SparkAnalogSensor;
 import com.revrobotics.spark.SparkClosedLoopController;
+import com.revrobotics.spark.SparkClosedLoopController.ArbFFUnits;
 import com.revrobotics.spark.SparkFlex;
 import com.revrobotics.spark.SparkLowLevel.ControlType;
 import com.revrobotics.spark.SparkLowLevel.MotorType;
@@ -29,6 +31,7 @@ import first.robot.DriveConstants.ModuleGains;
 import first.robot.DriveConstants.SwerveModuleConfig;
 import first.robot.Hardware;
 import org.wpilib.math.geometry.Rotation2d;
+import org.wpilib.math.kinematics.SwerveModuleAcceleration;
 import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.math.util.MathUtil;
@@ -153,26 +156,51 @@ final class SwerveModule {
   }
 
   void setVelocity(SwerveModuleVelocity target) {
-    command(target, false);
+    command(resolve(target), 0, false);
+  }
+
+  void setVelocity(SwerveModuleVelocity target, SwerveModuleAcceleration acceleration) {
+    // Resolved once, so the direction the feedforward is projected onto is the same one the wheel
+    // is commanded in. Reading the sensor twice can straddle the 90-degree optimise boundary and
+    // leave the feedforward pushing against the setpoint.
+    var resolved = resolve(target);
+    command(
+        resolved, DriveConstants.DRIVE_KA * accelerationAlong(acceleration, resolved.angle), false);
   }
 
   void setOpenLoopVelocity(SwerveModuleVelocity target) {
-    command(target, true);
+    command(resolve(target), 0, true);
   }
 
-  private void command(SwerveModuleVelocity target, boolean open) {
+  private SwerveModuleVelocity resolve(SwerveModuleVelocity target) {
     var angle = getAngle();
-    desired = target.optimize(angle).cosineScale(angle);
+    return target.optimize(angle).cosineScale(angle);
+  }
+
+  private void command(SwerveModuleVelocity resolved, double arbFeedforwardVolts, boolean open) {
+    desired = resolved;
     steerSetpointRotations = toSensorRotations(desired.angle, steerOffsetRotations);
     openLoop = open;
 
     if (open) {
       driveMotor.setVoltage(openLoopVolts(desired.velocity));
     } else {
-      driveController.setSetpoint(desired.velocity, ControlType.kVelocity);
+      driveController.setSetpoint(
+          desired.velocity,
+          ControlType.kVelocity,
+          ClosedLoopSlot.kSlot0,
+          arbFeedforwardVolts,
+          ArbFFUnits.kVoltage);
     }
     steerController.setSetpoint(steerSetpointRotations, ControlType.kPosition);
     closingLoops = true;
+  }
+
+  // SwerveModuleAcceleration carries an unsigned magnitude with the direction in its angle, so the
+  // wheel's own share of it is the projection onto the direction the wheel is being driven in —
+  // negative when the wheel is braking, which the magnitude alone cannot say.
+  static double accelerationAlong(SwerveModuleAcceleration acceleration, Rotation2d wheel) {
+    return acceleration.acceleration * acceleration.angle.minus(wheel).getCos();
   }
 
   // The share of the free speed the driver asked for, spent as the same share of the rail. It is
