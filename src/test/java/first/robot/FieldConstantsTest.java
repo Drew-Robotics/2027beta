@@ -21,6 +21,7 @@ import org.wpilib.util.AlertDataJNI;
 
 class FieldConstantsTest {
   private static final double TOLERANCE = 1e-9;
+  private static final Rotation2d ANGLE = Rotation2d.fromDegrees(30);
 
   private static final HolonomicTrajectory PATH =
       new HolonomicTrajectory(
@@ -52,6 +53,27 @@ class FieldConstantsTest {
     assertEquals(-3, flipped.acceleration.ax, TOLERANCE);
     assertEquals(-4, flipped.acceleration.ay, TOLERANCE);
     assertEquals(0.75, flipped.acceleration.alpha, TOLERANCE);
+  }
+
+  // The centre origin is what makes the flip a rotation, so the two conversions have to put the
+  // field's own edges symmetrically about zero. A wrong dimension shows up here and nowhere else
+  // until a path is flipped off the field.
+  @Test
+  void theCornerConversionPutsTheFieldSymmetricallyAboutTheOrigin() {
+    assertEquals(-FieldConstants.fromCornerX(16.541), FieldConstants.fromCornerX(0), TOLERANCE);
+    assertEquals(-FieldConstants.fromCornerY(8.0692), FieldConstants.fromCornerY(0), TOLERANCE);
+  }
+
+  // A corner-frame pose and its rotation about the field's centre both land in the converted
+  // frame as a pair the flip carries between, which is the whole reason the conversion exists.
+  @Test
+  void aCornerFramePoseFlipsToTheRotationOfItselfAboutTheFieldCentre() {
+    var drawn = new Pose2d(FieldConstants.fromCornerX(2), FieldConstants.fromCornerY(2), ANGLE);
+
+    var flipped = FieldConstants.flip(drawn);
+
+    assertEquals(FieldConstants.fromCornerX(16.541 - 2), flipped.getX(), TOLERANCE);
+    assertEquals(FieldConstants.fromCornerY(8.0692 - 2), flipped.getY(), TOLERANCE);
   }
 
   @Test

@@ -13,6 +13,11 @@ possible*. And `odometryUpdate` stamps the odometry buffer itself,
 because `update()` keys it on a clock the vision seam does not use —
 see *Traps*.
 
+Amended again 2026-08-28 by #78, which settled the field origin. The
+robot works in field centre, so the seam's contract now names the frame
+a measurement arrives in — see *The seam is one method on a class that
+already exists upstream*.
+
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
 `v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7. Phoenix 6
@@ -79,6 +84,36 @@ interface, no `VisionMeasurement` record, no vision type of any kind. A
 season's vision class holds a reference to `PoseEstimator` and calls
 that method. Unplugging vision next September is **deleting that
 class**, and the drive base never knew it existed. **[decided]**
+
+**The measurement arrives in field centre**, which is the frame the
+robot works in and the one ADR 0011's trajectories are converted into
+at load. That is the whole of the contract the drive base can state,
+and stating it is what keeps the two consumers of the origin in
+agreement without either knowing about the other. **[decided]**
+
+Producing a measurement in that frame is the vision class's job, and
+today it is a conversion rather than a read: everything published is
+still blue-corner. A class solving poses on the robot from WPILib's own
+layout gets there with
+`Field.setOrigin(new Pose3d(new Translation3d(length / 2, width / 2, 0), Rotation3d.kZero))`
+— `getTagPose` returns `tag.getPose().relativeTo(m_origin)`
+(`fields/src/main/java/org/wpilib/fields/Field.java:394`) **[source]**,
+so the stock layout needs no forked copy and no hand-edited tag poses.
+`OriginPosition`'s two members are named presets over that same setter
+(`:349-357`) **[source]** and neither of them is field centre.
+
+⚠️ **The layout declares no origin, so it cannot tell you which frame
+it is already in.** Its keys are `name`, `season`, `game`,
+`field-image`, `field-dimensions`, `program`, `field-tags`
+(`fields/src/main/native/resources/org/wpilib/fields/frc/2026-rebuilt-welded.json`)
+**[source]** — a revision published in field centre would move every tag
+by half a field with nothing in the schema to announce it, and an offset
+applied twice reads as a robot that is merely confident. The signs are
+the tell: **every tag has x ≥ 0 in a corner-frame layout and roughly
+half are negative in a centre-frame one.** A vision class that reads a
+layout checks that before trusting it, and fails rather than adapting.
+Nothing in the drive base does this, because nothing in the drive base
+reads a layout.
 
 `Drive` is untouched by this. It exposes `getGyroHeading()` and
 `getModulePositions()` for pose, exactly as ADR 0011 left it, and
@@ -460,15 +495,14 @@ older spellings appears anywhere.
   disabled is free, lands in the season's class, and drives the identical
   ratio.
 
-- **ADR 0011's field-origin question now has two consumers.** Vision
-  measurements are field-absolute, so a tag layout in one origin and a
-  trajectory in the other is a robot that drives confidently to the wrong
-  half of the field. Under a blue-corner origin,
-  `Field.setOrigin(OriginPosition)`
-  (`fields/src/main/java/org/wpilib/fields/Field.java:349`) **[source]**
-  and ADR 0011's trajectory flip must agree. That raises the cost of
-  getting it wrong; it does not change who decides it, and it is still
-  unresolved upstream. See Open.
+- **ADR 0011's field-origin question has two consumers, and one
+  answer.** Vision measurements are field-absolute, so a tag layout in
+  one origin and a trajectory in the other is a robot that drives
+  confidently to the wrong half of the field. Both are now converted
+  into field centre on the way in — the trajectory at load, the layout
+  at `setOrigin` — so they agree by construction rather than by two
+  places being kept in step. The seam names the frame; producing a
+  measurement in it is the vision class's job.
 
 - **The CAN frame budget grows by the heading and the yaw rate at
   200 Hz.** That is a real cost against a bus that already carries eight
@@ -690,17 +724,16 @@ older spellings appears anywhere.
 
 ## Open
 
-- **The field origin is unresolved, and this ADR is its second
-  consumer.** ADR 0011 records it in full: the map owner reports 2027
-  moves the origin to field centre, and the alpha-7 tree does not
-  reflect that — `Field`'s class doc still describes *"the origin at the
-  bottom-right corner of the blue alliance wall"*
-  (`Field.java:32-33`) and `OriginPosition` offers only
-  `BLUE_ALLIANCE_WALL_RIGHT_SIDE` and `RED_ALLIANCE_WALL_RIGHT_SIDE`
-  (`:45-47`) **[source]**. **[unverified]** For vision the consequence
-  is `Field.setOrigin(...)`; for autonomous it is the trajectory flip;
-  and the two must agree or vision and the path disagree by a mirror.
-  *Unblocked by* the 2027 field release and its AprilTag map.
+- **Whether a 2026 layout arrives already converted.** ADR 0011 records
+  the origin question in full and #78 closed it: field centre is where
+  2027 is going **[source]**, nothing shipped is in it yet, and this ADR
+  converts on the way in. What is open is whether the **2026** layouts
+  get retroactively converted — asked of WPILib in the same exchange and
+  answered *"probably a good idea? I think?"*, with nothing since.
+  **[unverified]** *Unblocked by* the 2027 field release, or by a 2026
+  layout revision landing first. A vision class reading WPILib's layout
+  on the robot is the thing that would notice, and the seam section says
+  how.
 
 - **Whether 200 Hz is enough.** The field precedent is 254's 250 Hz
   history, and our loop is 200 Hz. The gap is small and nobody has shown

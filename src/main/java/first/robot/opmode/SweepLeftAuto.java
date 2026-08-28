@@ -26,8 +26,9 @@ public class SweepLeftAuto implements OpMode {
   private static final String PATH = "SweepLeft";
 
   // Where along the path the zone starts. A pose says it and the clock does not: a robot running
-  // 300 ms late crosses the same line, and a time marker fires 300 ms short of it.
-  private static final Distance ZONE_LINE = Meters.of(4);
+  // 300 ms late crosses the same line, and a time marker fires 300 ms short of it. Read off the
+  // path in Choreo, so it arrives in corner coordinates like the path does.
+  private static final Distance ZONE_LINE = Meters.of(FieldConstants.fromCornerX(4));
 
   private final Trigger enabled = new Trigger(RobotState::isEnabled);
   private final Trigger pastZoneLine;

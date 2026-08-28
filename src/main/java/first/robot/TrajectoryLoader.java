@@ -122,11 +122,16 @@ public final class TrajectoryLoader {
   }
 
   // Both formats state the velocity and the acceleration in the field frame, so the whole mapping
-  // is a reshaping and there is no rotation anywhere in it.
+  // is a reshaping and a translation, and there is no rotation anywhere in it. The translation is
+  // the origin: Choreo emits corner coordinates and everything downstream is field centre, which
+  // leaves the heading and both vectors alone.
   private static HolonomicSample convert(ChoreoSample sample) {
     return new HolonomicSample(
         sample.t(),
-        new Pose2d(sample.x(), sample.y(), new Rotation2d(sample.heading())),
+        new Pose2d(
+            FieldConstants.fromCornerX(sample.x()),
+            FieldConstants.fromCornerY(sample.y()),
+            new Rotation2d(sample.heading())),
         new ChassisVelocities(sample.vx(), sample.vy(), sample.omega()),
         new ChassisAccelerations(sample.ax(), sample.ay(), sample.alpha()));
   }
