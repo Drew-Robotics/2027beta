@@ -20,6 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import org.wpilib.backend.DataLogTelemetryBackend;
 import org.wpilib.backend.NetworkTablesTelemetryBackend;
 import org.wpilib.command3.Scheduler;
+import org.wpilib.command3.button.CommandGamepad;
 import org.wpilib.driverstation.DriverStation;
 import org.wpilib.driverstation.MatchState;
 import org.wpilib.driverstation.RobotState;
@@ -46,6 +47,8 @@ import org.wpilib.util.AlertDataJNI.AlertInfo;
  */
 public class Robot extends OpModeRobot {
   public final Drive drive;
+  public final PoseEstimator poseEstimator;
+  public final CommandGamepad driver = new CommandGamepad(Constants.DRIVER_PORT);
 
   private final TelemetryTable robotLog;
   private final TelemetryTable canLog;
@@ -128,6 +131,15 @@ public class Robot extends OpModeRobot {
             TelemetryRegistry.getTable("/Sim"),
             Scheduler.getDefault());
 
+    // Seeded from the hardware rather than from zeroes, so the first odometry update measures a
+    // step the wheels actually took.
+    poseEstimator =
+        new PoseEstimator(
+            drive.getKinematics(),
+            drive.getGyroHeading(),
+            drive.getModulePositions(),
+            TelemetryRegistry.getTable("/Drive"));
+
     // The safe state of the whole robot is one block a reviewer can read, rather than something
     // they have to know idle() would have defaulted to.
     drive.setDefaultCommand(drive.idle());
@@ -194,6 +206,11 @@ public class Robot extends OpModeRobot {
     allianceUnknown.set(RobotState.isDSAttached() && alliance.isEmpty());
 
     drive.log();
+
+    // Before the scheduler, and the order is load-bearing: every command that runs below reads a
+    // pose built from this iteration's module positions rather than the previous one's.
+    poseEstimator.odometryUpdate(drive.getGyroHeading(), drive.getModulePositions());
+    poseEstimator.log();
 
     // Nothing in OpModeRobot runs the Commands v3 scheduler, so a mechanism whose scheduler is
     // never run has a default command that never starts and commands that never execute.

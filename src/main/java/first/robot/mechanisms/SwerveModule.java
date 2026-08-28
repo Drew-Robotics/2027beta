@@ -27,6 +27,7 @@ import first.robot.DriveConstants.ModuleGains;
 import first.robot.DriveConstants.SwerveModuleConfig;
 import first.robot.Hardware;
 import org.wpilib.math.geometry.Rotation2d;
+import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.math.util.MathUtil;
 import org.wpilib.telemetry.TelemetryTable;
@@ -176,6 +177,10 @@ final class SwerveModule {
 
   SwerveModuleVelocity getVelocity() {
     return new SwerveModuleVelocity(driveEncoder.getVelocity().get(), getAngle());
+  }
+
+  SwerveModulePosition getPosition() {
+    return new SwerveModulePosition(driveEncoder.getPosition().get(), getAngle());
   }
 
   SwerveModuleVelocity getDesiredVelocity() {

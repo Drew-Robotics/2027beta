@@ -5,12 +5,14 @@
 package first.robot;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.wpilib.units.Units.Microseconds;
 import static org.wpilib.units.Units.Milliseconds;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +20,7 @@ import org.wpilib.command3.Command;
 import org.wpilib.command3.Mechanism;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.command3.SchedulerEvent;
+import org.wpilib.command3.Trigger;
 import org.wpilib.system.RobotController;
 import org.wpilib.system.Timer;
 import org.wpilib.units.measure.Time;
@@ -83,6 +86,37 @@ class InjectedSchedulerTest {
     assertTrue(
         Scheduler.getDefault().getRunningCommands().isEmpty(),
         "it reached the process-wide scheduler");
+  }
+
+  // The one assertion in this project written in cycles rather than in time. An edge is a
+  // statement about scheduler cycles at any loop rate, and rewriting it as a duration would make
+  // it wrong.
+  @Test
+  void anEdgeTriggerIsHighForExactlyOneCycleSoWhileTrueCancelsImmediately() {
+    var edgeBound = new Stopwatch(scheduler);
+    var levelBound = new Stopwatch(scheduler);
+    var edgeCommand = edgeBound.holdFor(HOLD);
+    var levelCommand = levelBound.holdFor(HOLD);
+    var pressed = new AtomicBoolean();
+    var button = new Trigger(scheduler, pressed::get);
+    button.onTrue(levelCommand);
+    button.risingEdge().whileTrue(edgeCommand);
+
+    advance();
+    pressed.set(true);
+    advance();
+
+    assertTrue(
+        scheduler.isScheduledOrRunning(edgeCommand), "the rising edge never started its command");
+
+    advance();
+
+    assertFalse(
+        scheduler.isScheduledOrRunning(edgeCommand),
+        "the edge was still high a cycle after it rose, so whileTrue would be safe on it");
+    assertTrue(
+        scheduler.isScheduledOrRunning(levelCommand),
+        "the signal itself went low, so the cancellation was not the edge's doing");
   }
 
   private void advance() {
