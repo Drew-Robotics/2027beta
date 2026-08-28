@@ -9,6 +9,16 @@ is written per sample rather than through
 `HolonomicTrajectory.transformBy`, which turns out not to express it —
 see the fourth entry under *Traps*.
 
+Amended again 2026-08-28 by #78, which closed the origin question and
+found this ADR wrong in two places while doing it. Field centre is
+confirmed as the destination and every artifact that ships today is
+still corner-origin, so **the load converts the frame** — see
+*Trajectories arrive in the robot's frame*, which replaces *Trajectories
+cache raw*. And the *Traps* entry on `Transform2d` described the
+blue-corner flip as a reflection, which is the wrong flip for a
+rotationally symmetric field and is not what ChoreoLib does; corrected
+there.
+
 Amended by ADR 0012, which owns the pose
 estimator: `Drive.getGyroHeading()` returns a `Rotation3d` rather than a
 `Rotation2d`, and the estimator beside `Drive` is
@@ -300,14 +310,28 @@ wheel slipped, a time marker fires in the wrong place and a pose
 trigger does not. Splits stop being necessary once each segment is its
 own file.
 
-### Trajectories cache raw; the alliance flip happens at follower construction
+### Trajectories arrive in the robot's frame; the alliance flip happens at follower construction
 
-The cache holds the trajectory **exactly as authored**. The flip is
-applied when the `PathFollower` is constructed. **[decided]**
+The cache holds the trajectory **in the robot's own coordinate frame,
+converted once at load**, and holds nothing about which alliance it is
+for. The flip is applied when the `PathFollower` is constructed.
+**[decided]**
 
-Flipping at load is wrong: a cached trajectory would be bound to
-whatever alliance was set the first time the file was read, so
-switching alliance for a test would need a restart. The follower, by
+The conversion is the origin and nothing else. Choreo emits blue-corner
+coordinates and the robot works in field centre, so `TrajectoryLoader`
+subtracts half the field's length and width from every sample pose as
+it reshapes the file. It is a translation, so the heading, the velocity
+and the acceleration all carry through untouched — which is what makes
+it safe to do at load, where the flip is not. Field centre is where
+2027 is going **[source]**, and when it arrives the two constants go to
+zero and the conversion deletes.
+
+Flipping at load is wrong, and the difference between the two is not
+one of taste. A frame is a property of the file; an alliance is a
+property of the match, and it is not known when the file is read. A
+cached flip would bind the trajectory to whatever alliance was set the
+first time it was read, so switching alliance for a test would need a
+restart. The follower, by
 contrast, is constructed inside `followPath`'s `run(coroutine -> …)`
 body, which re-runs **every time the command is scheduled**. Change
 alliance in the sim GUI → disable → enable → correct flip.
@@ -422,10 +446,11 @@ produce it. ADR 0009 owns that.
   WPILib-shaped JSON directly, which upstream's stated intent makes
   plausible.
 
-- **Every path gets regenerated when the 2027 field map lands.** The
-  `.traj` schema is version 3 today and a coordinate-origin change
-  would almost certainly bump it. Plan on it rather than being
-  surprised by it. The `.chor` is the source of truth; a regenerated
+- **Every path gets regenerated when the 2027 field map lands, and the
+  frame conversion deletes with them.** The `.traj` schema is version 3
+  today and a coordinate-origin change would almost certainly bump it —
+  which is the signal, since `TrajectoryLoader` already refuses any
+  other version. Plan on it rather than being surprised by it. The `.chor` is the source of truth; a regenerated
   `.traj` should be a reviewable diff, which is why both file kinds are
   committed.
 
@@ -500,12 +525,18 @@ produce it. ADR 0009 owns that.
   path that tracks perfectly on a straight run and diverges the moment
   the robot rotates.
 
-- **A `Transform2d` cannot express the blue-corner flip, and
-  `transformBy` does not express the field-centre one either.** A
-  blue-corner flip is a **reflection** — `x → length − x`, heading
-  `→ π − heading` — and no rigid transform is a reflection. Reaching
-  for `transformBy` under a corner origin gives a path that is
-  plausibly shaped, wrong, and produces no error.
+- **`transformBy` does not express the flip, and the corner-origin form
+  of it is a rotation rather than a reflection.** Written about a
+  corner the flip is `x → length − x`, `y → width − y`, heading
+  `→ θ + π` — the same rotation as the field-centre form, about a point
+  that is not the origin. A **reflection** (`x → length − x`, heading
+  `→ π − heading`) is a different flip, correct only for a
+  mirror-symmetric field, and it is not what the 2026 field or
+  ChoreoLib use — `Flipper.FRC_CURRENT` is `rotatedAround(FIELD_LENGTH,
+  FIELD_WIDTH)` **[source]**. Reaching for the reflection gives a path
+  that is plausibly shaped, wrong, and produces no error. We do not
+  write either corner form: the frame is converted at load and the flip
+  stays the field-centre one.
 
   `HolonomicTrajectory.transformBy(Transform2d)` does not save the
   field-centre case: it is rigid **about the trajectory's own first
@@ -563,33 +594,37 @@ produce it. ADR 0009 owns that.
 
 ## Open
 
-- **The field origin is unresolved, and two consumers depend on it.**
-  The map owner reports that 2027 moves the origin to field centre.
-  **The alpha-7 tree does not reflect that**: the `fields` module still
-  documents *"the origin at the bottom-right corner of the blue
-  alliance wall"* (`fields/src/main/java/org/wpilib/fields/Field.java:32-33`)
-  and `OriginPosition` offers only `BLUE_ALLIANCE_WALL_RIGHT_SIDE` and
-  `RED_ALLIANCE_WALL_RIGHT_SIDE` (`:43-48`). **[source]** #6 recorded
-  the Choreo maintainer gating the change on the 2027 field AprilTag
-  map, which has not shipped. **[unverified]**
+- **When the field origin moves, and whether it moves under the 2026
+  layouts too.** *That* it moves is settled: field centre is where 2027
+  is going, from Peter Johnson in the WPILib Discord on 2026-04-11.
+  **[source — #78]** Nothing that ships today is in it — the `fields`
+  module still documents *"the origin at the bottom-right corner of the
+  blue alliance wall"*
+  (`fields/src/main/java/org/wpilib/fields/Field.java:32-33`),
+  `OriginPosition` offers only `BLUE_ALLIANCE_WALL_RIGHT_SIDE` and
+  `RED_ALLIANCE_WALL_RIGHT_SIDE` (`:43-48`) **[source]**, and Choreo's
+  editor still nails its canvas to a corner **[source — #78]**.
 
-  The two consumers are **the trajectory flip** (this ADR) and
-  **vision** (ADR 0012), and they must agree — a tag layout in one
-  origin and a path in the other is a robot that drives confidently to
-  the wrong half of the field.
+  Nothing on the public tracker records the change: no issue, no PR, no
+  milestone entry, no docs branch. **That is silence, not doubt** —
+  re-running the search and reading it as absence is how #78 first got
+  this backwards.
 
-  The consequence for the flip is concrete, and field-centre is
-  strictly simpler:
+  So the robot works in field centre now and converts what it reads,
+  and this is no longer a decision waiting on an event. What is left is
+  timing, and one live hazard: **whether the 2026 layouts are
+  retroactively converted** was asked in the same exchange and answered
+  *"probably a good idea? I think?"*, with nothing since.
+  **[unverified]** The field JSON declares no origin at all, so a
+  retroactive conversion moves every tag by half a field with no schema
+  bump behind it and an offset applied twice looks like a robot that is
+  merely confident. `.traj` at least has the version-3 check
+  `TrajectoryLoader` already fails on; the layout has nothing. ADR 0012
+  owns the check that catches it.
 
-  | Origin | Flip is | Implementation |
-  |---|---|---|
-  | **Field-centre** | 180° rotation about the origin — a **rigid transform** | negate x and y, turn the heading half a turn, negate the velocity and acceleration vectors; one function |
-  | Blue-corner | a **reflection** (`x → length − x`, heading `→ π − heading`) | a hand-written per-sample remap; `Transform2d` cannot express it |
-
-  We target field-centre. The one-function rule is what makes this
-  switchable at all. *Unblocked by* the 2027 field release and its
-  AprilTag map, at which point the function is re-verified against the
-  real thing rather than against a report.
+  *Unblocked by* the 2027 field release and its AprilTag map, at which
+  point both conversions go to zero and the flip is re-verified against
+  the real field rather than against a frame we translated into.
 
 - **Whether the converter is throwaway or permanent.** If ChoreoLib's
   `Trajectory` eventually **extends** `org.wpilib.math.trajectory.Trajectory`

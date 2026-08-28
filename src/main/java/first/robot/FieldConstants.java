@@ -22,7 +22,22 @@ public final class FieldConstants {
       new Alert(
           "path-alliance-unknown", "Following a path with no alliance; assuming blue", Level.HIGH);
 
+  // Choreo draws in the blue-alliance-corner frame and WPILib publishes its tag layouts in it; the
+  // robot works in field centre, which is where 2027 is going. The dimensions are the 2026 field's
+  // because that is the field the paths were drawn against, and both halves go to zero when the
+  // origin moves.
+  private static final double HALF_LENGTH = 16.541 / 2;
+  private static final double HALF_WIDTH = 8.0692 / 2;
+
   private FieldConstants() {}
+
+  public static double fromCornerX(double x) {
+    return x - HALF_LENGTH;
+  }
+
+  public static double fromCornerY(double y) {
+    return y - HALF_WIDTH;
+  }
 
   public static HolonomicTrajectory forAlliance(HolonomicTrajectory trajectory) {
     return onRed() ? flip(trajectory) : trajectory;
@@ -35,9 +50,9 @@ public final class FieldConstants {
     return onRed() ? flip(pose) : pose;
   }
 
-  // The origin is field centre, where the flip is a 180-degree rotation about it. Under the
-  // blue-corner origin the alpha-7 tree still documents, the same flip is a reflection instead,
-  // and every line below changes. Vision has to be told the same answer.
+  // The origin is field centre, where the flip is a 180-degree rotation about it. Anything drawn
+  // against a corner comes through fromCornerX and fromCornerY first; vision is told the same
+  // answer through Field.setOrigin.
   public static HolonomicTrajectory flip(HolonomicTrajectory trajectory) {
     return new HolonomicTrajectory(
         trajectory.getSamples().stream().map(FieldConstants::flip).toList());

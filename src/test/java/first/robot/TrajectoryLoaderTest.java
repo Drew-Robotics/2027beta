@@ -57,8 +57,8 @@ class TrajectoryLoaderTest {
 
     var sample = trajectory.start();
     assertEquals(0.0, sample.time, EPSILON);
-    assertEquals(1.0, sample.pose.getX(), EPSILON);
-    assertEquals(2.0, sample.pose.getY(), EPSILON);
+    assertEquals(FieldConstants.fromCornerX(1.0), sample.pose.getX(), EPSILON);
+    assertEquals(FieldConstants.fromCornerY(2.0), sample.pose.getY(), EPSILON);
     assertEquals(0.5, sample.pose.getRotation().getRadians(), EPSILON);
     assertEquals(3.0, sample.velocity.vx, EPSILON);
     assertEquals(4.0, sample.velocity.vy, EPSILON);
@@ -130,6 +130,41 @@ class TrajectoryLoaderTest {
     var thrown = assertThrows(NoSuchElementException.class, () -> loader.get("Absent"));
     assertTrue(thrown.getMessage().contains("Absent"), thrown.getMessage());
     assertTrue(thrown.getMessage().contains("Path"), thrown.getMessage());
+  }
+
+  // Choreo's frame is the corner and the robot's is the centre, so the load is the one place the
+  // two meet. The heading and both vectors are left alone because a translation does not turn them.
+  @Test
+  void theCornerFrameChoreoEmitsBecomesTheFieldCentreOneTheRobotUses(@TempDir Path deploy)
+      throws IOException {
+    var sample = loaderOver(deploy, "Path", file(3, "Swerve", SAMPLES)).get("Path").start();
+
+    assertEquals(1.0 - 16.541 / 2, sample.pose.getX(), EPSILON);
+    assertEquals(2.0 - 8.0692 / 2, sample.pose.getY(), EPSILON);
+    assertEquals(0.5, sample.pose.getRotation().getRadians(), EPSILON);
+    assertEquals(3.0, sample.velocity.vx, EPSILON);
+    assertEquals(4.0, sample.velocity.vy, EPSILON);
+    assertEquals(5.0, sample.acceleration.ax, EPSILON);
+    assertEquals(6.0, sample.acceleration.ay, EPSILON);
+  }
+
+  // The failure this conversion exists to kill. The flip is a rotation about the origin, so a path
+  // left in Choreo's corner frame rotates into the quadrant behind the field and takes the
+  // estimator seed with it, throwing nothing on the way.
+  @Test
+  void aCommittedPathIsStillOnTheFieldAfterTheAllianceFlip() {
+    var loader = new TrajectoryLoader(Path.of("src", "main", "deploy"));
+
+    for (var name : new String[] {"StraightAhead", "SweepLeft"}) {
+      for (var sample : FieldConstants.flip(loader.get(name)).getSamples()) {
+        assertTrue(
+            Math.abs(sample.pose.getX()) <= 16.541 / 2,
+            () -> name + " flips to x " + sample.pose.getX());
+        assertTrue(
+            Math.abs(sample.pose.getY()) <= 8.0692 / 2,
+            () -> name + " flips to y " + sample.pose.getY());
+      }
+    }
   }
 
   @Test
