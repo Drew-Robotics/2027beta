@@ -297,8 +297,9 @@ failure in §12 that takes a whole routine down without an exception.
 ## 10. Opmodes hold bindings, and nothing else
 
 An opmode is a class the Driver Station constructs when the operator
-selects it, and closes when they select something else. Its constructor
-contains only:
+selects it, and closes when they select something else — **and also
+every time the robot is disabled**, which rebuilds it on the next loop.
+§11 is about what that costs. Its constructor contains only:
 
 - trigger bindings,
 - default-command overrides for this mode,
@@ -313,9 +314,16 @@ public class SweepAuto implements OpMode {
     enabled.onTrue(sweepAndScore(robot));
   }
 
+  @Override
+  public void close() {
+    enabled.unbind();
+  }
+
   private Command sweepAndScore(Robot robot) { /* ... */ }
 }
 ```
+
+That `close()` is not optional, and §11 says why.
 
 **Never construct hardware in an opmode.** Hardware lives on `Robot` and
 is built once.
@@ -351,8 +359,41 @@ cares about is built in that opmode.
 
 That is safe even though the `Robot` field outlives the opmode: a
 trigger's *binding* — the `onTrue(...)` call — records the scope it was
-made in, so a binding made inside an opmode constructor is torn down when
-that opmode exits, even though the trigger itself lives on forever.
+made in, so a binding made inside an opmode constructor is opmode-scoped
+even though the trigger itself lives on forever.
+
+**But "opmode-scoped" means the selection on the Driver Station, not the
+opmode object** — and those are not the same lifetime. Disabling the
+robot closes your opmode and builds a fresh one on the next loop, while
+the selection sits where the operator left it. The scope never went
+inactive, so nothing swept the old binding away, and now there are two:
+
+```
+select DrivePathCheck   → opmode #1 built, binds enabled → drivePath
+enable                  → one square runs
+disable                 → opmode #1 closed, #2 built, binds again
+enable                  → TWO squares run, on top of each other
+```
+
+Two `noRequirements` commands both start; their legs then interrupt each
+other one loop at a time, the whole script burns in a tenth of a second,
+and both report an odometry residual of nearly zero — which reads as
+*perfect*. Nothing throws. This is the worst shape a bug can have.
+
+So **an opmode that binds a trigger overrides `close()` and unbinds it**:
+
+```java
+@Override
+public void close() {
+  enabled.unbind();
+}
+```
+
+`unbind()` cancels every command bound to that trigger and clears the
+bindings, which is right for a trigger the opmode built and wrong for
+one it borrowed — so this only works on a trigger the opmode constructed
+itself. Binding a shared `Robot`-field trigger inside an opmode has no
+clean teardown today; if you need one, say so before you write it.
 
 The one-argument `new Trigger(...)` is right here and wrong in a
 mechanism (§6). An opmode is only ever constructed by the robot, against
