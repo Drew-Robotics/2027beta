@@ -22,11 +22,14 @@ import com.revrobotics.sim.SparkRelativeEncoderSim;
 import first.robot.Constants;
 import first.robot.DriveConstants;
 import first.robot.DriveConstants.DriveConfig;
+import first.robot.DriveConstants.ModuleGains;
 import first.robot.DriveConstants.SwerveModuleConfig;
 import first.robot.Hardware;
 import first.robot.HolonomicPathFollower;
 import first.robot.sim.OnboardLoopSim;
 import first.robot.sim.SwerveDriveSim;
+import first.robot.sysid.SysIdRoutine;
+import first.robot.sysid.SysIdRoutine.Direction;
 import java.util.Arrays;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -48,9 +51,11 @@ import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.math.trajectory.HolonomicTrajectory;
 import org.wpilib.simulation.RoboRioSim;
+import org.wpilib.sysid.SysIdRoutineLog;
 import org.wpilib.system.Timer;
 import org.wpilib.telemetry.TelemetryTable;
 import org.wpilib.units.measure.Angle;
+import org.wpilib.units.measure.Voltage;
 
 public class Drive implements Mechanism {
   private static final int MODULES = 4;
@@ -71,8 +76,11 @@ public class Drive implements Mechanism {
   private final TelemetryTable autoLog;
   private final TelemetryTable simLog;
   private final Scheduler scheduler;
+  private final SysIdRoutine driveCharacterisation;
+  private final SysIdRoutine steerCharacterisation;
 
   private ChassisVelocities desiredVelocities = new ChassisVelocities();
+  private ModuleGains gains;
   private boolean pathTimedOut;
 
   // The vendor plumbing, and the one place in this project allowed to be saturated with it.
@@ -108,7 +116,7 @@ public class Drive implements Mechanism {
     odometryLog = log.getTable("Odometry");
     followingLog = log.getTable("Following");
 
-    var gains = DriveConstants.gains();
+    gains = DriveConstants.gains();
     var corners = corners(config);
     for (int i = 0; i < MODULES; i++) {
       modules[i] = new SwerveModule(corners[i], gains, moduleLog.getTable(corners[i].name()));
@@ -133,18 +141,29 @@ public class Drive implements Mechanism {
                 gyro.getRoll(),
                 gyro.getAngularVelocityZWorld()));
 
+    // Two routines and two log names: SysIdRoutineLog names every entry after the routine's, so
+    // one name shared would append two mechanisms' data into one set of columns.
+    driveCharacterisation =
+        new SysIdRoutine(
+            new SysIdRoutine.Config(
+                DriveConstants.DRIVE_RAMP_RATE,
+                DriveConstants.DRIVE_STEP_VOLTAGE,
+                DriveConstants.CHARACTERISATION_TIMEOUT),
+            new SysIdRoutine.Mechanism(this::characteriseDrive, this::logDriveRamp, this, "drive"));
+    steerCharacterisation =
+        new SysIdRoutine(
+            new SysIdRoutine.Config(
+                DriveConstants.STEER_RAMP_RATE, null, DriveConstants.CHARACTERISATION_TIMEOUT),
+            new SysIdRoutine.Mechanism(this::characteriseSteer, this::logSteerRamp, this, "steer"));
+
     if (RobotBase.isSimulation()) {
       physics = new SwerveDriveSim(DriveConstants.simConfig());
       gyroSim = gyro.getSimState();
       simDrift = Radians.zero();
       simYaw = Radians.zero();
       lastTrueRotation = physics.truePose().getRotation();
+      buildLoops(gains);
       for (int i = 0; i < MODULES; i++) {
-        driveLoops[i] =
-            OnboardLoopSim.velocity(gains.drive().kP(), gains.drive().kS(), gains.drive().kV());
-        steerLoops[i] =
-            OnboardLoopSim.position(
-                gains.steer().kP(), gains.steer().kD(), gains.steer().dFilter(), 0, 1);
         // Built below the SPARK it names: a sensor sim whose device does not resolve drops every
         // write, and the mechanism's encoders then read zero forever with nothing thrown.
         driveEncoderSims[i] = new SparkRelativeEncoderSim(modules[i].getDriveMotor());
@@ -153,6 +172,21 @@ public class Drive implements Mechanism {
     } else {
       physics = null;
       gyroSim = null;
+    }
+  }
+
+  private void buildLoops(ModuleGains moduleGains) {
+    for (int i = 0; i < MODULES; i++) {
+      driveLoops[i] =
+          OnboardLoopSim.velocity(
+              moduleGains.drive().kP(), moduleGains.drive().kS(), moduleGains.drive().kV());
+      steerLoops[i] =
+          OnboardLoopSim.position(
+              moduleGains.steer().kP(),
+              moduleGains.steer().kD(),
+              moduleGains.steer().dFilter(),
+              0,
+              1);
     }
   }
 
@@ -224,6 +258,90 @@ public class Drive implements Mechanism {
         })
         .whenCanceled(this::stopModules)
         .named("Drive.FollowPath[" + pathName + "]");
+  }
+
+  // Each of these settles the wheels forward before it hands over to the carried routine, whose
+  // own command keeps its upstream name — "sysid-quasistatic-forward-drive" and its siblings —
+  // because the analyser's readers already know them.
+  public Command driveQuasistatic(Direction direction) {
+    return settledFirst(
+        driveCharacterisation.quasistatic(direction), "Drive.DriveQuasistatic[" + direction + "]");
+  }
+
+  public Command driveDynamic(Direction direction) {
+    return settledFirst(
+        driveCharacterisation.dynamic(direction), "Drive.DriveDynamic[" + direction + "]");
+  }
+
+  // There is no steer dynamic test: steer's feedforward is kS alone, so a step voltage would
+  // produce a gain the position loop has no home for.
+  public Command steerQuasistatic(Direction direction) {
+    return settledFirst(
+        steerCharacterisation.quasistatic(direction), "Drive.SteerQuasistatic[" + direction + "]");
+  }
+
+  // A ramp measures the drive motor, so the modules have to be pointing where it pushes before it
+  // starts. From a module parked across the robot, the first fraction of a second of the ramp
+  // would otherwise be logged while the wheel is being turned under itself.
+  private Command settledFirst(Command routine, String name) {
+    return Command.noRequirements(
+            coroutine -> {
+              coroutine.await(settleForward());
+              coroutine.await(routine);
+            })
+        .named(name);
+  }
+
+  private Command settleForward() {
+    return runRepeatedly(() -> characteriseDrive(Volts.zero()))
+        .named("Drive.SettleForward")
+        .withTimeout(DriveConstants.CHARACTERISATION_SETTLE);
+  }
+
+  private void characteriseDrive(Voltage volts) {
+    for (var module : modules) {
+      module.characteriseDrive(volts);
+    }
+  }
+
+  private void characteriseSteer(Voltage volts) {
+    for (var module : modules) {
+      module.characteriseSteer(volts);
+    }
+  }
+
+  private void logDriveRamp(SysIdRoutineLog log) {
+    var module = modules[DriveConstants.CHARACTERISED_MODULE];
+    log.motor(module.getName())
+        .voltage(Volts.of(module.getDriveVolts()))
+        .linearPosition(module.getDriveDistance())
+        .linearVelocity(module.getDriveSpeed());
+  }
+
+  private void logSteerRamp(SysIdRoutineLog log) {
+    var module = modules[DriveConstants.CHARACTERISED_MODULE];
+    log.motor(module.getName())
+        .voltage(Volts.of(module.getSteerVolts()))
+        .angularPosition(module.getSteerRotation())
+        .angularVelocity(module.getSteerRate());
+  }
+
+  // The winner of a bench session, applied to every module of that role. Nothing here persists it,
+  // so it lasts until the next power cycle and no longer.
+  public void applyGains(ModuleGains newGains) {
+    gains = newGains;
+    for (var module : modules) {
+      module.applyGains(newGains);
+    }
+    if (physics != null) {
+      buildLoops(newGains);
+    }
+  }
+
+  // What the controllers hold now, not what was compiled in: a tuning opmode rebuilt by a disable
+  // seeded from the constants would show the deployed gain beside a controller holding a tuned one.
+  public ModuleGains getGains() {
+    return gains;
   }
 
   // Open loop, unlike everything else that drives: a velocity loop answers a shove by spinning the
@@ -394,13 +512,16 @@ public class Drive implements Mechanism {
           driveVolts[i] = 0;
           steerVolts[i] = 0;
         } else {
-          // An open-loop module was written a voltage, so there is no loop here to model: the
-          // number the SPARK was handed is the number the plant gets.
+          // An axis written a voltage — open-loop teleop, or a characterisation ramp — has no
+          // loop here to model: the number the SPARK was handed is the number the plant gets.
           driveVolts[i] =
-              modules[i].isOpenLoop()
-                  ? SwerveModule.openLoopVolts(modules[i].getDriveSetpoint())
+              modules[i].isDriveVoltageMode()
+                  ? modules[i].getDriveVolts()
                   : driveLoops[i].calculate(wheelSpeed, SUB_STEP);
-          steerVolts[i] = steerLoops[i].calculate(sensor, SUB_STEP);
+          steerVolts[i] =
+              modules[i].isSteerVoltageMode()
+                  ? modules[i].getSteerVolts()
+                  : steerLoops[i].calculate(sensor, SUB_STEP);
         }
       }
       state = physics.update(driveVolts, steerVolts, SUB_STEP);

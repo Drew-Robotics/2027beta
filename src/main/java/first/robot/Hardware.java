@@ -6,11 +6,17 @@ package first.robot;
 
 import com.ctre.phoenix6.StatusCode;
 import com.revrobotics.REVLibError;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import org.wpilib.util.Alert;
 
 public final class Hardware {
   private static final int MAX_ATTEMPTS = 5;
+
+  // Constructing a second Alert under an id that already exists throws, and a re-configure that
+  // can be repeated at a bench can fail twice.
+  private static final Map<String, Alert> ALERTS = new ConcurrentHashMap<>();
 
   // Broad on purpose: the narrower IllegalStateException is only what REVLib documents itself as
   // throwing today, and nothing a device does may take out Robot's constructor.
@@ -55,7 +61,9 @@ public final class Hardware {
   }
 
   private static void raise(String name, String detail) {
-    new Alert(name, "Config failed: " + detail, Alert.Level.HIGH).set(true);
+    var alert = ALERTS.computeIfAbsent(name, id -> new Alert(id, "", Alert.Level.HIGH));
+    alert.setText("Config failed: " + detail);
+    alert.set(true);
   }
 
   private Hardware() {}
