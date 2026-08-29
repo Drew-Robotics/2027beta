@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted — 2026-08-26.
+Accepted — 2026-08-26. Amended 2026-08-29, on implementing it: the
+analyser fits one model over all four tests combined, so *every* routine
+runs all four whatever it can use of the result — see *Traps* and the
+steer decision. The routines are also enumerated now that there are
+four of them, and a wheel-radius measurement joins them.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -105,6 +109,54 @@ honest.
 The closed loop is not running during a characterisation. Open-loop
 voltage in, velocity out, is the whole test.
 
+### Four routines, and what each one moves
+
+**Drive velocity — all four modules, wheels locked forward.** The steer
+loop holds zero azimuth through the ramp and the drive ramp is written
+to every module. A gain measured off one powered wheel dragging three
+unpowered ones is a measurement of a machine we do not have, and the
+winner is applied to all four of that role anyway (see Consequences).
+The wheels are *settled* into that azimuth before the ramp starts: a
+module still slewing turns its own drive encoder through the module's
+coupling, and that motion lands in exactly the low-voltage samples `kS`
+is fitted from. **[decided]**
+
+**Steer — one module.** Steer is a module-level measurement; the gain is
+a property of one module's azimuth axis, and four modules working the
+carpet at once is three extra ways for the one being measured to be
+pushed. The other three are dropped. **[decided]**
+
+**Whole-robot rotation — all four modules, wheels tangent to the spin.**
+The columns are the *robot's*: the applied voltage against the Pigeon's
+yaw and yaw rate, so the fit is volts per radian per second of chassis
+rotation — the quantity a trajectory's `omega` is expressed in, and the
+one no module-level test produces. The azimuths come from the kinematics
+rather than being written out as four angles, so they cannot disagree
+with it. Pigeon2 yaw spans ±368640°
+(`com/ctre/phoenix6/hardware/core/CorePigeon2.java`, `getYaw`)
+**[source]**, so the position column is continuous where a `Rotation2d`
+would fold it into half a turn.
+
+**Wheel radius — not a SysId routine at all.** It is 6328's measurement
+(`Mechanical-Advantage/RobotCode2024Public`,
+`src/main/java/org/littletonrobotics/frc2024/commands/WheelRadiusCharacterization.java`)
+**[field]**: spin the robot slowly on the spot, and the arc each wheel
+rolled through has to equal the arc the robot turned through at the
+drive radius, so `radius = |yaw| · driveRadius / meanWheelRadians`. It
+produces no feedforward gain and writes no sysid log — it writes one
+number to the telemetry table, and that number is
+`DRIVE_POSITION_FACTOR`'s. **[decided]**
+
+The encoder's own position already carries the *assumed* radius, so the
+wheel angle is recovered by dividing it back out. Dividing by the
+nominal radius and then solving for the radius is what leaves a
+measurement rather than a restatement of the constant.
+
+Slowly, and this is the whole of the method's fragility: the arithmetic
+assumes the wheels rolled rather than slipped, and the estimate means
+nothing before a full turn, because the error in where the modules were
+pointing at the start is otherwise a large share of the arc.
+
 ### The analyser eats a WPILOG, and what it requires is the state strings
 
 `tools/sysid` opens `*.wpilog` (`view/LogLoader.cpp:36`) **[source]**.
@@ -168,10 +220,19 @@ feedforward with nothing thrown; ADR 0008 owns that trap.
 **Steer's feedforward is `kS` and nothing else.** `kV` is *"not applied
 in Position control mode"* (`com/revrobotics/spark/config/FeedForwardConfig.java:75,
 178`) and `kA` is *"only applied in MAXMotion control modes"* (`:91,
-194`) **[source]**, and steer takes no profile (ADR 0008). So steer's
-characterisation is a quasistatic ramp to break-away and nothing else —
-there is no dynamic test for steer, because there is no gain for it to
-produce.
+194`) **[source]**, and steer takes no profile (ADR 0008). So the only
+number steer's characterisation keeps is the `kS` its quasistatic ramp
+finds at break-away.
+
+⚠️ **It still runs the dynamic pair, and that pair is not spare.**
+This ADR said there was no dynamic test for steer. That was right about
+where the gains can live and wrong about the measurement: the analyser
+concatenates slow-forward, slow-backward, fast-forward and fast-backward
+into one dataset and runs one regression over it
+(`analysis/AnalysisManager.cpp:102-109, 154-181`) **[source]**, so the
+dynamic data helps fit the `kS` steer keeps. What has nowhere to go is
+the `kV` and `kA` printed beside it, and that is a fact about the
+controller rather than about the run. See *Traps*.
 
 ### The loop-period rule does not bind the on-SPARK gains
 
@@ -453,6 +514,27 @@ in Traps.
   test is what produces the `kA` ADR 0011 needs. The lever is those two
   encoder settings, and they change the *measurement*, not the plant —
   see Open.
+
+- **The analyser refuses a log that is missing any of the four tests,
+  whatever the mechanism can use.** `DataSelector` checks the discovered
+  state values against
+  `VALID_TESTS = {quasistatic-forward, quasistatic-reverse,
+  dynamic-forward, dynamic-reverse}`
+  (`view/DataSelector.hpp:81-83`) and collects whatever is absent
+  (`view/DataSelector.cpp:138-145`); `App.cpp:112` hands the list to the
+  analyzer, and `Analyzer::PrepareData` throws `MissingTestsError`
+  before `AnalysisManager::PrepareData` runs at all
+  (`view/Analyzer.cpp:276-277`), with *"The following tests were not
+  detected: … Make sure to perform all four tests"*
+  (`analysis/FilteringUtils.hpp:74-88`). **[source]** It is not a
+  formality: all four are combined into one dataset before anything is
+  fitted (`analysis/AnalysisManager.cpp:102-109`) **[source]**, so the
+  four tests are one measurement rather than four. *"This mechanism has
+  no gain for a dynamic test to produce"* is therefore an argument about
+  which output column is usable, never about which tests to run. A
+  routine that skips a pair produces a log the analyser will not open,
+  and the failure arrives as a dialog after a bench session rather than
+  as anything at the robot.
 
 - **Two routines that share a mechanism name silently interleave.**
   `SysIdRoutineLog` names each entry `<field>-<motor>-<logName>`

@@ -338,7 +338,16 @@ The index of the ADRs themselves is
 - **SysId** — the WPILib tooling that does the above. A
   **quasistatic** test ramps the voltage slowly and a **dynamic** test
   steps it, each forward and reverse; a desktop analyser fits the
-  gains from the resulting WPILOG
+  gains from the resulting WPILOG. All four are run every time, on
+  every routine: the analyser combines them into one dataset and fits
+  one model over it, so they are one measurement rather than four, and
+  it will not open a log that is missing one
+  ([ADR 0009](docs/adr/0009-characterisation-and-tuning.md)).
+- **Effective wheel radius** — the radius a wheel behaves as if it has,
+  which is smaller than the one it was bought with and shrinks as it
+  wears. Measured by spinning the robot on the spot and comparing the
+  arc the wheels rolled to the arc the gyro turned through; it is what
+  `DRIVE_POSITION_FACTOR` should be built from
   ([ADR 0009](docs/adr/0009-characterisation-and-tuning.md)).
 
 ## Hardware and the bus

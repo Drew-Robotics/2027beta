@@ -212,15 +212,19 @@ final class SwerveModule {
   }
 
   // The drive loop is what a drive characterisation measures, so the ramp is written as volts and
-  // no loop is closed around it. Steer holds zero through the test: a ramp measured against
-  // whatever angle the modules were parked at is a measurement of a robot driving sideways.
-  void characteriseDrive(Voltage volts) {
+  // no loop is closed around it. Steer holds the azimuth the ramp is meant to push along — forward
+  // for a straight-line test, tangent to the spin circle for a rotation one — because a ramp
+  // measured against whatever angle the modules were parked at measures a different manoeuvre.
+  //
+  // The azimuth is taken as given rather than optimised: reverse is the routine's negative
+  // voltage, and a wheel flipped half a turn to shorten the slew would answer it the wrong way.
+  void characteriseDrive(Rotation2d azimuth, Voltage volts) {
     driveVolts = volts.in(Volts);
     driveVoltageMode = true;
     driveMotor.setVoltage(driveVolts);
 
-    desired = new SwerveModuleVelocity(0, Rotation2d.kZero);
-    steerSetpointRotations = toSensorRotations(Rotation2d.kZero, steerOffsetRotations);
+    desired = new SwerveModuleVelocity(0, azimuth);
+    steerSetpointRotations = toSensorRotations(azimuth, steerOffsetRotations);
     steerVoltageMode = false;
     steerController.setSetpoint(steerSetpointRotations, ControlType.kPosition);
     closingLoops = true;

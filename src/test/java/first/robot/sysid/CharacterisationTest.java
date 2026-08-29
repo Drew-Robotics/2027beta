@@ -11,12 +11,15 @@ import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Microseconds;
 import static org.wpilib.units.Units.Milliseconds;
+import static org.wpilib.units.Units.Radians;
+import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.RotationsPerSecond;
 import static org.wpilib.units.Units.Seconds;
 import static org.wpilib.units.Units.Volts;
 
 import first.robot.Constants;
 import first.robot.DriveConstants;
+import first.robot.sim.OnboardLoopSim;
 import first.robot.sim.SimModuleState;
 import first.robot.sim.SwerveDriveSim;
 import first.robot.sysid.SysIdRoutine.Direction;
@@ -42,16 +45,21 @@ import org.wpilib.command3.Scheduler;
 import org.wpilib.datalog.DataLogReader;
 import org.wpilib.datalog.DataLogRecord;
 import org.wpilib.datalog.StringLogEntry;
+import org.wpilib.math.geometry.Rotation2d;
+import org.wpilib.math.kinematics.ChassisVelocities;
+import org.wpilib.math.kinematics.SwerveDriveKinematics;
+import org.wpilib.math.util.MathUtil;
 import org.wpilib.sysid.SysIdRoutineLog;
 import org.wpilib.system.DataLogManager;
 import org.wpilib.system.RobotController;
 import org.wpilib.units.measure.Time;
 import org.wpilib.units.measure.Voltage;
 
-// The characterisation pipeline with no hardware in it: the ported routine drives ADR 0010's
-// plant, SysIdRoutineLog writes a WPILOG, and the log is read back through the rule tools/sysid
-// discovers tests by. The callbacks here mirror Drive's, because no SPARK can be constructed in
-// this JVM. What this proves is the pipeline; none of it is a number about a robot.
+// The characterisation pipeline with no hardware in it: the three ported routines drive ADR 0010's
+// plant through the SPARK-side steer loop, SysIdRoutineLog writes a WPILOG, and the log is read
+// back through the rule tools/sysid discovers tests by. The callbacks here mirror Drive's, because
+// no SPARK can be constructed in this JVM. What this proves is the pipeline; none of it is a
+// number about a robot.
 //
 // One log, written once: DataLogManager is process-wide and its directory is fixed by the first
 // start() anything makes, so every assertion below reads the same file.
@@ -59,7 +67,9 @@ import org.wpilib.units.measure.Voltage;
 class CharacterisationTest {
   private static final int MODULES = 4;
   private static final Time STEP = Constants.LOOP_PERIOD;
-  private static final Time BUDGET = Seconds.of(120);
+  private static final double SUB_STEP = DriveConstants.CONTROLLER_PERIOD.in(Seconds);
+  private static final int SUB_STEPS = (int) Math.round(STEP.in(Seconds) / SUB_STEP);
+  private static final Time BUDGET = Seconds.of(600);
   private static final int SETTLE_CYCLES = 3;
   private static final Time WRITE_DEADLINE = Seconds.of(10);
   private static final long POLL = 150;
@@ -67,14 +77,25 @@ class CharacterisationTest {
   private static final String MOTOR = "FrontLeft";
   private static final String DRIVE_LOG = "drive";
   private static final String STEER_LOG = "steer";
+  private static final String ROTATION_LOG = "rotation";
   private static final double WHEEL_RADIUS = DriveConstants.WHEEL_RADIUS.in(Meters);
 
+  private final SwerveDriveKinematics kinematics =
+      new SwerveDriveKinematics(DriveConstants.simConfig().moduleLocations());
   private final SwerveDriveSim physics = new SwerveDriveSim(DriveConstants.simConfig());
+  private final OnboardLoopSim[] steerLoops = new OnboardLoopSim[MODULES];
   private final double[] driveVolts = new double[MODULES];
   private final double[] steerVolts = new double[MODULES];
+  private final double[] steerSetpoints = new double[MODULES];
+  private final Rotation2d[] spinAzimuths = new Rotation2d[MODULES];
 
+  private boolean steerOpenLoop;
+  private double lastDriveCommand;
+  private double lastSteerCommand;
   private SimModuleState[] state;
   private double azimuthRate;
+  private double yawRadians;
+  private Rotation2d lastRotation = Rotation2d.kZero;
   private Time now = Seconds.zero();
   private Log log;
 
@@ -85,7 +106,16 @@ class CharacterisationTest {
     RobotController.setTimeSource(() -> (long) now.in(Microseconds));
     var scheduler = Scheduler.createIndependentScheduler();
     var wheels = new Wheels(scheduler);
+    var gains = DriveConstants.SIM_GAINS;
     state = physics.moduleStates();
+    lastRotation = physics.truePose().getRotation();
+    var spin = kinematics.toSwerveModuleVelocities(new ChassisVelocities(0, 0, 1));
+    for (int i = 0; i < MODULES; i++) {
+      steerLoops[i] =
+          OnboardLoopSim.position(
+              gains.steer().kP(), gains.steer().kD(), gains.steer().dFilter(), 0, 1);
+      spinAzimuths[i] = spin[i].angle;
+    }
 
     var drive =
         new SysIdRoutine(
@@ -94,13 +124,21 @@ class CharacterisationTest {
                 DriveConstants.DRIVE_STEP_VOLTAGE,
                 DriveConstants.CHARACTERISATION_TIMEOUT),
             new SysIdRoutine.Mechanism(this::commandDrive, this::logDrive, wheels, DRIVE_LOG));
-    // Steer's ramp is the whole of steer's characterisation: kV is not applied in position mode
-    // and kA only in MAXMotion, so a dynamic test would fit a gain the controller cannot use.
     var steer =
         new SysIdRoutine(
             new SysIdRoutine.Config(
-                DriveConstants.STEER_RAMP_RATE, null, DriveConstants.CHARACTERISATION_TIMEOUT),
+                DriveConstants.STEER_RAMP_RATE,
+                DriveConstants.DRIVE_STEP_VOLTAGE,
+                DriveConstants.CHARACTERISATION_TIMEOUT),
             new SysIdRoutine.Mechanism(this::commandSteer, this::logSteer, wheels, STEER_LOG));
+    var rotation =
+        new SysIdRoutine(
+            new SysIdRoutine.Config(
+                DriveConstants.ROTATION_RAMP_RATE,
+                DriveConstants.ROTATION_STEP_VOLTAGE,
+                DriveConstants.CHARACTERISATION_TIMEOUT),
+            new SysIdRoutine.Mechanism(
+                this::commandRotation, this::logRotation, wheels, ROTATION_LOG));
 
     // start() first, and only then the NetworkTables flag: logNetworkTables() with no log yet
     // calls start() itself, which would put this log in the robot's default directory.
@@ -111,12 +149,12 @@ class CharacterisationTest {
         DataLogManager.getLogDir(),
         "something else in this JVM started the data log first, so this log is not ours");
 
-    run(scheduler, drive.quasistatic(Direction.FORWARD));
-    run(scheduler, drive.quasistatic(Direction.REVERSE));
-    run(scheduler, drive.dynamic(Direction.FORWARD));
-    run(scheduler, drive.dynamic(Direction.REVERSE));
-    run(scheduler, steer.quasistatic(Direction.FORWARD));
-    run(scheduler, steer.quasistatic(Direction.REVERSE));
+    for (var routine : List.of(drive, steer, rotation)) {
+      run(scheduler, routine.quasistatic(Direction.FORWARD));
+      run(scheduler, routine.quasistatic(Direction.REVERSE));
+      run(scheduler, routine.dynamic(Direction.FORWARD));
+      run(scheduler, routine.dynamic(Direction.REVERSE));
+    }
 
     // The record appended last is not visible to a reader of a log whose writer is still open, so
     // the last thing written is a marker nothing asserts on rather than the last routine's "none".
@@ -147,27 +185,21 @@ class CharacterisationTest {
     RobotController.setTimeSource(RobotController::getMonotonicTime);
   }
 
+  // Four, in every routine. The analyser combines all four into one dataset before it fits
+  // anything, so a routine that ran two of them writes a log it refuses to open.
   @Test
-  void theAnalyserFindsFourTestsInTheDriveRoutinesLog() {
-    assertEquals(
-        Set.of("quasistatic-forward", "quasistatic-reverse", "dynamic-forward", "dynamic-reverse"),
-        log.tests(DRIVE_LOG),
-        "the analyser does not discover four tests in " + log.states(DRIVE_LOG));
+  void theAnalyserFindsFourTestsInEveryRoutinesLog() {
+    for (var routine : List.of(DRIVE_LOG, STEER_LOG, ROTATION_LOG)) {
+      assertEquals(
+          Set.of(
+              "quasistatic-forward", "quasistatic-reverse", "dynamic-forward", "dynamic-reverse"),
+          log.tests(routine),
+          "the analyser does not discover four tests in the " + routine + " routine's log");
+    }
   }
 
   @Test
-  void steerIsASecondRoutineAndItsEntriesDoNotInterleaveWithTheFirsts() {
-    assertEquals(
-        Set.of("quasistatic-forward", "quasistatic-reverse"),
-        log.tests(STEER_LOG),
-        "steer's own state entry does not carry its two quasistatic tests, and only those");
-    assertTrue(
-        log.entryNames().contains("velocity-" + MOTOR + "-" + STEER_LOG),
-        "steer's columns share the drive routine's names");
-  }
-
-  @Test
-  void theThreeColumnsTheAnalyserRequiresAreThereAndTheTwoItDerivesAreNot() {
+  void theThreeRoutinesEntriesDoNotInterleave() {
     assertEquals(
         Set.of(
             "voltage-" + MOTOR + "-" + DRIVE_LOG,
@@ -175,36 +207,52 @@ class CharacterisationTest {
             "velocity-" + MOTOR + "-" + DRIVE_LOG,
             "voltage-" + MOTOR + "-" + STEER_LOG,
             "position-" + MOTOR + "-" + STEER_LOG,
-            "velocity-" + MOTOR + "-" + STEER_LOG),
+            "velocity-" + MOTOR + "-" + STEER_LOG,
+            "voltage-" + MOTOR + "-" + ROTATION_LOG,
+            "position-" + MOTOR + "-" + ROTATION_LOG,
+            "velocity-" + MOTOR + "-" + ROTATION_LOG),
         log.motorEntries(),
-        "the log does not carry exactly voltage, position and velocity for each routine");
+        "the log does not carry exactly voltage, position and velocity for each of three routines");
   }
 
   @Test
-  void thePlantMovedAndTheColumnsRecordedIt() {
-    assertTrue(
-        log.values("voltage-" + MOTOR + "-" + DRIVE_LOG).stream().anyMatch(v -> v > 0),
-        "no drive voltage was ever logged");
+  void everyRoutineMovedWhatItMeasures() {
     assertTrue(
         log.values("velocity-" + MOTOR + "-" + DRIVE_LOG).stream().anyMatch(v -> v > 0.1),
-        "the wheel never turned, so the routine drove nothing");
+        "the wheel never turned, so the drive routine drove nothing");
     assertTrue(
         log.values("velocity-" + MOTOR + "-" + STEER_LOG).stream().anyMatch(v -> Math.abs(v) > 0),
         "the module never steered, so the steer routine drove nothing");
+    assertTrue(
+        log.values("velocity-" + MOTOR + "-" + ROTATION_LOG).stream()
+            .anyMatch(v -> Math.abs(v) > 0.1),
+        "the robot never turned, so the rotation routine measured no rotation");
+  }
+
+  // The rotation routine's columns are the robot's, not a wheel's: its position has to leave the
+  // half-turn a Rotation2d would fold it into.
+  @Test
+  void theRotationRoutineLogsAContinuousRobotAngle() {
+    var yaw = log.values("position-" + MOTOR + "-" + ROTATION_LOG);
+
+    assertTrue(
+        yaw.stream().anyMatch(v -> Math.abs(v) > 0.5),
+        "the logged robot angle never left the range a wrapped rotation would hold it in: "
+            + yaw.stream().mapToDouble(Double::doubleValue).max().orElse(0));
   }
 
   @Test
   void theCancellationPathZeroesTheOutputAndClosesEveryTest() {
-    assertEquals(0, driveVolts[0], "the drive kept its last ramp voltage after the test ended");
-    assertEquals(0, steerVolts[0], "the steer kept its last ramp voltage after the test ended");
-    assertEquals(
-        "none",
-        log.states(DRIVE_LOG).getLast(),
-        "the drive routine's state was left reading as a test that is still running");
-    assertEquals(
-        "none",
-        log.states(STEER_LOG).getLast(),
-        "the steer routine's state was left reading as a test that is still running");
+    // What the routines commanded, not what the plant was handed: the steer array carries the
+    // modelled loop's output for the two routines that close it, and that is never quite zero.
+    assertEquals(0, lastDriveCommand, "a drive ramp voltage outlived the test that wrote it");
+    assertEquals(0, lastSteerCommand, "the steer ramp voltage outlived the test that wrote it");
+    for (var routine : List.of(DRIVE_LOG, STEER_LOG, ROTATION_LOG)) {
+      assertEquals(
+          "none",
+          log.states(routine).getLast(),
+          "the " + routine + " routine's state was left reading as a test still running");
+    }
   }
 
   private void run(Scheduler scheduler, Command command) {
@@ -223,26 +271,63 @@ class CharacterisationTest {
     }
   }
 
+  // Everything Drive does between a routine and the plant, with the SPARK-side steer loop modelled
+  // at its own rate. The steer routine is the one case with no loop to model: it writes volts.
   private void step(Scheduler scheduler) {
     now = now.plus(STEP);
     scheduler.run();
-    var previous = state[0].azimuth();
-    state = physics.update(driveVolts, steerVolts, STEP.in(Seconds));
-    azimuthRate = state[0].azimuth().minus(previous).getRotations() / STEP.in(Seconds);
+
+    var previousAzimuth = state[0].azimuth();
+    for (int substep = 0; substep < SUB_STEPS; substep++) {
+      if (!steerOpenLoop) {
+        for (int i = 0; i < MODULES; i++) {
+          steerLoops[i].setSetpoint(steerSetpoints[i]);
+          steerVolts[i] = steerLoops[i].calculate(sensorRotations(state[i].azimuth()), SUB_STEP);
+        }
+      }
+      state = physics.update(driveVolts, steerVolts, SUB_STEP);
+    }
+
+    azimuthRate = state[0].azimuth().minus(previousAzimuth).getRotations() / STEP.in(Seconds);
+    var rotation = physics.truePose().getRotation();
+    yawRadians += rotation.minus(lastRotation).getRadians();
+    lastRotation = rotation;
+  }
+
+  private static double sensorRotations(Rotation2d azimuth) {
+    return MathUtil.inputModulus(azimuth.getRotations(), 0, 1);
   }
 
   private void commandDrive(Voltage volts) {
-    Arrays.fill(driveVolts, volts.in(Volts));
+    lastDriveCommand = volts.in(Volts);
+    Arrays.fill(driveVolts, lastDriveCommand);
+    Arrays.fill(steerSetpoints, 0);
+    steerOpenLoop = false;
   }
 
+  private void commandRotation(Voltage volts) {
+    lastDriveCommand = volts.in(Volts);
+    Arrays.fill(driveVolts, lastDriveCommand);
+    for (int i = 0; i < MODULES; i++) {
+      steerSetpoints[i] = sensorRotations(spinAzimuths[i]);
+    }
+    steerOpenLoop = false;
+  }
+
+  // One module, and the drive axis at rest under it, exactly as Drive writes it.
   private void commandSteer(Voltage volts) {
-    Arrays.fill(steerVolts, volts.in(Volts));
+    lastDriveCommand = 0;
+    lastSteerCommand = volts.in(Volts);
+    Arrays.fill(driveVolts, 0);
+    Arrays.fill(steerVolts, 0);
+    steerVolts[0] = lastSteerCommand;
+    steerOpenLoop = true;
   }
 
   private void logDrive(SysIdRoutineLog motors) {
     motors
         .motor(MOTOR)
-        .voltage(Volts.of(driveVolts[0]))
+        .voltage(Volts.of(lastDriveCommand))
         .linearPosition(Meters.of(state[0].wheelPositionRad() * WHEEL_RADIUS))
         .linearVelocity(MetersPerSecond.of(state[0].wheelVelocityRadPerSec() * WHEEL_RADIUS));
   }
@@ -250,9 +335,17 @@ class CharacterisationTest {
   private void logSteer(SysIdRoutineLog motors) {
     motors
         .motor(MOTOR)
-        .voltage(Volts.of(steerVolts[0]))
+        .voltage(Volts.of(lastSteerCommand))
         .angularPosition(state[0].azimuth().getMeasure())
         .angularVelocity(RotationsPerSecond.of(azimuthRate));
+  }
+
+  private void logRotation(SysIdRoutineLog motors) {
+    motors
+        .motor(MOTOR)
+        .voltage(Volts.of(lastDriveCommand))
+        .angularPosition(Radians.of(yawRadians))
+        .angularVelocity(RadiansPerSecond.of(physics.trueVelocity().omega));
   }
 
   private static final class Wheels implements Mechanism {
@@ -330,10 +423,7 @@ class CharacterisationTest {
 
     Set<String> motorEntries() {
       return entryNames.stream()
-          .filter(
-              n ->
-                  n.endsWith("-" + MOTOR + "-" + DRIVE_LOG)
-                      || n.endsWith("-" + MOTOR + "-" + STEER_LOG))
+          .filter(n -> n.contains("-" + MOTOR + "-"))
           .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
     }
   }
