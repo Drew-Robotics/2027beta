@@ -103,8 +103,12 @@ not committed to here.
 (`com/revrobotics/spark/SparkBase.java:217-220`) — the device holds the
 requested voltage internally rather than the robot computing a
 compensation **[source]**. So the `Voltage` the routine hands out is the
-voltage the controller applies, and the voltage column in the log is
-honest.
+voltage the controller applies **while nothing else is limiting the
+output**, and the current limit is something else limiting the output.
+See *Traps*: the request and the application are the same number for the
+quasistatic ramp and part of the dynamic step, and the log records the
+request. Making the column unconditionally honest is
+[#81](https://github.com/Drew-Robotics/2027beta/issues/81).
 
 The closed loop is not running during a characterisation. Open-loop
 voltage in, velocity out, is the whole test.
@@ -539,6 +543,25 @@ in Traps.
   encoder settings, and they change the *measurement*, not the plant —
   see Open.
 
+- **A current-limited motor applies a voltage that rises with speed
+  while the log records the one that was asked for.** A smart current
+  limit holds the output to `backEmf ± currentLimit · R`; for a NEO
+  Vortex at ADR 0008's 60 A that span is 3.41 V, so a 7 V step applies
+  **3.41 V from rest** and only reaches 7 V at **1.82 m/s**. Constant
+  current is constant torque, so acceleration is flat across that whole
+  stretch — measured at 8.547 m/s² below 1.82 m/s in a simulated run
+  **[executed — 2026-08-29]** — and it shows in the analyser as a
+  horizontal segment in *Acceleration vs Velocity*.
+
+  `tools/sysid` does not remove it. `TrimStepVoltageData` erases data
+  before peak acceleration, and under limiting the acceleration *is* the
+  peak from the first sample, so the limited stretch survives into the
+  fit whole. In that run it took `kA` from the plant's 0.4052 to a
+  fitted 0.4631, **+14%** — on the one gain the dynamic test exists to
+  produce and the one ADR 0011 hands to `arbFeedforward`. **[executed]**
+  The fix is to log what was applied rather than what was asked for,
+  which is the frame raise this ADR already decided; see *Open*.
+
 - **A step test begun on the move reports the time it spent stopping as
   measurement delay.** `TrimStepVoltageData` takes the velocity delay as
   the gap between the first sample carrying voltage and the first
@@ -590,6 +613,18 @@ in Traps.
   are two routines and take two names.
 
 ## Open
+
+- **The Status0 raise this ADR decided is not built, and the voltage
+  column is the requested voltage until it is.** **[unverified]** The
+  raise was argued around on the grounds that `setVoltage` makes the
+  request and the application the same number, which holds until the
+  current limiter binds — and it binds through the lower half of every
+  dynamic step. *Unblocked by*
+  [#81](https://github.com/Drew-Robotics/2027beta/issues/81), which
+  carries the raise, the applied-output column, and the simulation
+  problem underneath it: nothing drives a SPARK's applied output in
+  simulation today, and ADR 0010 forbids `first.robot.sim` learning what
+  a SPARK is.
 
 - **How a chassis-level rotation gain reaches modules that close
   velocity on the SPARK.** **[unverified]** The rotation fit is in volts
