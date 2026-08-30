@@ -646,8 +646,6 @@ public class Drive implements Mechanism {
         gyro.getRoll().getValue(), gyro.getPitch().getValue(), gyro.getYaw().getValue());
   }
 
-  // Read once a loop and never cleared, including through a pose reset: yaw rate is
-  // frame-independent, and an empty history is a rejected frame for the whole buffer duration.
   public void updateYawRateHistory() {
     yawRateHistory.addSample(
         // The monotonic clock, because a vision timestamp and the estimator's own buffer are both
@@ -662,8 +660,8 @@ public class Drive implements Mechanism {
     return maxAbsYawRate(yawRateHistory, startTime, endTime);
   }
 
-  // Empty means no history covers the window, which is a different answer from zero and the only
-  // one a caller can safely reject on. Both instants are on the monotonic clock.
+  // Empty is not zero: it means no history covers the window. Unlike PoseEstimator3d.sampleAt this
+  // does not clamp to the nearest sample, because a gate that fails open is not a gate.
   static Optional<AngularVelocity> maxAbsYawRate(
       TimeInterpolatableBuffer<Double> history, double startTime, double endTime) {
     var max =
@@ -700,7 +698,12 @@ public class Drive implements Mechanism {
     moduleLog.log("DesiredStates", desiredStates(), SwerveModuleVelocity.struct);
     moduleLog.log("MeasuredStates", measured, SwerveModuleVelocity.struct);
     odometryLog.log("GyroHeading", getGyroHeading(), Rotation3d.struct);
-    odometryLog.log("GyroRate", gyro.getAngularVelocityZWorld().getValue());
+    // The buffer's own newest sample rather than a second read of the signal: a GyroRate that
+    // stayed healthy while nothing was sampling would hide a blind gate rather than show it.
+    var latestYawRate = yawRateHistory.getInternalBuffer().lastEntry();
+    if (latestYawRate != null) {
+      odometryLog.log("GyroRate", RadiansPerSecond.of(latestYawRate.getValue()));
+    }
     for (var module : modules) {
       module.log();
     }

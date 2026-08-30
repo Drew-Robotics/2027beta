@@ -61,7 +61,8 @@ class YawRateHistoryTest {
 
   @Test
   void theWindowIncludesBothOfItsEndpoints() {
-    var history = fill(0, 1, t -> t < LOOP / 2 ? 3.0 : 0.5);
+    // Short enough that nothing is evicted, so this test turns on the window and not the history.
+    var history = fill(0, 0.5, t -> t < LOOP / 2 ? 3.0 : 0.5);
 
     assertEquals(
         3.0,
@@ -70,13 +71,16 @@ class YawRateHistoryTest {
         "a window of one instant missed the sample sitting on it");
   }
 
+  // The estimator drops odometry older than its own 1.5 s, so a gate that ran dry sooner would
+  // reject frames the estimator would have accepted, and nobody would find it for a season.
   @Test
-  void theHistoryOutlastsAVisionFramesFlightTime() {
+  void theHistoryReachesBackAsFarAsTheEstimatorsOwnBuffer() {
+    // Samples out to t = 2, so "now" is 2 and the estimator's window opens at 0.5.
+    var history = fill(0, 2, t -> 1.0);
+
     assertTrue(
-        HISTORY >= 1.5,
-        "the history is shorter than the estimator's own buffer, so the gate rejects frames the"
-            + " estimator would have accepted: "
-            + HISTORY);
+        Drive.maxAbsYawRate(history, 0.55, 0.6).isPresent(),
+        "a frame 1.4 s old has no history to gate on, and the estimator would still have taken it");
   }
 
   private static TimeInterpolatableBuffer<Double> fill(
