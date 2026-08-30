@@ -37,6 +37,7 @@ public final class SwerveDriveSim {
   private Pose2d pose = Pose2d.kZero;
   private ChassisVelocities velocity = new ChassisVelocities();
   private double batteryVolts = BatterySim.calculateDefaultBatteryLoadedVoltage();
+  private double appliedRailVolts = batteryVolts;
 
   public SwerveDriveSim(SwerveSimConfig config) {
     kinematics = new SwerveDriveKinematics(config.moduleLocations());
@@ -52,6 +53,7 @@ public final class SwerveDriveSim {
   }
 
   public SimModuleState[] update(double[] driveVolts, double[] steerVolts, double dtSeconds) {
+    appliedRailVolts = batteryVolts;
     for (int i = 0; i < MODULES; i++) {
       driveAppliedVolts[i] = applied(drive[i], driveMotor, driveCurrentLimit, driveVolts[i]);
       steerAppliedVolts[i] = applied(steer[i], steerMotor, steerCurrentLimit, steerVolts[i]);
@@ -101,6 +103,13 @@ public final class SwerveDriveSim {
 
   public Voltage batteryVoltage() {
     return Volts.of(batteryVolts);
+  }
+
+  // The rail the last step's applied volts were clamped against, which is the one before that
+  // step's sag. Dividing them by any other number can put an applied output outside [-1, 1],
+  // where no duty cycle goes.
+  public Voltage appliedRailVoltage() {
+    return Volts.of(appliedRailVolts);
   }
 
   // A single-jointed arm with no gravity term is the plain DC motor plant, and DCMotorSim's own

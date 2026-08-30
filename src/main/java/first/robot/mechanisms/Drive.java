@@ -776,6 +776,10 @@ public class Drive implements Mechanism {
     }
 
     double busVolts = physics.batteryVoltage().in(Volts);
+    // The rail the plant clamped against, not the one it sagged to afterwards: the SPARK reports
+    // a duty cycle and a bus voltage measured together, and dividing by the later number puts the
+    // duty outside [-1, 1].
+    double appliedRail = physics.appliedRailVoltage().in(Volts);
     for (int i = 0; i < MODULES; i++) {
       // setPosition takes the value after the conversion factor, so these are the metres and the
       // rotations the mechanism will read back, not raw encoder units.
@@ -786,8 +790,8 @@ public class Drive implements Mechanism {
       steerSensorSims[i].setPosition(modules[i].toSensorRotations(state[i].azimuth()));
       // The plant's applied volts, not the mechanism's commanded ones: the model clamps where the
       // controller does, and this is the signal that reports the clamp.
-      driveOutputSims[i].set(state[i].driveAppliedVolts(), busVolts);
-      steerOutputSims[i].set(state[i].steerAppliedVolts(), busVolts);
+      driveOutputSims[i].set(state[i].driveAppliedVolts(), appliedRail);
+      steerOutputSims[i].set(state[i].steerAppliedVolts(), appliedRail);
     }
 
     RoboRioSim.setVInVoltage(busVolts);

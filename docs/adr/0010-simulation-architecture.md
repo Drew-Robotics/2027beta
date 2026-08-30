@@ -15,7 +15,8 @@ desktop. `SparkSim` is still not loaded and this ADR still does not use
 it. Amended 2026-08-30, second: the loop model reads its
 feedback gains as a duty cycle rather than as volts, which is what the
 device does; `SIM_GAINS` moved with it. Amended 2026-08-30, third: the
-battery is charged the supply current rather than the winding current.
+battery is charged the supply current rather than the winding current. The applied output is
+reported against the rail it was clamped against.
 
 The *Open* item asking whether CI runs a headless robot program is
 answered by ADR 0013 and now sits under *Consequences*.
@@ -258,6 +259,18 @@ commanded one. `SwerveDriveSim` clamps against the current limit exactly
 where the controller does and now reports what it clamped to, so the
 simulated column has the same shape as the real one — including the flat
 stretch at the bottom of a step that ADR 0009's traps are about.
+
+**The duty cycle is reported against the rail it was clamped against.**
+`applied()` clamps to the rail as it stood *before* the step, and the
+pack sags *during* it, so dividing by the rail afterwards is dividing by
+a smaller number than the clamp used. Under a launch that gap put
+`/Drive/Modules/*/DriveOutput` at **1.647** **[measured]** — outside
+`[-1, 1]`, where no duty cycle goes, in the signal ADR 0009 builds a
+characterisation's voltage column from. `SwerveDriveSim` therefore
+reports `appliedRailVoltage()` beside `batteryVoltage()`, and the two
+`SimDevice` values are written as a matched pair, the way a real SPARK
+measures them. `RoboRioSim`'s VIn keeps the later number, because that
+is the freshest thing the rail knows about itself. **[decided]**
 
 `SimDeviceSim.getDouble` returns `null` for a name it cannot resolve
 (`wpilibj/src/main/java/org/wpilib/simulation/SimDeviceSim.java:117-123`)

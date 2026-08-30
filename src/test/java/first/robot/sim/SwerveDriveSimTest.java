@@ -212,6 +212,32 @@ class SwerveDriveSimTest {
     return timeout.in(Seconds);
   }
 
+  // A launch is where this broke: the plant clamps against the rail from before the step and the
+  // pack sags during it, so dividing the applied volts by the later number reported a duty cycle
+  // of 1.65. Applied output is what ADR 0009's characterisation column is built from.
+  @Test
+  void theAppliedOutputStaysADutyCycleThroughAnAccelerationThatSagsThePack() {
+    Arrays.fill(driveVolts, 12.0);
+    // Half a turn of error, which asks the steer loop for more volts than the rail has.
+    for (int i = 0; i < MODULES; i++) {
+      steerLoops[i].setSetpoint(0.5);
+    }
+
+    int ticks = (int) Math.round(1.0 / Constants.LOOP_PERIOD.in(Seconds));
+    for (int tick = 0; tick < ticks; tick++) {
+      tick();
+      double rail = sim.appliedRailVoltage().in(Volts);
+      for (int i = 0; i < MODULES; i++) {
+        assertTrue(
+            Math.abs(state[i].driveAppliedVolts()) <= rail + 1e-9,
+            "drive applied " + state[i].driveAppliedVolts() + " volts against a " + rail + " rail");
+        assertTrue(
+            Math.abs(state[i].steerAppliedVolts()) <= rail + 1e-9,
+            "steer applied " + state[i].steerAppliedVolts() + " volts against a " + rail + " rail");
+      }
+    }
+  }
+
   // Seconds until every module is inside tolerance of the setpoint, or the timeout if it never is.
   private double settleTime(double setpointRotations, Angle tolerance, Time timeout) {
     int ticks = (int) Math.round(timeout.in(Seconds) / Constants.LOOP_PERIOD.in(Seconds));
