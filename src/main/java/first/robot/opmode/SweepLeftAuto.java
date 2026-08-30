@@ -20,7 +20,9 @@ import org.wpilib.telemetry.TelemetryRegistry;
 import org.wpilib.telemetry.TelemetryTable;
 import org.wpilib.units.measure.Distance;
 
-@Autonomous(group = "Competition", description = "Follows the SweepLeft path")
+@Autonomous(
+    group = "Competition",
+    description = "Follows the SweepLeft path, drawn left; Mirrored sweeps right")
 public class SweepLeftAuto implements OpMode {
   private static final String ROUTINE = "SweepLeftAuto";
   private static final String PATH = "SweepLeft";
@@ -36,12 +38,12 @@ public class SweepLeftAuto implements OpMode {
 
   public SweepLeftAuto(Robot robot) {
     // Measured against the path as it was drawn, so the line is in the same place on both
-    // alliances. Comparing the flipped estimate to a fixed threshold is a trigger that never fires
-    // on one of them.
+    // alliances and on both sides. Compared raw, this threshold is -4.27 m against a red path
+    // running x +6.27 to +2.77, so the trigger is true on the first loop rather than at the zone.
     pastZoneLine =
         new Trigger(
             () ->
-                FieldConstants.asAuthored(robot.poseEstimator.getEstimatedPose()).getX()
+                FieldConstants.flipAndMirrorIfNeeded(robot.poseEstimator.getEstimatedPose()).getX()
                     >= ZONE_LINE.in(Meters));
     pastZoneLine.onTrue(markZoneEntry(robot));
     enabled.onTrue(sweepLeft(robot));

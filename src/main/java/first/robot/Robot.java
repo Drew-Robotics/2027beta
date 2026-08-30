@@ -70,6 +70,11 @@ public class Robot extends OpModeRobot {
   private final Alert allianceUnknown =
       new Alert("alliance-unknown", "Driver Station attached with no alliance", Level.HIGH);
 
+  // A non-default state that decides which half of the field the robot drives at belongs in front
+  // of the operator before the match, not in the log afterwards.
+  private final Alert pathsMirrored =
+      new Alert("paths-mirrored", "Paths are mirrored across the field's long axis", Level.LOW);
+
   private final HttpClient http =
       HttpClient.newBuilder()
           .connectTimeout(
@@ -170,10 +175,11 @@ public class Robot extends OpModeRobot {
     return poseEstimator.getEstimatedPose();
   }
 
-  // The cache holds every path exactly as it was authored, and the flip is applied here — on a
-  // lookup, which autonomous makes once per schedule and therefore once per enable.
+  // The cache holds every path exactly as it was authored, and both transforms are applied here —
+  // on a lookup, which autonomous makes once per schedule and therefore once per enable. They
+  // commute, so this ordering is a reading preference and nothing else.
   public HolonomicTrajectory trajectory(String name) {
-    return FieldConstants.forAlliance(trajectories.get(name));
+    return FieldConstants.forSide(FieldConstants.forAlliance(trajectories.get(name)));
   }
 
   private static PowerDistribution openPdh() {
@@ -223,6 +229,10 @@ public class Robot extends OpModeRobot {
     matchLog.log("ReplayNumber", MatchState.getReplayNumber());
     matchLog.log("GameData", MatchState.getGameData().orElse(""));
     matchLog.log("TimeRemaining", Seconds.of(MatchState.getMatchTime()));
+
+    boolean mirrored = FieldConstants.MIRRORED.getAsBoolean();
+    matchLog.log("Mirrored", mirrored);
+    pathsMirrored.set(mirrored);
 
     // A DS that is attached and has not said which alliance it is means every alliance-dependent
     // decision on the robot is about to be made against a guess.

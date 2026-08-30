@@ -19,6 +19,16 @@ blue-corner flip as a reflection, which is the wrong flip for a
 rotationally symmetric field and is not what ChoreoLib does; corrected
 there.
 
+Amended again 2026-08-30 by #76, which adds the side mirror beside the
+alliance flip — see *The side mirror is a reflection, chosen by a
+dashboard boolean*. The *Consequences* entry reading *"Autonomous is
+selected on the Driver Station, not a dashboard"* is **narrowed there**
+to the string-chooser finding it rests on, which has nothing to say
+about a boolean. *No splits, no event markers* gains the rule that
+every pose trigger reads through `flipAndMirrorIfNeeded`, and its example is
+corrected to show it — the example predated `flipAndMirrorIfNeeded` and read a raw
+estimate.
+
 Amended by ADR 0012, which owns the pose
 estimator: `Drive.getGyroHeading()` returns a `Rotation3d` rather than a
 `Rotation2d`, and the estimator beside `Drive` is
@@ -301,7 +311,8 @@ express concurrency, and v3 can: `coroutine.fork`, `coroutine.await`,
 and a pose trigger —
 
 ```java
-public final Trigger inNeutralZone = new Trigger(() -> poseEstimator.inZone(NEUTRAL_ZONE));
+public final Trigger inNeutralZone =
+    new Trigger(() -> inZone(FieldConstants.flipAndMirrorIfNeeded(poseEstimator.getEstimatedPose())));
 ```
 
 A **pose**-triggered action beats a **time**-triggered one for the
@@ -309,6 +320,26 @@ reason that matters on a field: if the robot runs 300 ms late because a
 wheel slipped, a time marker fires in the wrong place and a pose
 trigger does not. Splits stop being necessary once each segment is its
 own file.
+
+⚠️ **Every pose trigger goes through `flipAndMirrorIfNeeded`, and the threshold is
+written against the path as drawn.** The estimate is where the robot
+is; the threshold was read off Choreo. Compare the two raw and the
+trigger fires at the wrong moment on any run the path was transformed
+for. **Which way it goes is the threshold's sign, not a rule**:
+`SweepLeftAuto`'s zone line is -4.27 m and the red path runs x +6.27 to
++2.77, so raw it is true on the *first loop*; a positive threshold on
+the same path would never be reached. On a mirrored run a `y` threshold
+fires on the wrong side of the field. Both transforms are their own
+inverse and
+`flipAndMirrorIfNeeded` applies whichever are in force, so one call covers the
+alliance flip and the side mirror together and will cover whatever is
+added beside them.
+
+This is a rule and not a mechanism. There is nothing to stop a trigger
+reading `getEstimatedPose()` directly, and a wrong one throws nothing —
+it fires early, late, or not at all. The only pose trigger that exists
+reads through
+`flipAndMirrorIfNeeded`; the next one has to as well.
 
 ### Trajectories arrive in the robot's frame; the alliance flip happens at follower construction
 
@@ -358,6 +389,93 @@ the alliance has long arrived — rather than at load or at DS-connect.
 The correction is to the parenthetical, not to the decision. ADR 0005
 logs the alliance every loop for the same reason and raises this
 alert whenever a DS is attached without one.
+
+### The side mirror is a reflection, chosen by a dashboard boolean
+
+An autonomous drawn for one side of the field runs on the other side
+without a second opmode. The transform is a **reflection about the
+field's long axis**, it sits beside the alliance flip in
+`FieldConstants`, and it is applied at the same instant — follower
+construction. **[decided]**
+
+The two are different transforms and the difference is a sign, not a
+convention. Under the field-centre origin the flip is a 180° rotation
+about the origin and the mirror is a reflection across `y = 0`:
+
+| | alliance flip | side mirror |
+|---|---|---|
+| x, y | `-x, -y` | `x, `**`-y`** |
+| heading | `θ + π` | **`-θ`** |
+| vx, vy | `-vx, -vy` | `vx, `**`-vy`** |
+| ax, ay | `-ax, -ay` | `ax, `**`-ay`** |
+| **ω, α** | **unchanged** | **negated** |
+
+⚠️ **A rotation preserves handedness and a reflection does not.** A
+mirror that copies the flip's sign convention tracks translation
+perfectly and spins the wrong way, which on a path whose heading
+changes reads as a tuning problem rather than as a sign error.
+`FieldConstantsTest` pins each half of the table, and
+`PathFollowingTest` drives the mirrored path end to end against the
+drawn path's own tracking numbers — the heading bound is the one that
+fails when `omega` carries through unmirrored.
+
+**The two commute**, so nothing sequences them: `rot180 ∘ reflect` and
+`reflect ∘ rot180` are both `diag(-1, 1)`, and the heading composes to
+`-θ + π` either way. A test asserts it so the ordering cannot quietly
+become load-bearing. Each is also its own inverse, so `flipAndMirrorIfNeeded`
+undoes both by applying whichever are in force again — a pose threshold
+written against the drawn path is compared in the frame it was written
+in on either side of the field, the same reason it already was on red.
+
+⚠️ `flipAndMirrorIfNeeded` reads the toggle **every loop**, where the trajectory
+reads it once at follower construction, so toggling mid-autonomous puts
+a pose trigger in a frame the path being driven is not in. That is the
+shape the alliance already has and nobody can change the alliance
+mid-match; a dashboard boolean an operator can reach at any instant is
+the new part. Not worth a snapshot: the window is the fifteen seconds
+nobody is on a dashboard.
+
+The side is a `Tunables.addBoolean("Mirrored", false)`, and **false is
+the path exactly as it was drawn** — the state a robot boots into.
+`TunableBoolean` implements `BooleanSupplier` and `RobotBase` already
+registers `NetworkTablesTunableBackend(inst, "/Tunables")`
+(`RobotBase.java:237`) **[source]**, so no backend wiring is ours.
+ADR 0005 logs it every loop beside `Alliance` and it raises a `LOW`
+alert while armed: a non-default state that decides which half of the
+field the robot drives at belongs in front of the operator before the
+match, not reconstructed from the log after it.
+
+**This narrows the *Consequences* entry below**, which reads
+*"Autonomous is selected on the Driver Station, not a dashboard."* The
+finding under that sentence is about **strings**: AdvantageScope cannot
+write string NT values at all, and Elastic's support is an open,
+conflicted PR (`docs/research/choreo.md:129-133`, matrix at
+`:1337-1350`) **[source — #6]**. That rules out a string chooser and
+says the opposite about a boolean — AdvantageScope's tuner is
+**number/boolean only**: `LiveDataTuner.ts` declares `publish(key:
+string, value: number | boolean)` and `NT4Tuner.ts` gates on
+`LoggableType.Number || LoggableType.Boolean`
+(`docs/research/choreo.md:1344-1346`) **[source — #6]**. A boolean is
+the one shape the objection excludes rather than the one it covers.
+
+The routine stays on the Driver Station selector, which is what it is
+for; the side is a *modifier* on the selected routine, and putting it
+on the selector is combinatorial — four side-symmetric autos become
+eight entries an operator reads under time pressure to pick something
+that is not a different routine.
+
+One global boolean, not one per auto: a boolean per auto clutters a
+dashboard the way an entry per auto would have cluttered the Driver
+Station. The opmode's `@Autonomous(description = …)` names the side the
+path was drawn for, so the operator reads the pair together.
+
+⚠️ **The type is writable; the mode may not be.** The same reading
+records that `hasTunableFields()` returns `false` for
+`NT4Mode.Systemcore` and `NT4Mode.DriverStation` outright
+(`docs/research/choreo.md:1346-1347`) **[source — #6]** — which is the
+mode a real robot is in, and it gates *every* tunable rather than the
+string. Glass/SimGUI writes tune topics and is the dashboard this is
+known to work from. See *Open*.
 
 ### `kA` is in, at drivebase level, and only on the auto path
 
@@ -476,11 +594,15 @@ produce it. ADR 0009 owns that.
   is configured with zero — which is the current behaviour with the
   term present and inert, not a different code path.
 
-- **Autonomous is selected on the Driver Station, not a dashboard.**
-  `SendableChooser` is deleted, AdvantageScope's tuner cannot write
-  string values at all, and Elastic's support is an open, conflicted
-  PR. **[source — #6]** The DS opmode selector is the path, and it is
-  ADR 0001's decision; autonomous inherits it and adds nothing.
+- **The autonomous *routine* is selected on the Driver Station, not a
+  dashboard.** `SendableChooser` is deleted, AdvantageScope's tuner
+  cannot write string values at all, and Elastic's support is an open,
+  conflicted PR. **[source — #6]** The DS opmode selector is the path,
+  and it is ADR 0001's decision; autonomous inherits it and adds
+  nothing. The finding is about **strings**, so it does not reach a
+  boolean *modifier* on the selected routine: the side mirror is a
+  tunable boolean — see *The side mirror is a reflection, chosen by a
+  dashboard boolean*.
 
 ## Traps
 
@@ -633,6 +755,26 @@ produce it. ADR 0009 owns that.
   long as we use Choreo. **[unverified]** *Unblocked by* the v3-native
   ChoreoLib port landing. Nothing depends on the answer today.
 
+- **Whether the dashboard in the pit can write the `Mirrored` boolean
+  on SystemCore.** The *type* is settled: AdvantageScope's tuner takes
+  number and boolean, which is why the string finding does not reach
+  this. The *mode* is not: `hasTunableFields()` returns `false` for
+  `NT4Mode.Systemcore` outright, which gates every tunable and not just
+  the string, and that reading is of AdvantageScope's source rather
+  than of a robot anyone has tuned. **[unverified]** *Unblocked by*
+  writing the boolean from the dashboard that will be in the pit,
+  before a match depends on it. Glass/SimGUI is the fallback and the
+  one this is known to work from.
+
+- **Whether the `Mirrored` toggle should survive a reboot.** A tunable
+  that persists carries a mirror left on from practice into a match;
+  one that does not makes the operator set it every boot.
+  `NetworkTablesTunableBackend` sets no persistent option on what it
+  publishes and only *subscribes* to the `tune` topic
+  (`NetworkTablesTunableBackend.java:127-132`) **[source]**, so
+  persistence would have to come from the writing dashboard plus
+  `networktables.json` — which nobody has checked. **[unverified]**
+
 - **`kA` has no number.** ADR 0009 owns producing it. Until then the
   term is present and configured zero.
 
@@ -640,6 +782,14 @@ produce it. ADR 0009 owns that.
   does not currently work with the real 2027 Driver Station, so the
   JUnit gate validates the **follower math** and not the selection
   flow. *Unblocked by* the DS/sim story settling; ADR 0013 tracks it.
+
+  The same gap now bounds the transforms. A JUnit run loads no HAL
+  simulation extension, and `DriverStationSim.setAllianceStationId`
+  **segfaults the JVM** in `HALSIM_SetDriverStationAllianceStationId`
+  when it is called there **[measured — #76]**, so no test can put
+  itself on red. Each transform is pinned on its own and the pair is
+  pinned by the commute and involution tests; *red and mirrored at
+  once* is argued rather than executed.
 
 ## Rejected
 

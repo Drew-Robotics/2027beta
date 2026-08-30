@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Arrays;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
@@ -36,6 +37,13 @@ class FieldConstantsTest {
                   new Pose2d(4, 5, Rotation2d.fromDegrees(30)),
                   new ChassisVelocities(1, 2, 0.5),
                   new ChassisAccelerations(3, 4, 0.75))));
+
+  // The toggle is process-wide, so a test that leaves it armed mirrors every path in every test
+  // that runs after it.
+  @AfterEach
+  void disarmTheMirror() {
+    FieldConstants.MIRRORED.set(false);
+  }
 
   // The origin is field centre, so the flip is a rotation about it: the translation inverts, the
   // heading turns half a turn, and the two spins keep their sign because a rotation does not
@@ -102,9 +110,83 @@ class FieldConstantsTest {
         "no high-level alert was raised for a path followed without an alliance");
   }
 
-  // What asAuthored leans on: it has to undo exactly what the trajectory flip did, or a threshold
-  // written against the drawn path is compared against the wrong half of the field on red — and a
-  // trigger that never fires is quieter than one that fires in the wrong place.
+  // The mirror is a reflection and the flip is a rotation, so the mirror negates the two spins the
+  // flip deliberately leaves alone. A mirror that copies the flip's signs tracks translation
+  // perfectly and turns the wrong way, which reads as a tuning problem rather than a sign error.
+  @Test
+  void theMirrorIsAReflectionAboutTheLongAxisRatherThanARotation() {
+    var mirrored = FieldConstants.mirror(PATH).start();
+
+    assertEquals(2, mirrored.pose.getX(), TOLERANCE);
+    assertEquals(-3, mirrored.pose.getY(), TOLERANCE);
+    assertEquals(-30, mirrored.pose.getRotation().getDegrees(), TOLERANCE);
+    assertEquals(1, mirrored.velocity.vx, TOLERANCE);
+    assertEquals(-2, mirrored.velocity.vy, TOLERANCE);
+    assertEquals(-0.5, mirrored.velocity.omega, TOLERANCE);
+    assertEquals(3, mirrored.acceleration.ax, TOLERANCE);
+    assertEquals(-4, mirrored.acceleration.ay, TOLERANCE);
+    assertEquals(-0.75, mirrored.acceleration.alpha, TOLERANCE);
+  }
+
+  // Both transforms are applied at the same instant and nothing sequences them, so the order has
+  // to stay something nobody has to know.
+  @Test
+  void theMirrorAndTheAllianceFlipCommute() {
+    var mirrorThenFlip = FieldConstants.flip(FieldConstants.mirror(PATH)).start();
+    var flipThenMirror = FieldConstants.mirror(FieldConstants.flip(PATH)).start();
+
+    assertEquals(mirrorThenFlip.pose.getX(), flipThenMirror.pose.getX(), TOLERANCE);
+    assertEquals(mirrorThenFlip.pose.getY(), flipThenMirror.pose.getY(), TOLERANCE);
+    assertEquals(
+        mirrorThenFlip.pose.getRotation().getDegrees(),
+        flipThenMirror.pose.getRotation().getDegrees(),
+        TOLERANCE);
+    assertEquals(mirrorThenFlip.velocity.vx, flipThenMirror.velocity.vx, TOLERANCE);
+    assertEquals(mirrorThenFlip.velocity.vy, flipThenMirror.velocity.vy, TOLERANCE);
+    assertEquals(mirrorThenFlip.velocity.omega, flipThenMirror.velocity.omega, TOLERANCE);
+    assertEquals(mirrorThenFlip.acceleration.ax, flipThenMirror.acceleration.ax, TOLERANCE);
+    assertEquals(mirrorThenFlip.acceleration.ay, flipThenMirror.acceleration.ay, TOLERANCE);
+    assertEquals(mirrorThenFlip.acceleration.alpha, flipThenMirror.acceleration.alpha, TOLERANCE);
+  }
+
+  @Test
+  void mirroringTwiceIsTheOriginalPath() {
+    var round = FieldConstants.mirror(FieldConstants.mirror(PATH)).start();
+
+    assertEquals(2, round.pose.getX(), TOLERANCE);
+    assertEquals(3, round.pose.getY(), TOLERANCE);
+    assertEquals(30, round.pose.getRotation().getDegrees(), TOLERANCE);
+    assertEquals(0.5, round.velocity.omega, TOLERANCE);
+  }
+
+  // The path as drawn is what a robot boots into, so a mirror left on from practice cannot be the
+  // state nobody set.
+  @Test
+  void aPathIsFollowedAsAuthoredUntilTheDashboardSaysOtherwise() {
+    assertSame(
+        PATH, FieldConstants.forSide(PATH), "a path was mirrored with nothing asking for it");
+  }
+
+  // The same threshold problem the flip has: a trigger written against the drawn path is compared
+  // against a mirrored estimate and fires on the wrong side of the field, so one call has to undo
+  // both transforms.
+  @Test
+  void asAuthoredUndoesTheMirrorAsWellAsTheFlip() {
+    FieldConstants.MIRRORED.set(true);
+    var drawn = PATH.start().pose;
+
+    var driven = FieldConstants.forSide(PATH).start().pose;
+    var back = FieldConstants.flipAndMirrorIfNeeded(driven);
+
+    assertEquals(-3, driven.getY(), TOLERANCE);
+    assertEquals(drawn.getX(), back.getX(), TOLERANCE);
+    assertEquals(drawn.getY(), back.getY(), TOLERANCE);
+    assertEquals(drawn.getRotation().getDegrees(), back.getRotation().getDegrees(), TOLERANCE);
+  }
+
+  // What the pose call leans on: it has to undo exactly what the trajectory flip did, or a
+  // threshold written against the drawn path is compared against the wrong half of the field on
+  // red, and fires at a moment nothing in the log explains.
   @Test
   void thePoseFlipUndoesWhatTheTrajectoryFlipDidToTheSamePose() {
     var drawn = PATH.start().pose;

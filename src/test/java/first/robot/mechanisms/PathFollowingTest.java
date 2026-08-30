@@ -5,12 +5,15 @@
 package first.robot.mechanisms;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
+import static org.wpilib.units.Units.Radians;
 import static org.wpilib.units.Units.Seconds;
 
 import first.robot.Constants;
 import first.robot.DriveConstants;
+import first.robot.FieldConstants;
 import first.robot.HolonomicPathFollower;
 import first.robot.TrajectoryLoader;
 import first.robot.sim.OnboardLoopSim;
@@ -28,6 +31,7 @@ import org.wpilib.telemetry.MockTelemetryBackend;
 import org.wpilib.telemetry.TelemetryRegistry;
 import org.wpilib.telemetry.TelemetryTable;
 import org.wpilib.units.Measure;
+import org.wpilib.units.measure.Angle;
 import org.wpilib.units.measure.Distance;
 import org.wpilib.units.measure.Time;
 
@@ -82,20 +86,43 @@ class PathFollowingTest {
   // number measures only what it claims to.
   @Test
   void aStraightPathIsDrivenWithinAWheelsWidthOfItself() {
-    drive("StraightAhead", Meters.of(0.05), Seconds.of(1.5));
+    drive("StraightAhead", Meters.of(0.05), Degrees.of(1), Seconds.of(1.5));
   }
 
   // Heading and translation change together, which is where a robot-relative follower and a dropped
-  // centripetal term both show up. The threshold is loose because the drive lags its velocity
+  // centripetal term both show up. Both thresholds are loose because the drive lags its velocity
   // setpoint by a plant time constant with no acceleration feedforward to cancel it, and on a curve
-  // that lag is read as cross-track. It tightens when characterisation produces a kA.
+  // that lag is read as cross-track and as heading. They tighten when characterisation produces a
+  // kA.
   @Test
   void aPathThatTurnsWhileItTranslatesIsDrivenTheSameWay() {
-    drive("SweepLeft", Meters.of(0.8), Seconds.of(2));
+    drive("SweepLeft", Meters.of(0.8), Degrees.of(40), Seconds.of(2));
   }
 
-  private void drive(String pathName, Distance maxCrossTrack, Time margin) {
-    var trajectory = load(pathName);
+  // The same manoeuvre reflected, which a symmetric drive base tracks exactly as well — so the
+  // numbers are the drawn path's. A mirror that carried omega through unmirrored would drive with
+  // the drawn path's turn against the reflected path's heading, and it is the heading bound rather
+  // than the cross-track one that says so.
+  @Test
+  void theMirrorOfThatPathIsDrivenTheSameWay() {
+    drive(
+        FieldConstants.mirror(load("SweepLeft")),
+        "SweepLeft mirrored",
+        Meters.of(0.8),
+        Degrees.of(40),
+        Seconds.of(2));
+  }
+
+  private void drive(String pathName, Distance maxCrossTrack, Angle maxHeadingError, Time margin) {
+    drive(load(pathName), pathName, maxCrossTrack, maxHeadingError, margin);
+  }
+
+  private void drive(
+      HolonomicTrajectory trajectory,
+      String pathName,
+      Distance maxCrossTrack,
+      Angle maxHeadingError,
+      Time margin) {
     physics.resetPose(trajectory.start().pose);
 
     var follower =
@@ -103,6 +130,7 @@ class PathFollowingTest {
             trajectory, physics::truePose, () -> now, DriveConstants.PATH_FOLLOWER, log);
 
     double worstCrossTrack = 0;
+    double worstHeadingError = 0;
     double deadline = trajectory.duration + margin.in(Seconds);
     while (!follower.isDone() && now < deadline) {
       step(follower);
@@ -110,6 +138,9 @@ class PathFollowingTest {
       worstCrossTrack =
           Math.max(
               worstCrossTrack, Math.abs(backend.getLastValue("/CrossTrackError", Double.class)));
+      worstHeadingError =
+          Math.max(
+              worstHeadingError, Math.abs(backend.getLastValue("/HeadingError", Double.class)));
     }
 
     assertTrue(
@@ -118,6 +149,9 @@ class PathFollowingTest {
     assertTrue(
         worstCrossTrack <= maxCrossTrack.in(Meters),
         pathName + " ran " + worstCrossTrack + " m off the path at its worst");
+    assertTrue(
+        worstHeadingError <= maxHeadingError.in(Radians),
+        pathName + " ran " + worstHeadingError + " rad off the path's heading at its worst");
   }
 
   // Everything Drive does between a follower and the plant, with the SPARK-side loops modelled at
