@@ -115,7 +115,7 @@ layout checks that before trusting it, and fails rather than adapting.
 Nothing in the drive base does this, because nothing in the drive base
 reads a layout.
 
-`Drive` is untouched by this. It exposes `getGyroHeading()` and
+`Drive` is untouched by this. It exposes `getGyroOrientation()` and
 `getModulePositions()` for pose, exactly as ADR 0011 left it, and
 nothing was added to it *for vision* — see the yaw-rate section below
 for the one method that looks like an exception and is not.
@@ -177,7 +177,7 @@ is not.
 
 Four consequences, all of them mechanical:
 
-- **`Drive.getGyroHeading()` returns `Rotation3d`**, built as
+- **`Drive.getGyroOrientation()` returns `Rotation3d`**, built as
   `new Rotation3d(roll, pitch, yaw)` over the Pigeon's own three angle
   signals — an amendment to ADR 0011, which had it as `Rotation2d`.
   **[decided]** The Pigeon does expose a full 3d rotation, which is
@@ -330,7 +330,7 @@ base's own past, and any caller is welcome to it for any reason.
 ### The rate comes from the Pigeon's own signal, whose default frequency is too low
 
 The sample is `getAngularVelocityZWorld()`, **not a differenced
-`getGyroHeading()`**. Differencing over a 5 ms step multiplies
+`getGyroOrientation()`**. Differencing over a 5 ms step multiplies
 quantization noise by 200, and `max` is the worst possible statistic to
 run over noisy data — it selects the noise spike by construction,
 turning the gate into a false-reject machine. CTRE's rate signal is
@@ -715,7 +715,7 @@ older spellings appears anywhere.
   simulation, at which point the two are interchangeable and the
   simpler call wins.
 
-- **Do not synthesise yaw rate by differencing `getGyroHeading()`.** It
+- **Do not synthesise yaw rate by differencing `getGyroOrientation()`.** It
   compiles and it is one line, which is the whole danger; Decision owns
   the arithmetic. What it looks like on the field is the reason it is
   repeated here: the gate turns into a false-reject machine that
@@ -895,9 +895,9 @@ settles `maxAbsYawRate`'s shape, its fail-closed contract, its 1.5 s
 history and its exemption from reset.
 
 The pose estimator's placement beside `Drive`, and `Drive` exposing
-`getGyroHeading()` and `getModulePositions()` and nothing else, are
+`getGyroOrientation()` and `getModulePositions()` and nothing else, are
 [#15](https://github.com/Drew-Robotics/2027beta/issues/15) and ADR 0011;
-this ADR amends `getGyroHeading()` to `Rotation3d`. The log naming and
+this ADR amends `getGyroOrientation()` to `Rotation3d`. The log naming and
 the `Measure`-everywhere rule are
 [#11](https://github.com/Drew-Robotics/2027beta/issues/11) and ADR 0005;
 the config placement for the signal frequencies is

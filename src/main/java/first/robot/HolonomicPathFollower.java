@@ -60,7 +60,7 @@ public final class HolonomicPathFollower implements PathFollower {
   }
 
   @Override
-  public ChassisVelocities next() {
+  public ChassisVelocities nextFieldRelativeVelocities() {
     setpoint = trajectory.sampleAt(elapsed());
 
     var current = pose.get();
@@ -74,15 +74,15 @@ public final class HolonomicPathFollower implements PathFollower {
         setpoint.velocity.omega + config.thetaKp() * headingError.getRadians());
   }
 
-  // The sample next() left behind, so this has to be read after it within the same iteration.
-  public ChassisAccelerations acceleration() {
+  // Read after nextFieldRelativeVelocities() in the same iteration.
+  public ChassisAccelerations currentAcceleration() {
     return setpoint.acceleration;
   }
 
   // Not time alone: a robot pinned against a defender runs the clock out where it is standing, and
   // a follower that reports done there hands the next command a robot a metre from where it thinks.
   @Override
-  public boolean isDone() {
+  public boolean isFinished() {
     var current = pose.get();
     var end = trajectory.end().pose;
     return elapsed() >= trajectory.duration

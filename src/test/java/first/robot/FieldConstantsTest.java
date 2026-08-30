@@ -97,7 +97,9 @@ class FieldConstantsTest {
   @Test
   void aMissingAllianceDefaultsToBlueRatherThanFlippingOnAGuess() {
     assertSame(
-        PATH, FieldConstants.forAlliance(PATH), "a path was flipped with no alliance to go on");
+        PATH,
+        FieldConstants.forCurrentAlliance(PATH),
+        "a path was flipped with no alliance to go on");
     assertFalse(FieldConstants.onRed(), "a missing alliance did not default to blue");
   }
 
@@ -155,7 +157,9 @@ class FieldConstantsTest {
   @Test
   void aPathIsFollowedAsAuthoredUntilTheDashboardSaysOtherwise() {
     assertSame(
-        PATH, FieldConstants.forSide(PATH), "a path was mirrored with nothing asking for it");
+        PATH,
+        FieldConstants.withDashboardMirror(PATH),
+        "a path was mirrored with nothing asking for it");
   }
 
   // The same threshold problem the flip has: a trigger written against the drawn path is compared
@@ -166,8 +170,8 @@ class FieldConstantsTest {
     FieldConstants.MIRRORED.set(true);
     var drawn = PATH.start().pose;
 
-    var driven = FieldConstants.forSide(PATH).start().pose;
-    var back = FieldConstants.flipAndMirrorIfNeeded(driven);
+    var driven = FieldConstants.withDashboardMirror(PATH).start().pose;
+    var back = FieldConstants.toAuthoredPathFrame(driven);
 
     assertEquals(-3, driven.getY(), TOLERANCE);
     assertEquals(drawn.getX(), back.getX(), TOLERANCE);

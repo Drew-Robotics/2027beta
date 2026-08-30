@@ -64,7 +64,7 @@ wrong or incomplete:
 | `/Dscomm/Status/StatusByte` | The live topic is **`/Dscomm/Status/StatusWord`** (int). `LoggingKeys.md` is stale. |
 | `hal/.../systemcore/DriverStation.cpp` is a shim into "the closed `libMrcLib.so`" | True but understated. `GetMrcLibDs()` resolves to `MrcLibDsImpl` in **open source** at `hal/src/main/native/cpp/mrclib/MrcLibDs.cpp` (704 lines), which calls the closed C API. The mrclib headers ship in the Gradle cache and document the whole DS↔robot struct set. See §10. |
 
-Two things #22 got right that are worth restating because they were load-bearing: the
+Two parts of #22 are especially important: the
 `control_word` bit layout and the `current_op_mode` packing are both exactly as documented, and
 both were confirmed against live traffic (§11).
 

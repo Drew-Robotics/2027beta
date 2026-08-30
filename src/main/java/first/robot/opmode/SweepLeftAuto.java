@@ -43,7 +43,7 @@ public class SweepLeftAuto implements OpMode {
     pastZoneLine =
         new Trigger(
             () ->
-                FieldConstants.flipAndMirrorIfNeeded(robot.poseEstimator.getEstimatedPose()).getX()
+                FieldConstants.toAuthoredPathFrame(robot.poseEstimator.getEstimatedPose()).getX()
                     >= ZONE_LINE.in(Meters));
     pastZoneLine.onTrue(markZoneEntry(robot));
     enabled.onTrue(sweepLeft(robot));

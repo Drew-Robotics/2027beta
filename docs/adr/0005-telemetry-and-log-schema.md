@@ -77,7 +77,7 @@ public Robot() {
 }
 ```
 
-Five things are load-bearing in those four lines.
+Five things in those four lines are necessary.
 
 **`registerBackend("", ...)` replaces the backend `RobotBase` already
 installed.** `RobotBase`'s constructor registers a

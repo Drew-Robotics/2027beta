@@ -290,7 +290,7 @@ where REVLib never makes a console call at all: the same interposer on
 calls from REVLib across a full SPARK construction, while a control
 proves the interposition is live on that platform. **[executed]** So a
 rebuilt REVLib would turn `-PnoRevShim` green while the aarch64 half is
-still load-bearing, and somebody would delete a directory the robot
+still necessary, and somebody would delete a directory the robot
 needs. The second half of the trigger is a deploy with the preload
 dropped, confirmed to reach *"Robot program startup complete"* on the
 Pi. Both commands live in `revshim.cpp`'s header comment. Nothing
@@ -419,7 +419,7 @@ which WPILib's own calls looked shifted. The signatures come from
 `hal/src/main/native/include/wpi/hal/DriverStation.h` in
 `~/dev/allwpilib`. **[source]**
 
-**`LD_PRELOAD` order is load-bearing on the Pi and not on the desktop.**
+**`LD_PRELOAD` order matters on the Pi, not on the desktop.**
 `libwpiutil.so` must be named before `librevshim.so`. Reversing them, or
 dropping wpiutil, gives `symbol lookup error: undefined symbol:
 _ZN3wpi4util13WaitForObjectEi` at JVM start — on a machine where

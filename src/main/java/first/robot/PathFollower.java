@@ -6,11 +6,9 @@ package first.robot;
 
 import org.wpilib.math.kinematics.ChassisVelocities;
 
-// next() returns FIELD-relative velocities. No type and no name says so, and a follower that
-// returns robot-relative ones compiles, runs, and tracks a straight path perfectly right up to the
-// moment the robot rotates.
+// nextFieldRelativeVelocities() returns field-relative velocities.
 public interface PathFollower {
-  ChassisVelocities next();
+  ChassisVelocities nextFieldRelativeVelocities();
 
-  boolean isDone();
+  boolean isFinished();
 }

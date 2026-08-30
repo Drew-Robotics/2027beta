@@ -346,7 +346,7 @@ budget is ADR 0007's.
   (`AbsoluteEncoderConfig.java:210-217`) **[source]** and would have
   deleted the conversion outright — **it does not exist for
   an analog sensor.** The `inputModulus` in the Decision is the whole
-  fix and it is load-bearing.
+  fix and it is necessary.
 
 - **A `kV` in `FeedForwardConfig` and a `kV·v` term in
   `arbFeedforward` double the feedforward, and nothing throws.** They

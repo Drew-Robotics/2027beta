@@ -168,7 +168,7 @@ public static void setAccelX(double accelMpss); /* ... */
 
 ### 1.5 Kinematics API renames (2027 alpha 5+)
 
-These are load-bearing for anything that touches swerve, ours or a vendor's:
+These are necessary for anything that touches swerve, ours or a vendor's:
 
 | 2026 | 2027 |
 |---|---|

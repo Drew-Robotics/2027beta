@@ -664,7 +664,7 @@ minimum allowed supply voltage is 4 V - values below this will be promoted to 4 
 `Orientation`/`ChassisReference` field** on `Pigeon2SimState` (unlike `TalonFXSimState` /
 `CANcoderSimState`), no getters, and no `setYaw`.
 
-**Use `setRawYaw` (absolute), not `addYaw`.** The `setRawYaw` javadoc is the load-bearing text **[V]**:
+**Use `setRawYaw` (absolute), not `addYaw`.** The `setRawYaw` javadoc is the key text **[V]**:
 
 > Sets the simulated raw yaw of the Pigeon2. **Inputs to this function over time should be
 > continuous**, as user calls of `CorePigeon2.setYaw(double)` will be accounted for in the callee.
@@ -834,7 +834,7 @@ CTRE changelog at `https://api.ctr-electronics.com/changelog`, dated **2026/06/1
 `SystemcoreTesting/CTR-Phoenix.md` agrees **[C]**: WPILib `2027_alpha5`-compatible release →
 Phoenix 6 `26.50.0-alpha-1`; compatible firmware → any `26.X`. **Nothing claims alpha-7.**
 
-Other load-bearing changelog lines for `26.50.0-alpha-1`, all **[V]**:
+Other key changelog lines for `26.50.0-alpha-1`, all **[V]**:
 
 > - Device constructors accepting a CAN bus string have been removed. Construct a `CANBus` object instead.
 > - Device constructors accepting a device ID without a CAN bus have been removed. **A CANBus object must be provided to the device constructor.**

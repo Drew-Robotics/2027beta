@@ -63,7 +63,7 @@ public class Robot extends OpModeRobot {
   @Override
   public void robotPeriodic() {
     poseEstimator.odometryUpdate(
-        drive.getGyroHeading(), drive.getModulePositions());
+        drive.getGyroOrientation(), drive.getModulePositions());
     Scheduler.getDefault().run();
   }
 }
@@ -322,7 +322,7 @@ should start a thread near a command either.
 
   Remove it and eight listeners stop being registered
   (`javacPlugin/.../WPILibJavacPlugin.java:22-29`) **[source]**, five of
-  which are load-bearing here:
+  which matter here:
 
   | Listener | What stops being caught |
   |---|---|

@@ -84,7 +84,7 @@ class HolonomicPathFollowerTest {
   void aRobotSittingOnThePathIsHandedTheSamplesOwnVelocity() {
     pose = new Pose2d(0, 0, Rotation2d.kZero);
 
-    var velocities = follower(straightAlongX(Rotation2d.kZero)).next();
+    var velocities = follower(straightAlongX(Rotation2d.kZero)).nextFieldRelativeVelocities();
 
     assertEquals(SPEED, velocities.vx, TOLERANCE);
     assertEquals(0, velocities.vy, TOLERANCE);
@@ -97,7 +97,7 @@ class HolonomicPathFollowerTest {
   void theCorrectionIsInFieldTermsRatherThanTheRobots() {
     pose = new Pose2d(0, 0.1, Rotation2d.kCCW_Pi_2);
 
-    var velocities = follower(straightAlongX(Rotation2d.kCCW_Pi_2)).next();
+    var velocities = follower(straightAlongX(Rotation2d.kCCW_Pi_2)).nextFieldRelativeVelocities();
 
     assertEquals(SPEED, velocities.vx, TOLERANCE);
     assertEquals(-0.5, velocities.vy, TOLERANCE);
@@ -109,7 +109,7 @@ class HolonomicPathFollowerTest {
     // away from being a lag, and x/y error alone cannot say so.
     pose = new Pose2d(-0.3, 0, Rotation2d.kCCW_Pi_2);
 
-    follower(straightAlongX(Rotation2d.kCCW_Pi_2)).next();
+    follower(straightAlongX(Rotation2d.kCCW_Pi_2)).nextFieldRelativeVelocities();
 
     assertEquals(0, backend.getLastValue("/AlongTrackError", Double.class), TOLERANCE);
     assertEquals(-0.3, backend.getLastValue("/CrossTrackError", Double.class), TOLERANCE);
@@ -122,10 +122,10 @@ class HolonomicPathFollowerTest {
 
     now = LENGTH / SPEED + 1;
 
-    assertFalse(follower.isDone(), "a robot half a path short of the end reported done");
+    assertFalse(follower.isFinished(), "a robot half a path short of the end reported done");
 
     pose = new Pose2d(LENGTH, 0, Rotation2d.kZero);
-    assertTrue(follower.isDone(), "a robot at the end of a finished path did not report done");
+    assertTrue(follower.isFinished(), "a robot at the end of a finished path did not report done");
   }
 
   @Test
@@ -133,7 +133,7 @@ class HolonomicPathFollowerTest {
     var follower = follower(straightAlongX(Rotation2d.kZero));
     pose = new Pose2d(LENGTH, 0, Rotation2d.kZero);
 
-    assertFalse(follower.isDone(), "a path reported done before it had run");
+    assertFalse(follower.isFinished(), "a path reported done before it had run");
   }
 
   @Test
@@ -163,9 +163,9 @@ class HolonomicPathFollowerTest {
                     new ChassisAccelerations(2.5, 0, 0.75))));
     var follower = follower(accelerating);
 
-    follower.next();
+    follower.nextFieldRelativeVelocities();
 
-    assertEquals(2.5, follower.acceleration().ax, TOLERANCE);
-    assertEquals(0.75, follower.acceleration().alpha, TOLERANCE);
+    assertEquals(2.5, follower.currentAcceleration().ax, TOLERANCE);
+    assertEquals(0.75, follower.currentAcceleration().alpha, TOLERANCE);
   }
 }

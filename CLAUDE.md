@@ -1,105 +1,51 @@
 # 2027beta
 
-FRC team 8852's swerve drive base for the 2027 season, on the SystemCore
-control system. WPILib 2027 alpha, Java 25, Commands v3.
+Team 8852's 2027 SystemCore swerve drive base. Read the relevant ADR before
+changing code.
 
-The architecture was decided before it was built, and it is written
-down here — see *Where things are*. Read the ADR covering whatever you
-are about to change before you change it.
+## WPILib 2027
 
-## WPILib 2027 is not the WPILib you know
+This is a major API rewrite. Check `~/dev/allwpilib` instead of copying online
+examples.
 
-2027 is a rewrite. Every snippet on the internet, and every completion
-your training gives you, is wrong at the import line. Check the source
-at `~/dev/allwpilib` before believing yourself.
+- Package root: `org.wpilib`, not `edu.wpi.first`.
+- `ChassisSpeeds` is now `ChassisVelocities`.
+- `SwerveModuleState` is now `SwerveModuleVelocity`.
+- `vxMetersPerSecond` and `vyMetersPerSecond` are now `vx` and `vy`.
+- `MathUtil` is now `math.util`; `LinearSystemId` is now `Models`.
+- `Sendable`, `SmartDashboard`, `RobotContainer`, `Subsystem`, and several old
+  command classes are gone. Mechanisms are fields on `Robot`; opmodes own
+  bindings.
 
-The package root is `org.wpilib`. There is no `edu.wpi.first`.
+Field hazards that still compile:
 
-Renamed, with no deprecation shim:
+- `Rotation2d` uses `[-0.5, 0.5]` rotations; the steer sensor uses `[0, 1)`.
+- Use the two-argument `ChassisAccelerations.toWheelAccelerations()` so it keeps
+  the centripetal term.
+- Coroutine cancellation runs `whenCanceled()`, not `finally`.
+- Coroutine loops must be `while`; `for (;;)` bypasses the missing-`yield` check.
 
-| You will write | It is now |
-|---|---|
-| `ChassisSpeeds` | `ChassisVelocities` |
-| `SwerveModuleState` | `SwerveModuleVelocity` |
-| `vxMetersPerSecond`, `vyMetersPerSecond` | `vx`, `vy` |
-| `MathUtil` | `math.util` |
-| `LinearSystemId` | `Models` |
-| `edu.wpi.first.math.system.plant` | deleted |
+`Alert` is `org.wpilib.util.Alert`. Its `id` is required and duplicate
+`(group, id)` values throw.
 
-Deleted outright, so any code reaching for them will not compile:
-`Sendable`, `SendableBuilder`, `SendableChooser`, `SmartDashboard`,
-`SwerveControllerCommand`, `HolonomicDriveController`. Commands v3 has
-no `Subsystem` type and no `RobotContainer` — mechanisms are fields on
-`Robot`, and op modes carry the bindings.
+## REVLib 2027
 
-Four traps that compile fine and fail on the field:
-
-- `Rotation2d` stores cos/sin only, so `getRotations()` returns
-  `[-0.5, 0.5]` while our steer sensor reads `[0, 1)`. Converting
-  between them is not optional. `AbsoluteEncoderConfig.zeroCentered`
-  would delete the mismatch, and does not exist for an analog sensor.
-- `ChassisAccelerations.toWheelAccelerations()` hardcodes ω = 0 and
-  silently drops the centripetal term, which dominates during rotation.
-  Always use the 2-argument form.
-- Commands v3 cancellation is not an exception unwind. Cleanup goes in
-  `whenCanceled()`. A `finally` block never runs.
-- The compiler plugin's missing-`yield` check covers `while` only.
-  Loops in coroutine bodies are always `while` — a `for(;;)` compiles
-  clean and hangs the robot.
-
-`Alert` exists, at `org.wpilib.util.Alert`, and takes a mandatory `id`.
-Duplicate `(group, id)` throws.
-
-## REVLib 2027 renamed the two calls you use most
-
-Every SPARK snippet on the internet is wrong at the call, not the
-import. Read the sources from `maven.revrobotics.com`, not your memory.
-
-| You will write | It is now |
-|---|---|
-| `controller.setReference(...)` | `controller.setSetpoint(...)` |
-| `spark.set(throttle)` | `spark.setThrottle(throttle)` |
-
-Plain-double getters are gone: reads return `Signal<T>`.
-
-`configure()` throws on failure, except for `kTimeout` and
-`kCannotPersistParametersWhileEnabled`, which it returns. Success is no
-exception *and* `kOk` — checking only one of those misses half the
-failures.
-
-`AnalogSensorConfig` has three setters — `inverted`,
-`positionConversionFactor`, `velocityConversionFactor` — and no
-`zeroOffset`. The device cannot hold a module zero, so the offset is
-folded into the setpoint by hand; ADR 0008 owns where the loops run and
-what feeds them.
+- Use `controller.setSetpoint(...)`, not `setReference(...)`.
+- Use `spark.setThrottle(...)`, not `set(...)`.
+- Getters return `Signal<T>`, not plain doubles.
+- `configure()` can throw or return an error. Check for both.
+- Analog sensors have no zero offset. Apply the module offset to the setpoint.
 
 ## Comments
 
-Comment the line that confuses. A non-obvious unit, a surprising
-ordering, a workaround for someone else's bug — one line, at the line.
+Keep only short comments that explain a surprising unit, order, or workaround.
+Let names and small methods explain the normal case. Do not add public-method
+Javadoc or history links to code; link upstream bugs only when a workaround
+needs a removal condition.
 
-Everything else the code says better, and says truthfully. A comment
-describing intent is a claim that stops being checked the moment the
-code changes.
+## Documents
 
-Names are the documentation. When a block needs a paragraph to explain,
-extract it and let the method name carry the paragraph.
-
-Code names no issue, ADR or document. That history lives in the commit
-message and the PR. The one exception is an *upstream* defect — an
-allwpilib, REV or CTRE bug — because that link is the only thing that
-tells a future reader when the workaround can be deleted.
-
-Public methods get no Javadoc. Command names already follow
-`Mechanism.Action`, and every quantity is a `Measure`, so a summary
-line and a units line would both be restating the signature.
-
-## Where things are
-
-<!-- This file points; it never restates. -->
-
-- `docs/adr/` — the architecture decisions, one area per document.
-  `docs/adr/README.md` indexes them.
-- `CONTEXT.md` — the glossary.
-- `docs/commands-v3-house-style.md` — how commands get written here.
-- `docs/research/` — verified findings from the design map, with sources.
+- `docs/adr/` — architecture decisions.
+- `CONTEXT.md` — project glossary.
+- `docs/commands-v3-house-style.md` — command style.
+- `docs/research/` — sources and measurements.
