@@ -24,7 +24,10 @@ alliance flip — see *The side mirror is a reflection, chosen by a
 dashboard boolean*. The *Consequences* entry reading *"Autonomous is
 selected on the Driver Station, not a dashboard"* is **narrowed there**
 to the string-chooser finding it rests on, which has nothing to say
-about a boolean.
+about a boolean. *No splits, no event markers* gains the rule that
+every pose trigger reads through `asAuthored`, and its example is
+corrected to show it — the example predated `asAuthored` and read a raw
+estimate.
 
 Amended by ADR 0012, which owns the pose
 estimator: `Drive.getGyroHeading()` returns a `Rotation3d` rather than a
@@ -308,7 +311,8 @@ express concurrency, and v3 can: `coroutine.fork`, `coroutine.await`,
 and a pose trigger —
 
 ```java
-public final Trigger inNeutralZone = new Trigger(() -> poseEstimator.inZone(NEUTRAL_ZONE));
+public final Trigger inNeutralZone =
+    new Trigger(() -> inZone(FieldConstants.asAuthored(poseEstimator.getEstimatedPose())));
 ```
 
 A **pose**-triggered action beats a **time**-triggered one for the
@@ -316,6 +320,21 @@ reason that matters on a field: if the robot runs 300 ms late because a
 wheel slipped, a time marker fires in the wrong place and a pose
 trigger does not. Splits stop being necessary once each segment is its
 own file.
+
+⚠️ **Every pose trigger goes through `asAuthored`, and the threshold is
+written against the path as drawn.** The estimate is where the robot
+is; the threshold was read off Choreo. Compare the two raw and the
+trigger is wrong on any run the path was transformed for — on red it is
+never reached, and on a mirrored run a `y` threshold is reached on the
+wrong side of the field. Both transforms are their own inverse and
+`asAuthored` applies whichever are in force, so one call covers the
+alliance flip and the side mirror together and will cover whatever is
+added beside them.
+
+This is a rule and not a mechanism. There is nothing to stop a trigger
+reading `getEstimatedPose()` directly, and a wrong one throws nothing —
+it just never fires. The only pose trigger that exists reads through
+`asAuthored`; the next one has to as well.
 
 ### Trajectories arrive in the robot's frame; the alliance flip happens at follower construction
 
