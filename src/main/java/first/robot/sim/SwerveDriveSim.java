@@ -124,12 +124,25 @@ public final class SwerveDriveSim {
   private double[] currents() {
     var currents = new double[MODULES * 2];
     for (int i = 0; i < MODULES; i++) {
-      // Magnitudes: a regenerating motor charges the pack, and a simulation whose battery gains
-      // voltage under braking accelerates out of a stop better than the robot ever will.
-      currents[i] = Math.abs(drive[i].getCurrentDraw());
-      currents[MODULES + i] = Math.abs(steer[i].getCurrentDraw());
+      currents[i] = supplyCurrent(drive[i], driveAppliedVolts[i]);
+      currents[MODULES + i] = supplyCurrent(steer[i], steerAppliedVolts[i]);
     }
     return currents;
+  }
+
+  // What the battery sees, not what the winding sees. A half-bridge is a DC-DC converter: it
+  // trades the rail's volts for the motor's amps, so a motor held at its current limit down at a
+  // couple of volts costs the pack a fraction of that current. Charging the pack with the winding
+  // current instead collapses the rail at exactly the moment a robot launches, and the sag then
+  // caps the volts that were going to accelerate it.
+  //
+  // Magnitudes: a regenerating motor charges the pack, and a simulation whose battery gains
+  // voltage under braking accelerates out of a stop better than the robot ever will.
+  private double supplyCurrent(DCMotorSim axis, double appliedVolts) {
+    if (batteryVolts == 0) {
+      return 0;
+    }
+    return Math.abs(axis.getCurrentDraw()) * Math.abs(appliedVolts) / batteryVolts;
   }
 
   private SwerveModuleVelocity[] velocities(SimModuleState[] states) {

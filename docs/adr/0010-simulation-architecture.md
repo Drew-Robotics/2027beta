@@ -14,7 +14,8 @@ whole of `updateSim()` has been executed against a real `Robot` on the
 desktop. `SparkSim` is still not loaded and this ADR still does not use
 it. Amended 2026-08-30, second: the loop model reads its
 feedback gains as a duty cycle rather than as volts, which is what the
-device does; `SIM_GAINS` moved with it.
+device does; `SIM_GAINS` moved with it. Amended 2026-08-30, third: the
+battery is charged the supply current rather than the winding current.
 
 The *Open* item asking whether CI runs a headless robot program is
 answered by ADR 0013 and now sits under *Consequences*.
@@ -200,6 +201,32 @@ The trap this ADR is guarding is not the units themselves but where they
 get absorbed: a model that reads a gain in the wrong unit looks exactly
 like a model that needs its own gains, and the second set of gains
 quietly becomes a conversion factor. See ADR 0009.
+
+### The battery is loaded with supply current, not winding current
+
+`BatterySim.calculateDefaultBatteryLoadedVoltage` is `12 - Σ(I · 0.02)`
+(`wpilibj/src/main/java/org/wpilib/simulation/BatterySim.java:42-44`)
+**[source]**, and what it wants is the current out of the pack.
+`DCMotorSim.getCurrentDraw()` is the *winding* current, which is a
+different quantity: a half-bridge is a DC-DC converter, so
+`I_supply = I_motor · V_applied / V_bus`.
+
+The distinction is invisible at speed and dominant at a standstill,
+which is where a drive base spends every launch. Four drive motors held
+at a 60 A limit down at the ~3.4 V the limit allows from rest are 68 A
+out of the pack, not 240 A — and 240 A against this model is 7.2 V,
+the floor, at exactly the moment the volts were going to accelerate
+something. The rail then clamps `applied()` and caps the acceleration.
+A driving log measured **1440 ms** from rest to 90% of a request over
+4 m/s, with the pack's 5th percentile at 7.216 V **[measured]**;
+referred to the supply side the same launch reaches 4 m/s in **575 ms**
+with the rail above 10 V **[measured]**.
+
+Both halves of this ADR's amendments are the same mistake — a quantity
+used in the frame it was not measured in — and both presented as a
+simulation that felt sluggish rather than as a number that was wrong.
+`SwerveDriveSimTest.aFullThrottleLaunchReachesSpeedInTheTimeTheCurrentLimitAllows`
+and `aLaunchDoesNotCollapseTheRail` are the regressions.
 
 **Write positions; do not call `iterate()`.** Our model owns the
 integration, so `setPosition` writes the value the model already

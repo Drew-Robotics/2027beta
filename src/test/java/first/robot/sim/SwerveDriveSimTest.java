@@ -173,6 +173,45 @@ class SwerveDriveSimTest {
             + rolling);
   }
 
+  // The other half of the floaty-simulation bug. The battery model was charged the winding
+  // current, so four drives held at their limit down at a couple of volts read as 240 A and sagged
+  // the rail to its floor -- at exactly the moment a launch needs the volts. A log measured 1440 ms
+  // from rest to 90% of a request over 4 m/s.
+  @Test
+  void aFullThrottleLaunchReachesSpeedInTheTimeTheCurrentLimitAllows() {
+    Arrays.fill(driveVolts, 12.0);
+
+    double launched = timeToSpeed(4.0, Seconds.of(3));
+
+    assertTrue(
+        launched < 1.0, "the launch took " + Math.round(launched * 1000) + " ms to reach 4 m/s");
+  }
+
+  // A launch is current-limited, and a motor at its limit down at a couple of volts is a small
+  // load on the pack. A rail that collapses here is charging the battery the winding's amps.
+  @Test
+  void aLaunchDoesNotCollapseTheRail() {
+    Arrays.fill(driveVolts, 12.0);
+
+    advance(Seconds.of(1));
+
+    assertTrue(
+        sim.batteryVoltage().gt(Volts.of(10)),
+        "four current-limited modules sagged the pack to " + sim.batteryVoltage());
+  }
+
+  // Seconds until the chassis is at least this fast, or the timeout if it never is.
+  private double timeToSpeed(double metresPerSecond, Time timeout) {
+    int ticks = (int) Math.round(timeout.in(Seconds) / Constants.LOOP_PERIOD.in(Seconds));
+    for (int tick = 0; tick < ticks; tick++) {
+      tick();
+      if (Math.hypot(sim.trueVelocity().vx, sim.trueVelocity().vy) >= metresPerSecond) {
+        return (tick + 1) * Constants.LOOP_PERIOD.in(Seconds);
+      }
+    }
+    return timeout.in(Seconds);
+  }
+
   // Seconds until every module is inside tolerance of the setpoint, or the timeout if it never is.
   private double settleTime(double setpointRotations, Angle tolerance, Time timeout) {
     int ticks = (int) Math.round(timeout.in(Seconds) / Constants.LOOP_PERIOD.in(Seconds));
