@@ -58,6 +58,7 @@ worth different amounts when one of them turns out to be wrong.
 | [0012](0012-pose-estimation-and-vision.md) | Pose estimation and the vision seam | **Accepted** — 2026-08-26 |
 | [0013](0013-ci-and-test-strategy.md) | CI and test strategy | **Accepted** — 2026-08-27 |
 | [0014](0014-ai-log-analysis-contract.md) | AI log-analysis contract | **Accepted** — 2026-08-27 |
+| [0015](0015-binding-revlibs-native.md) | Binding REVLib's native | **Accepted** — 2026-08-30 |
 
 Numbering follows decision area, not the date a document landed. The
 set is complete: every row above resolves to a document.
