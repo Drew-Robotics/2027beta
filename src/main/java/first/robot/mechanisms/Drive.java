@@ -32,6 +32,7 @@ import first.robot.sim.SwerveDriveSim;
 import first.robot.sysid.SysIdRoutine;
 import first.robot.sysid.SysIdRoutine.Direction;
 import java.util.Arrays;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -47,6 +48,7 @@ import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.math.interpolation.TimeInterpolatableBuffer;
 import org.wpilib.math.kinematics.ChassisAccelerations;
 import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
@@ -58,6 +60,7 @@ import org.wpilib.sysid.SysIdRoutineLog;
 import org.wpilib.system.Timer;
 import org.wpilib.telemetry.TelemetryTable;
 import org.wpilib.units.measure.Angle;
+import org.wpilib.units.measure.AngularVelocity;
 import org.wpilib.units.measure.Voltage;
 import org.wpilib.util.function.BooleanConsumer;
 
@@ -85,6 +88,8 @@ public class Drive implements Mechanism {
   private final SysIdRoutine steerCharacterisation;
   private final SysIdRoutine rotationCharacterisation;
   private final Rotation2d[] spinAzimuths = new Rotation2d[MODULES];
+  private final TimeInterpolatableBuffer<Double> yawRateHistory =
+      TimeInterpolatableBuffer.createDoubleBuffer(DriveConstants.YAW_RATE_HISTORY.in(Seconds));
 
   private ChassisVelocities desiredVelocities = new ChassisVelocities();
   private ModuleGains gains;
@@ -639,6 +644,34 @@ public class Drive implements Mechanism {
     // are driven, and are the same three numbers.
     return new Rotation3d(
         gyro.getRoll().getValue(), gyro.getPitch().getValue(), gyro.getYaw().getValue());
+  }
+
+  // Read once a loop and never cleared, including through a pose reset: yaw rate is
+  // frame-independent, and an empty history is a rejected frame for the whole buffer duration.
+  public void updateYawRateHistory() {
+    yawRateHistory.addSample(
+        // The monotonic clock, because a vision timestamp and the estimator's own buffer are both
+        // on it. Keyed on Timer.getTimestamp() instead, every query answers empty the moment
+        // something replaces the time base, and a fail-closed gate rejects every frame in silence.
+        Timer.getMonotonicTimestamp(),
+        // The buffer holds rad/s; the Pigeon signal reports deg/s.
+        gyro.getAngularVelocityZWorld().getValue().in(RadiansPerSecond));
+  }
+
+  public Optional<AngularVelocity> maxAbsYawRate(double startTime, double endTime) {
+    return maxAbsYawRate(yawRateHistory, startTime, endTime);
+  }
+
+  // Empty means no history covers the window, which is a different answer from zero and the only
+  // one a caller can safely reject on. Both instants are on the monotonic clock.
+  static Optional<AngularVelocity> maxAbsYawRate(
+      TimeInterpolatableBuffer<Double> history, double startTime, double endTime) {
+    var max =
+        history.getInternalBuffer().subMap(startTime, true, endTime, true).values().stream()
+            .mapToDouble(Math::abs)
+            .max();
+
+    return max.isPresent() ? Optional.of(RadiansPerSecond.of(max.getAsDouble())) : Optional.empty();
   }
 
   public SwerveModulePosition[] getModulePositions() {

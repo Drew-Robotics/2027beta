@@ -228,6 +228,7 @@ public class Robot extends OpModeRobot {
     // decision on the robot is about to be made against a guess.
     allianceUnknown.set(RobotState.isDSAttached() && alliance.isEmpty());
 
+    drive.updateYawRateHistory();
     drive.log();
 
     // Before the scheduler, and the order is load-bearing: every command that runs below reads a

@@ -139,6 +139,11 @@ public final class DriveConstants {
   // measures the drift.
   public static final Matrix<N4, N1> STATE_STD_DEVS = VecBuilder.fill(0.1, 0.1, 0.1, 0.1);
 
+  // SwerveDrivePoseEstimator3d keeps its own 1.5 s of odometry and drops anything older, and its
+  // BUFFER_DURATION is private so this cannot be read off it. Shorter here is a second staleness
+  // cutoff carrying a different number from the one the estimator enforces.
+  public static final Time YAW_RATE_HISTORY = Seconds.of(1.5);
+
   // A pose estimator tuned against a gyro that never wanders is tuned against a robot that does
   // not exist. Roughly a degree a minute, which is the order a Pigeon2 drifts at.
   public static final AngularVelocity GYRO_SIM_DRIFT = DegreesPerSecond.of(1.0 / 60);
