@@ -12,10 +12,15 @@ import org.wpilib.math.kinematics.ChassisAccelerations;
 import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.trajectory.HolonomicSample;
 import org.wpilib.math.trajectory.HolonomicTrajectory;
+import org.wpilib.tunable.TunableBoolean;
+import org.wpilib.tunable.Tunables;
 import org.wpilib.util.Alert;
 import org.wpilib.util.Alert.Level;
 
 public final class FieldConstants {
+  // False is the path exactly as it was drawn.
+  public static final TunableBoolean MIRRORED = Tunables.addBoolean("Mirrored", false);
+
   // Blue is the answer that looks right on a bench and is wrong in half of every match, so a
   // missing alliance is said out loud rather than defaulted through.
   private static final Alert ALLIANCE_UNKNOWN =
@@ -43,11 +48,17 @@ public final class FieldConstants {
     return onRed() ? flip(trajectory) : trajectory;
   }
 
-  // The flip is its own inverse, so the same rotation carries a measured pose back into the frame
-  // the path was drawn in. A threshold written against the drawn path is wrong on red otherwise,
-  // and wrong by never being reached rather than by being reached in the wrong place.
+  public static HolonomicTrajectory forSide(HolonomicTrajectory trajectory) {
+    return MIRRORED.getAsBoolean() ? mirror(trajectory) : trajectory;
+  }
+
+  // Each transform is its own inverse and the two commute, so applying whichever are in force
+  // again carries a measured pose back into the frame the path was drawn in. A threshold written
+  // against the drawn path is wrong otherwise, and wrong by never being reached rather than by
+  // being reached in the wrong place.
   public static Pose2d asAuthored(Pose2d pose) {
-    return onRed() ? flip(pose) : pose;
+    var unflipped = onRed() ? flip(pose) : pose;
+    return MIRRORED.getAsBoolean() ? mirror(unflipped) : unflipped;
   }
 
   // The origin is field centre, where the flip is a 180-degree rotation about it. Anything drawn
@@ -71,6 +82,27 @@ public final class FieldConstants {
 
   public static Pose2d flip(Pose2d pose) {
     return new Pose2d(-pose.getX(), -pose.getY(), pose.getRotation().rotateBy(Rotation2d.kPi));
+  }
+
+  // A reflection across the field's long axis, which the centre origin puts at y = 0.
+  public static HolonomicTrajectory mirror(HolonomicTrajectory trajectory) {
+    return new HolonomicTrajectory(
+        trajectory.getSamples().stream().map(FieldConstants::mirror).toList());
+  }
+
+  private static HolonomicSample mirror(HolonomicSample sample) {
+    return new HolonomicSample(
+        sample.time,
+        mirror(sample.pose),
+        // A reflection reverses handedness, so the spins invert — the sign the flip, being a
+        // rotation, deliberately leaves alone.
+        new ChassisVelocities(sample.velocity.vx, -sample.velocity.vy, -sample.velocity.omega),
+        new ChassisAccelerations(
+            sample.acceleration.ax, -sample.acceleration.ay, -sample.acceleration.alpha));
+  }
+
+  public static Pose2d mirror(Pose2d pose) {
+    return new Pose2d(pose.getX(), -pose.getY(), pose.getRotation().unaryMinus());
   }
 
   private static boolean onRed() {

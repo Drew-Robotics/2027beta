@@ -20,7 +20,9 @@ import org.wpilib.telemetry.TelemetryRegistry;
 import org.wpilib.telemetry.TelemetryTable;
 import org.wpilib.units.measure.Distance;
 
-@Autonomous(group = "Competition", description = "Follows the SweepLeft path")
+@Autonomous(
+    group = "Competition",
+    description = "Follows the SweepLeft path, drawn left; Mirrored sweeps right")
 public class SweepLeftAuto implements OpMode {
   private static final String ROUTINE = "SweepLeftAuto";
   private static final String PATH = "SweepLeft";

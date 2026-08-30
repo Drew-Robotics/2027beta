@@ -266,6 +266,12 @@ The index of the ADRs themselves is
   the other alliance's version of it, applied once when the follower
   is constructed
   ([ADR 0011](docs/adr/0011-autonomous-and-choreo.md)).
+- **The mirror** — turning a trajectory drawn for one side of the
+  field into the other side's version of it, applied at the same
+  instant as the flip and chosen by the `Mirrored` tunable rather than
+  by the Driver Station. A reflection where the flip is a rotation, so
+  it inverts the spins the flip leaves alone
+  ([ADR 0011](docs/adr/0011-autonomous-and-choreo.md)).
 - **AprilTag** — the printed square markers around the field that a
   camera locates itself against.
 - **The gate** — a season's vision code deciding whether to accept one

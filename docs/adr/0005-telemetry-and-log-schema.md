@@ -7,6 +7,9 @@ Accepted — 2026-08-26. Superseded in part by ADR 0011, which owns the
 an alert is visible during a match is answered by #22 and now sits
 under *Consequences*. Amended 2026-08-28: the signal list gains
 `/Check`, the opmode-scoped root the utility checks report under.
+Amended 2026-08-29 by #76: the signal list gains `/Match/Mirrored`, and
+the *Open* item on how `/Tunables` reaches the file records its first
+instance.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -133,6 +136,7 @@ habits below.
 | `/Robot/Alerts` | the active alert set, at 4 Hz — ADR 0004 |
 | `/Match/TimeRemaining` | `MatchState.getMatchTime()` (`:32`) |
 | `/Match/{Alliance,Station,FmsAttached,EventName,MatchType,MatchNumber,ReplayNumber,GameData}` | `MatchState` (`:43-101`), `RobotState.isFMSAttached()` — every loop, never once |
+| `/Match/Mirrored` | the `Mirrored` tunable — every loop, for the same reason `Alliance` is: it decides which half of the field the robot drives at, and it can change between one enable and the next — ADR 0011 |
 
 **[source]** for the accessors, all in
 `wpilibj/src/main/java/org/wpilib/system/RobotController.java` and
@@ -587,6 +591,13 @@ holds a season.
   exists to prevent. *Unblocked by* someone deciding the tunable set and
   reading `TunableRegistry` for whether a second backend or an explicit
   mirror is the cheaper route.
+
+  The first instance is decided rather than the rule: ADR 0011's
+  `Mirrored` takes the **explicit mirror** — `Robot` reads it every loop
+  and logs `/Match/Mirrored` beside `Alliance`, which is where a value
+  that decides where the robot drives has to be anyway. One value routed
+  by hand is not an answer for the tunable set; `GainTuningCheck`'s
+  seven gains still reach no log.
 
 - **The 13.1 MB and 65 µs figures were measured with ~50 synthetic
   signals**, not with this list attached to real mechanisms
