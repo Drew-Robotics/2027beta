@@ -24,8 +24,12 @@ Anything specified but not yet built says so where it is described.
 3. **`./gradlew simulateJava`** — the sim GUI and the simulated Driver
    Station are both enabled in `build.gradle`.
 4. **`./gradlew test`** — Tier 1, where every number this project
-   asserts lives. It needs no hardware and no HAL. *No tests yet.*
-5. **`uv`**, only if you are touching `tools/logtool`. *Not built yet.*
+   asserts lives. It needs no hardware and no HAL.
+5. **`./gradlew sysidLog`**, when you are characterising — it runs the
+   routines against the simulation and writes
+   `logs/sysid-simulation.wpilog`, which opens in the SysId analyser.
+   Every gain fitted from it describes the model and not a robot.
+6. **`uv`**, only if you are touching `tools/logtool`. *Not built yet.*
 
 Then read [`CONTEXT.md`](CONTEXT.md), the house style, and the ADR
 covering whatever you are about to change.
@@ -35,8 +39,8 @@ request. [ADR 0013](docs/adr/0013-ci-and-test-strategy.md) makes the
 gated workflow a required check including administrators, with a
 per-event branch as the escape hatch during competition — a branch is a
 thing you have to mean, where an admin override is a habit that gets
-used on a Tuesday. *That protection is not applied yet; today `main`
-has none.*
+used on a Tuesday. `main` carries that ruleset now: the check is
+required, and deletion and force-push are refused.
 
 While 2027 is in flux the project builds against a local allwpilib
 checkout rather than a published release; see

@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted — 2026-08-26.
+Accepted — 2026-08-26. Amended 2026-08-29, on implementing it: the
+analyser fits one model over all four tests combined, so *every* routine
+runs all four whatever it can use of the result — see *Traps* and the
+steer decision. The routines are also enumerated now that there are
+four of them, and a wheel-radius measurement joins them.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -99,11 +103,87 @@ not committed to here.
 (`com/revrobotics/spark/SparkBase.java:217-220`) — the device holds the
 requested voltage internally rather than the robot computing a
 compensation **[source]**. So the `Voltage` the routine hands out is the
-voltage the controller applies, and the voltage column in the log is
-honest.
+voltage the controller applies **while nothing else is limiting the
+output**, and the current limit is something else limiting the output.
+See *Traps*: the request and the application are the same number for the
+quasistatic ramp and part of the dynamic step, and the log records the
+request. Making the column unconditionally honest is
+[#81](https://github.com/Drew-Robotics/2027beta/issues/81).
 
 The closed loop is not running during a characterisation. Open-loop
 voltage in, velocity out, is the whole test.
+
+### Four routines, and what each one moves
+
+**Drive velocity — all four modules, wheels locked forward.** The steer
+loop holds zero azimuth through the ramp and the drive ramp is written
+to every module. A gain measured off one powered wheel dragging three
+unpowered ones is a measurement of a machine we do not have, and the
+winner is applied to all four of that role anyway (see Consequences).
+The wheels are *settled* into that azimuth before the ramp starts: a
+module still slewing turns its own drive encoder through the module's
+coupling, and that motion lands in exactly the low-voltage samples `kS`
+is fitted from. **[decided]**
+
+**Steer — one module.** Steer is a module-level measurement; the gain is
+a property of one module's azimuth axis, and four modules working the
+carpet at once is three extra ways for the one being measured to be
+pushed. The other three are dropped. **[decided]**
+
+**Whole-robot rotation — all four modules, wheels tangent to the spin.**
+The columns are the *robot's*: the applied voltage against the Pigeon's
+yaw and yaw rate. **It is for turning the robot to an angle** — the
+rotate-to-angle side of teleop and autonomous, which no module-level test
+says anything about. `kS` is the smallest chassis `omega` that breaks the
+robot away at all, which is the floor a heading controller's output
+disappears below; `kV` and `kA` are the largest a profile may ask for,
+and they replace `MAX_ANGULAR_VELOCITY`'s nameplate arithmetic with a
+measurement. **[decided]** The azimuths come from the kinematics
+rather than being written out as four angles, so they cannot disagree
+with it. Pigeon2 yaw spans ±368640°
+(`com/ctre/phoenix6/hardware/core/CorePigeon2.java`, `getYaw`)
+**[source]**, so the position column is continuous where a `Rotation2d`
+would fold it into half a turn.
+
+**Wheel radius — not a SysId routine at all.** It is 6328's measurement
+(`Mechanical-Advantage/RobotCode2024Public`,
+`src/main/java/org/littletonrobotics/frc2024/commands/WheelRadiusCharacterization.java`)
+**[field]**: spin the robot slowly on the spot, and the arc each wheel
+rolled through has to equal the arc the robot turned through at the
+drive radius, so `radius = |yaw| · driveRadius / meanWheelRadians`. It
+produces no feedforward gain and writes no sysid log — it writes one
+number to the telemetry table, and that number is
+`DRIVE_POSITION_FACTOR`'s. **[decided]**
+
+The encoder's own position already carries the *assumed* radius, so the
+wheel angle is recovered by dividing it back out. Dividing by the
+nominal radius and then solving for the radius is what leaves a
+measurement rather than a restatement of the constant.
+
+Slowly, and this is the whole of the method's fragility: the arithmetic
+assumes the wheels rolled rather than slipped, and the estimate means
+nothing before a full turn, because the error in where the modules were
+pointing at the start is otherwise a large share of the arc.
+
+### The analyser is fed a simulated log before it is fed a real one
+
+`./gradlew sysidLog` runs the three routines against ADR 0010's plant and
+writes `logs/sysid-simulation.wpilog`, which opens in the analyser like
+any other. It is the same run the pipeline test asserts on, so a log that
+opens is a log CI checked. **[decided]**
+
+The clock is what makes it worth anything. `DataLog` stamps every record
+with `wpi::Now`, and the simulation HAL points that at its own monotonic
+time (`hal/src/main/native/sim/MockHooks.cpp:27`) **[source]**, so a
+harness left on the wall clock writes a minute of simulated ramp into a
+fraction of a second and the analyser fits a derivative of nonsense. The
+harness steps `SimHooks` instead, and a test asserts the span.
+**[executed]**
+
+⚠️ The gains it produces are the model's. Under free-space physics the
+fit recovers whatever went into the plant, so a number read off this file
+and written into `Constants` is the failure this ADR's sim/real split
+exists to prevent.
 
 ### The analyser eats a WPILOG, and what it requires is the state strings
 
@@ -168,10 +248,19 @@ feedforward with nothing thrown; ADR 0008 owns that trap.
 **Steer's feedforward is `kS` and nothing else.** `kV` is *"not applied
 in Position control mode"* (`com/revrobotics/spark/config/FeedForwardConfig.java:75,
 178`) and `kA` is *"only applied in MAXMotion control modes"* (`:91,
-194`) **[source]**, and steer takes no profile (ADR 0008). So steer's
-characterisation is a quasistatic ramp to break-away and nothing else —
-there is no dynamic test for steer, because there is no gain for it to
-produce.
+194`) **[source]**, and steer takes no profile (ADR 0008). So the only
+number steer's characterisation keeps is the `kS` its quasistatic ramp
+finds at break-away.
+
+⚠️ **It still runs the dynamic pair, and that pair is not spare.**
+This ADR said there was no dynamic test for steer. That was right about
+where the gains can live and wrong about the measurement: the analyser
+concatenates slow-forward, slow-backward, fast-forward and fast-backward
+into one dataset and runs one regression over it
+(`analysis/AnalysisManager.cpp:102-109, 154-181`) **[source]**, so the
+dynamic data helps fit the `kS` steer keeps. What has nowhere to go is
+the `kV` and `kA` printed beside it, and that is a fact about the
+controller rather than about the run. See *Traps*.
 
 ### The loop-period rule does not bind the on-SPARK gains
 
@@ -454,6 +543,63 @@ in Traps.
   encoder settings, and they change the *measurement*, not the plant —
   see Open.
 
+- **A current-limited motor applies a voltage that rises with speed
+  while the log records the one that was asked for.** A smart current
+  limit holds the output to `backEmf ± currentLimit · R`; for a NEO
+  Vortex at ADR 0008's 60 A that span is 3.41 V, so a 7 V step applies
+  **3.41 V from rest** and only reaches 7 V at **1.82 m/s**. Constant
+  current is constant torque, so acceleration is flat across that whole
+  stretch — measured at 8.547 m/s² below 1.82 m/s in a simulated run
+  **[executed — 2026-08-29]** — and it shows in the analyser as a
+  horizontal segment in *Acceleration vs Velocity*.
+
+  `tools/sysid` does not remove it. `TrimStepVoltageData` erases data
+  before peak acceleration, and under limiting the acceleration *is* the
+  peak from the first sample, so the limited stretch survives into the
+  fit whole. In that run it took `kA` from the plant's 0.4052 to a
+  fitted 0.4631, **+14%** — on the one gain the dynamic test exists to
+  produce and the one ADR 0011 hands to `arbFeedforward`. **[executed]**
+  The fix is to log what was applied rather than what was asked for,
+  which is the frame raise this ADR already decided; see *Open*.
+
+- **A step test begun on the move reports the time it spent stopping as
+  measurement delay.** `TrimStepVoltageData` takes the velocity delay as
+  the gap between the first sample carrying voltage and the first
+  carrying near-peak acceleration, and it ranks acceleration by
+  `sgn(velocity) · acceleration` (`analysis/FilteringUtils.cpp:143-170`)
+  **[source]**. While the robot is still rolling the other way that
+  product is negative, so nothing qualifies until the velocity crosses
+  zero. Running the four tests back to back with no pause put a drive
+  dynamic test on the log at −2.26 m/s and reported **332.5 ms** of
+  velocity delay on a plant that models no measurement dynamics at all;
+  settling first brought it to 5 ms, which is one loop period and the
+  floor. **[executed — 2026-08-29]** The number is not nonsense and the
+  fit is not saved by the trim being generous: it is a true measurement
+  of a manoeuvre nobody is characterising. Every ramp gets a settle in
+  front of it, and an operator running these by hand waits for the robot
+  to stop.
+
+- **The analyser refuses a log that is missing any of the four tests,
+  whatever the mechanism can use.** `DataSelector` checks the discovered
+  state values against
+  `VALID_TESTS = {quasistatic-forward, quasistatic-reverse,
+  dynamic-forward, dynamic-reverse}`
+  (`view/DataSelector.hpp:81-83`) and collects whatever is absent
+  (`view/DataSelector.cpp:138-145`); `App.cpp:112` hands the list to the
+  analyzer, and `Analyzer::PrepareData` throws `MissingTestsError`
+  before `AnalysisManager::PrepareData` runs at all
+  (`view/Analyzer.cpp:276-277`), with *"The following tests were not
+  detected: … Make sure to perform all four tests"*
+  (`analysis/FilteringUtils.hpp:74-88`). **[source]** It is not a
+  formality: all four are combined into one dataset before anything is
+  fitted (`analysis/AnalysisManager.cpp:102-109`) **[source]**, so the
+  four tests are one measurement rather than four. *"This mechanism has
+  no gain for a dynamic test to produce"* is therefore an argument about
+  which output column is usable, never about which tests to run. A
+  routine that skips a pair produces a log the analyser will not open,
+  and the failure arrives as a dialog after a bench session rather than
+  as anything at the robot.
+
 - **Two routines that share a mechanism name silently interleave.**
   `SysIdRoutineLog` names each entry `<field>-<motor>-<logName>`
   (`SysIdRoutineLog.java:105`), and the log name is the mechanism name
@@ -467,6 +613,29 @@ in Traps.
   are two routines and take two names.
 
 ## Open
+
+- **The Status0 raise this ADR decided is not built, and the voltage
+  column is the requested voltage until it is.** **[unverified]** The
+  raise was argued around on the grounds that `setVoltage` makes the
+  request and the application the same number, which holds until the
+  current limiter binds — and it binds through the lower half of every
+  dynamic step. *Unblocked by*
+  [#81](https://github.com/Drew-Robotics/2027beta/issues/81), which
+  carries the raise, the applied-output column, and the simulation
+  problem underneath it: nothing drives a SPARK's applied output in
+  simulation today, and ADR 0010 forbids `first.robot.sim` learning what
+  a SPARK is.
+
+- **How a chassis-level rotation gain reaches modules that close
+  velocity on the SPARK.** **[unverified]** The rotation fit is in volts
+  per unit of chassis angular velocity, and nothing in this drive base
+  takes chassis volts: a heading controller emits an `omega`, hands it to
+  `setVelocities`, and the module `kS`/`kV` do the voltage work from
+  there. So the rotation numbers are usable immediately as *profile
+  constraints and a stiction floor*, and using them as a feedforward
+  voltage would need a path that does not exist. *Unblocked by* whoever
+  writes the rotate-to-angle command deciding which of the two they
+  want.
 
 - **Whether to shorten the SPARK's velocity filter for the
   characterisation run.** **[unverified]** The default 8-sample /

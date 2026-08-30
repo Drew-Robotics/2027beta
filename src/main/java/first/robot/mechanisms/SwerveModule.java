@@ -6,9 +6,11 @@ package first.robot.mechanisms;
 
 import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Celsius;
+import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Milliseconds;
 import static org.wpilib.units.Units.Rotations;
+import static org.wpilib.units.Units.RotationsPerSecond;
 import static org.wpilib.units.Units.Volts;
 
 import com.revrobotics.PersistMode;
@@ -36,6 +38,11 @@ import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.math.util.MathUtil;
 import org.wpilib.telemetry.TelemetryTable;
+import org.wpilib.units.measure.Angle;
+import org.wpilib.units.measure.AngularVelocity;
+import org.wpilib.units.measure.Distance;
+import org.wpilib.units.measure.LinearVelocity;
+import org.wpilib.units.measure.Voltage;
 
 final class SwerveModule {
   private final String name;
@@ -51,7 +58,10 @@ final class SwerveModule {
   private SwerveModuleVelocity desired = new SwerveModuleVelocity();
   private double steerSetpointRotations;
   private boolean closingLoops;
-  private boolean openLoop;
+  private boolean driveVoltageMode;
+  private boolean steerVoltageMode;
+  private double driveVolts;
+  private double steerVolts;
 
   SwerveModule(SwerveModuleConfig config, ModuleGains gains, TelemetryTable log) {
     name = config.name();
@@ -122,6 +132,9 @@ final class SwerveModule {
         .feedbackSensor(FeedbackSensor.kAnalogSensor)
         .pid(gains.steer().kP(), 0, gains.steer().kD())
         .dFilter(gains.steer().dFilter())
+        // kS alone: kV is documented as not applied in position mode and kA only in MAXMotion,
+        // and both would configure clean and do nothing.
+        .apply(new FeedForwardConfig().kS(gains.steer().kS()))
         // The analog runs 0 to 1 and drops to 0 every revolution with no accumulator, so a
         // non-wrapping loop sees a one-rotation error at the boundary and applies full output.
         .positionWrappingEnabled(true)
@@ -180,10 +193,11 @@ final class SwerveModule {
   private void command(SwerveModuleVelocity resolved, double arbFeedforwardVolts, boolean open) {
     desired = resolved;
     steerSetpointRotations = toSensorRotations(desired.angle, steerOffsetRotations);
-    openLoop = open;
+    driveVoltageMode = open;
 
     if (open) {
-      driveMotor.setVoltage(openLoopVolts(desired.velocity));
+      driveVolts = openLoopVolts(desired.velocity);
+      driveMotor.setVoltage(driveVolts);
     } else {
       driveController.setSetpoint(
           desired.velocity,
@@ -192,8 +206,63 @@ final class SwerveModule {
           arbFeedforwardVolts,
           ArbFFUnits.kVoltage);
     }
+    steerVoltageMode = false;
     steerController.setSetpoint(steerSetpointRotations, ControlType.kPosition);
     closingLoops = true;
+  }
+
+  // The drive loop is what a drive characterisation measures, so the ramp is written as volts and
+  // no loop is closed around it. Steer holds the azimuth the ramp is meant to push along — forward
+  // for a straight-line test, tangent to the spin circle for a rotation one — because a ramp
+  // measured against whatever angle the modules were parked at measures a different manoeuvre.
+  //
+  // The azimuth is taken as given rather than optimised: reverse is the routine's negative
+  // voltage, and a wheel flipped half a turn to shorten the slew would answer it the wrong way.
+  void characteriseDrive(Rotation2d azimuth, Voltage volts) {
+    driveVolts = volts.in(Volts);
+    driveVoltageMode = true;
+    driveMotor.setVoltage(driveVolts);
+
+    desired = new SwerveModuleVelocity(0, azimuth);
+    steerSetpointRotations = toSensorRotations(azimuth, steerOffsetRotations);
+    steerVoltageMode = false;
+    steerController.setSetpoint(steerSetpointRotations, ControlType.kPosition);
+    closingLoops = true;
+  }
+
+  void characteriseSteer(Voltage volts) {
+    steerVolts = volts.in(Volts);
+    steerVoltageMode = true;
+    steerMotor.setVoltage(steerVolts);
+
+    desired = new SwerveModuleVelocity(0, getAngle());
+    // No loop is reaching for anything here, so the logged setpoint follows the module: a frozen
+    // target against a turning wheel reads as a setpoint the controller cannot reach.
+    steerSetpointRotations = toSensorRotations(desired.angle, steerOffsetRotations);
+    driveVolts = 0;
+    driveVoltageMode = true;
+    driveMotor.setVoltage(0);
+    closingLoops = true;
+  }
+
+  // kNoResetSafeParameters and kNoPersistParameters, both load-bearing: the first leaves every
+  // setting this config does not name alone, and the second is what makes a tuned gain die at the
+  // next power cycle rather than becoming an undocumented property of one controller.
+  void applyGains(ModuleGains gains) {
+    Hardware.configureSpark(
+        "Swerve" + name + "DriveGains",
+        () ->
+            driveMotor.configure(
+                driveConfig(gains),
+                ResetMode.kNoResetSafeParameters,
+                PersistMode.kNoPersistParameters));
+    Hardware.configureSpark(
+        "Swerve" + name + "SteerGains",
+        () ->
+            steerMotor.configure(
+                steerConfig(gains),
+                ResetMode.kNoResetSafeParameters,
+                PersistMode.kNoPersistParameters));
   }
 
   // SwerveModuleAcceleration carries an unsigned magnitude with the direction in its angle, so the
@@ -221,7 +290,33 @@ final class SwerveModule {
     // The logged setpoint's whole job is to tell a setpoint the SPARK never received from one it
     // cannot reach, and a stale angle against a coasting module reads as the second.
     steerSetpointRotations = toSensorRotations(desired.angle, steerOffsetRotations);
+    driveVolts = 0;
+    steerVolts = 0;
     closingLoops = false;
+  }
+
+  Distance getDriveDistance() {
+    return Meters.of(driveEncoder.getPosition().get());
+  }
+
+  LinearVelocity getDriveSpeed() {
+    return MetersPerSecond.of(driveEncoder.getVelocity().get());
+  }
+
+  // The sensor's own reading, before the module offset: it is the signal the steer loop closes on.
+  // It runs 0 to 1 and wraps, so a reverse ramp on a module parked near zero steps a whole
+  // rotation on its second sample. The feedforward fit is on voltage against velocity and does not
+  // see it; anything read off the position column does.
+  Angle getSteerRotation() {
+    return Rotations.of(steerSensor.getPosition().get());
+  }
+
+  AngularVelocity getSteerRate() {
+    return RotationsPerSecond.of(steerSensor.getVelocity().get());
+  }
+
+  String getName() {
+    return name;
   }
 
   Rotation2d getAngle() {
@@ -268,12 +363,24 @@ final class SwerveModule {
     return closingLoops;
   }
 
-  boolean isOpenLoop() {
-    return openLoop;
+  boolean isDriveVoltageMode() {
+    return driveVoltageMode;
+  }
+
+  boolean isSteerVoltageMode() {
+    return steerVoltageMode;
   }
 
   double getDriveSetpoint() {
     return desired.velocity;
+  }
+
+  double getDriveVolts() {
+    return driveVolts;
+  }
+
+  double getSteerVolts() {
+    return steerVolts;
   }
 
   double getSteerSetpoint() {

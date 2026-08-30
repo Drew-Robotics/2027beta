@@ -111,7 +111,7 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-test {
+tasks.withType(Test).configureEach {
     useJUnitPlatform()
     systemProperty 'junit.jupiter.extensions.autodetection.enabled', 'true'
     // Departs from the template: GradleRIO adds these to the sim and deploy JVMs but not to test.
@@ -120,6 +120,22 @@ test {
     jvmArgs '--add-opens', 'java.base/jdk.internal.vm=ALL-UNNAMED',
             '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
             '--enable-native-access=ALL-UNNAMED'
+}
+
+// The characterisation harness, pointed at a file a human can drag into the SysId analyser rather
+// than at a temporary directory. It is the same run the pipeline test asserts on, so a log that
+// opens here is the log CI checked. Not wired into `check`: it is a tool, not a gate.
+tasks.register('sysidLog', Test) {
+    group = 'verification'
+    description = 'Runs the characterisation routines in simulation and writes logs/sysid-simulation.wpilog'
+    // A registered Test task inherits none of the built-in one's wiring.
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    filter { includeTestsMatching 'first.robot.sysid.CharacterisationTest' }
+    systemProperty 'sysid.logDir', file('logs').absolutePath
+    testLogging { showStandardStreams = true }
+    // The log is the output and it is written every time; nothing about it is up to date.
+    outputs.upToDateWhen { false }
 }
 
 // Simulation configuration (e.g. environment variables).
@@ -142,6 +158,7 @@ shadowJar {
 deployArtifact.jarTask = shadowJar
 wpi.java.configureExecutableTasks(shadowJar)
 wpi.java.configureTestTasks(test)
+wpi.java.configureTestTasks(tasks.named('sysidLog').get())
 
 // Configure string concat to always inline compile
 tasks.withType(JavaCompile) {
