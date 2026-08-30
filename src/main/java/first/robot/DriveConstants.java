@@ -17,6 +17,7 @@ import static org.wpilib.units.Units.Pounds;
 import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.RadiansPerSecondPerSecond;
 import static org.wpilib.units.Units.Rotations;
+import static org.wpilib.units.Units.RotationsPerSecond;
 import static org.wpilib.units.Units.Second;
 import static org.wpilib.units.Units.Seconds;
 import static org.wpilib.units.Units.Volts;
@@ -121,6 +122,12 @@ public final class DriveConstants {
   // once oversaturates the wheels, which desaturateWheelVelocities then scales back together.
   public static final AngularVelocity MAX_ANGULAR_VELOCITY =
       RadiansPerSecond.of(MAX_VELOCITY.in(MetersPerSecond) / DRIVE_RADIUS.in(Meters));
+
+  // What full right stick asks for, which is not MAX_ANGULAR_VELOCITY. That one is the whole
+  // wheel budget, so a driver holding it has nothing left to translate with and desaturation
+  // halves both. A turn a second is about 44 per cent of the budget, which leaves three quarters
+  // of a full translation available while spinning.
+  public static final AngularVelocity DRIVER_MAX_ANGULAR_VELOCITY = RotationsPerSecond.of(1);
 
   // The offset a used controller sits at with nobody touching it. Below this the command is
   // exactly zero, because even a small omega steers all four modules to a rotation angle.

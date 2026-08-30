@@ -133,6 +133,33 @@ class DriverInputTest {
         "a full translation and a full spin only asked for " + fastest / max + " of a wheel");
   }
 
+  // And why the driver's stick is not allowed to ask for it. A turn a second leaves most of a
+  // translation available while spinning; the geometric maximum leaves none.
+  @Test
+  void fullStickOnBothLeavesMostOfATranslationAfterDesaturation() {
+    var kinematics =
+        new SwerveDriveKinematics(
+            DriveConstants.DRIVE.frontLeft().location(),
+            DriveConstants.DRIVE.frontRight().location(),
+            DriveConstants.DRIVE.backLeft().location(),
+            DriveConstants.DRIVE.backRight().location());
+    double max = DriveConstants.MAX_VELOCITY.in(MetersPerSecond);
+
+    var asked =
+        new ChassisVelocities(
+            max, 0, DriveConstants.DRIVER_MAX_ANGULAR_VELOCITY.in(RadiansPerSecond));
+    var states =
+        SwerveDriveKinematics.desaturateWheelVelocities(
+            kinematics.toSwerveModuleVelocities(asked), max);
+    var delivered = kinematics.toChassisVelocities(states);
+
+    double scale = Math.hypot(delivered.vx, delivered.vy) / max;
+    assertTrue(scale > 0.7, "a full translation and a full driver spin scaled back to " + scale);
+    assertTrue(
+        DriveConstants.DRIVER_MAX_ANGULAR_VELOCITY.lt(DriveConstants.MAX_ANGULAR_VELOCITY),
+        "the driver's stick is entitled to the whole wheel budget again");
+  }
+
   @Test
   void thePerspectiveLeavesTheSpinAlone() {
     var blue = Drive.driverVelocities(0, 0, -0.7, BLUE);

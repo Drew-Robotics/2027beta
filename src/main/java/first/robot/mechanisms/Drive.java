@@ -594,7 +594,7 @@ public class Drive implements Mechanism {
         DriveConstants.MAX_VELOCITY.times(stick(-leftX) * perspective),
         // A rotation about field centre does not change which way is clockwise, so the spin is
         // the one component the perspective leaves alone.
-        DriveConstants.MAX_ANGULAR_VELOCITY.times(stick(-rightX)));
+        DriveConstants.DRIVER_MAX_ANGULAR_VELOCITY.times(stick(-rightX)));
   }
 
   // Asymptotically linear: the curve eases out of zero over the width and then converges onto the
