@@ -10,6 +10,7 @@ import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Radians;
 import static org.wpilib.units.Units.Seconds;
+import static org.wpilib.units.Units.Volts;
 
 import first.robot.Constants;
 import first.robot.DriveConstants;
@@ -187,12 +188,13 @@ class PathFollowingTest {
     var driveVolts = new double[MODULES];
     var steerVolts = new double[MODULES];
     for (int substep = 0; substep < SUB_STEPS; substep++) {
+      double rail = physics.batteryVoltage().in(Volts);
       for (int i = 0; i < MODULES; i++) {
         double wheelSpeed =
             state[i].wheelVelocityRadPerSec() * DriveConstants.WHEEL_RADIUS.in(Meters);
         double sensor = MathUtil.inputModulus(state[i].azimuth().getRotations(), 0, 1);
-        driveVolts[i] = driveLoops[i].calculate(wheelSpeed, SUB_STEP) + feedforward[i];
-        steerVolts[i] = steerLoops[i].calculate(sensor, SUB_STEP);
+        driveVolts[i] = driveLoops[i].calculate(wheelSpeed, SUB_STEP, rail) + feedforward[i];
+        steerVolts[i] = steerLoops[i].calculate(sensor, SUB_STEP, rail);
       }
       state = physics.update(driveVolts, steerVolts, SUB_STEP);
     }

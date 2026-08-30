@@ -12,7 +12,9 @@ would write it is the one that does not load. Amended 2026-08-30: this
 architecture now runs — ADR 0015's shim binds REVLib's native, and the
 whole of `updateSim()` has been executed against a real `Robot` on the
 desktop. `SparkSim` is still not loaded and this ADR still does not use
-it.
+it. Amended 2026-08-30, second: the loop model reads its
+feedback gains as a duty cycle rather than as volts, which is what the
+device does; `SIM_GAINS` moved with it.
 
 The *Open* item asking whether CI runs a headless robot program is
 answered by ADR 0013 and now sits under *Consequences*.
@@ -165,6 +167,39 @@ rejected hand-writing a copy of the onboard loop *for fidelity*; this is
 a different artefact at a different bar — #19's Tier 2 assertions are
 deliberately loose and #23's `sim-hitl` is *drive around in sim*.
 **[decided]**
+
+**The loop model's feedback output is a duty cycle, and its feedforward
+is volts.** They are not the same unit and the difference is the whole
+bus voltage. `ClosedLoopConfig.minOutput` and `maxOutput` are the only
+documented output units on the class and both are *"the minimum output
+value in the range [-1, 1]"*
+(`com/revrobotics/spark/config/ClosedLoopConfig.java:252, :277`); every
+`FeedForwardConfig` gain beside them is documented *"in Volts"*
+(`com/revrobotics/spark/config/FeedForwardConfig.java:64, :80`); and
+`arbFeedforward` is applied *"after the result of the specified control
+mode"* in units chosen from an `ArbFFUnits` of `kVoltage` or
+`kPercentOut` (`com/revrobotics/spark/SparkClosedLoopController.java:40-42,
+:140-142`). **[source]** No javadoc states outright what the P term
+outputs — it is firmware, so none can — so the reading itself is
+**[unverified]**, but nothing in the library contradicts it.
+
+`OnboardLoopSim` originally returned every term as volts, which made the
+modelled steer loop weaker than the device by a factor of twelve. That
+is not a fidelity nicety: a P loop on this plant is speed-limited rather
+than torque-limited, so the gain sets the closed-loop time constant
+directly, at `2π / (kP · V · Kv_module)`. A driving log measured the
+modules settling a 30-degree step in **895 ms** with a median tracking
+error of 8 degrees **[measured]**, which reads from the driver's seat as
+a floating, unresponsive robot and reads in a plot as a tuning problem.
+With the feedback terms scaled by the rail the same step settles in
+**220 ms** **[measured]**, and
+`SwerveDriveSimTest.aQuarterTurnStepSettlesInsideTheTimeADriverWouldNotice`
+is the regression that holds it there.
+
+The trap this ADR is guarding is not the units themselves but where they
+get absorbed: a model that reads a gain in the wrong unit looks exactly
+like a model that needs its own gains, and the second set of gains
+quietly becomes a conversion factor. See ADR 0009.
 
 **Write positions; do not call `iterate()`.** Our model owns the
 integration, so `setPosition` writes the value the model already

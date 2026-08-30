@@ -400,10 +400,12 @@ class CharacterisationTest {
 
     var previousAzimuth = state[0].azimuth();
     for (int substep = 0; substep < SUB_STEPS; substep++) {
+      double rail = physics.batteryVoltage().in(Volts);
       if (!steerOpenLoop) {
         for (int i = 0; i < MODULES; i++) {
           steerLoops[i].setSetpoint(steerSetpoints[i]);
-          steerVolts[i] = steerLoops[i].calculate(sensorRotations(state[i].azimuth()), SUB_STEP);
+          steerVolts[i] =
+              steerLoops[i].calculate(sensorRotations(state[i].azimuth()), SUB_STEP, rail);
         }
       }
       state = physics.update(driveVolts, steerVolts, SUB_STEP);

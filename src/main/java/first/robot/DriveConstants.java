@@ -229,8 +229,12 @@ public final class DriveConstants {
   // and turning them until a test passes turns that test into a tautology. A characterisation run
   // in simulation fits the model it was given back to itself, so a gain fitted there describes the
   // model and never the robot.
+  //
+  // What separates them from REAL_GAINS is the friction the plant does not have: no stiction to
+  // break, so both kS terms are zero, and nothing to damp, so steer needs no kD. The feedback
+  // gains themselves match, because the loop model reads them in the same units the device does.
   public static final ModuleGains SIM_GAINS =
-      new ModuleGains(new DriveMotorGains(0.1, 0.0, 2.0), new SteerMotorGains(8.0, 0.0, 0.0, 0.0));
+      new ModuleGains(new DriveMotorGains(0.05, 0.0, 2.0), new SteerMotorGains(3.0, 0.0, 0.0, 0.0));
 
   public record SwerveModuleConfig(
       String name, int driveId, int steerId, Angle steerZeroOffset, Translation2d location) {}

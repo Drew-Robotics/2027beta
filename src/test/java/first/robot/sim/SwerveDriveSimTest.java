@@ -7,7 +7,9 @@ package first.robot.sim;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.wpilib.units.Units.Amps;
+import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Meters;
+import static org.wpilib.units.Units.Rotations;
 import static org.wpilib.units.Units.Seconds;
 import static org.wpilib.units.Units.Volts;
 
@@ -20,6 +22,7 @@ import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.system.DCMotor;
 import org.wpilib.math.util.MathUtil;
+import org.wpilib.units.measure.Angle;
 import org.wpilib.units.measure.Time;
 
 class SwerveDriveSimTest {
@@ -135,6 +138,62 @@ class SwerveDriveSimTest {
         "the battery did not recover once the wheels stopped accelerating");
   }
 
+  // The whole of the floaty-simulation bug: the SPARK's feedback output is a duty cycle, so a
+  // model that reads kP as volts steers at a twelfth of the authority the device has. A 90-degree
+  // step took 895 ms on the log that found this; the module physically slews a turn in 274 ms.
+  @Test
+  void aQuarterTurnStepSettlesInsideTheTimeADriverWouldNotice() {
+    for (int i = 0; i < MODULES; i++) {
+      steerLoops[i].setSetpoint(0.25);
+    }
+
+    double settled = settleTime(0.25, Degrees.of(5), Seconds.of(1));
+
+    assertTrue(
+        settled < 0.3, "steer took " + Math.round(settled * 1000) + " ms to settle a quarter turn");
+  }
+
+  // Both SPARKs idle in brake, and zero volts into the plant is the short across the motor that
+  // makes. A coasting module would hold its speed here instead.
+  @Test
+  void aWheelHandedZeroVoltsBrakesRatherThanCoasting() {
+    Arrays.fill(driveVolts, DRIVE_VOLTS);
+    advance(Seconds.of(3));
+    double rolling = state[0].wheelVelocityRadPerSec();
+    assertTrue(rolling > 1, "the wheel never spun up");
+
+    Arrays.fill(driveVolts, 0);
+    advance(Seconds.of(1));
+
+    assertTrue(
+        state[0].wheelVelocityRadPerSec() < rolling * 0.02,
+        "a wheel handed zero volts kept rolling at "
+            + state[0].wheelVelocityRadPerSec()
+            + " of "
+            + rolling);
+  }
+
+  // Seconds until every module is inside tolerance of the setpoint, or the timeout if it never is.
+  private double settleTime(double setpointRotations, Angle tolerance, Time timeout) {
+    int ticks = (int) Math.round(timeout.in(Seconds) / Constants.LOOP_PERIOD.in(Seconds));
+    for (int tick = 0; tick < ticks; tick++) {
+      tick();
+      boolean all = true;
+      for (int i = 0; i < MODULES; i++) {
+        double error =
+            MathUtil.inputModulus(
+                setpointRotations - MathUtil.inputModulus(state[i].azimuth().getRotations(), 0, 1),
+                -0.5,
+                0.5);
+        all &= Math.abs(error) <= tolerance.in(Rotations);
+      }
+      if (all) {
+        return (tick + 1) * Constants.LOOP_PERIOD.in(Seconds);
+      }
+    }
+    return timeout.in(Seconds);
+  }
+
   private void advance(Time duration) {
     int ticks = (int) Math.round(duration.in(Seconds) / Constants.LOOP_PERIOD.in(Seconds));
     for (int i = 0; i < ticks; i++) {
@@ -146,10 +205,11 @@ class SwerveDriveSimTest {
   // across the sub-steps: what a 200 Hz robot commanding a 1 kHz loop actually looks like.
   private void tick() {
     for (int step = 0; step < SUB_STEPS; step++) {
+      double rail = sim.batteryVoltage().in(Volts);
       for (int i = 0; i < MODULES; i++) {
         // Rotation2d reads back over [-0.5, 0.5) and the analog sensor over [0, 1).
         double azimuth = MathUtil.inputModulus(state[i].azimuth().getRotations(), 0, 1);
-        steerVolts[i] = steerLoops[i].calculate(azimuth, SUB_STEP);
+        steerVolts[i] = steerLoops[i].calculate(azimuth, SUB_STEP, rail);
       }
       state = sim.update(driveVolts, steerVolts, SUB_STEP);
     }
