@@ -6,6 +6,7 @@ package first.robot.sim;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Seconds;
 import static org.wpilib.units.Units.Volts;
@@ -89,6 +90,30 @@ class SwerveDriveSimTest {
         sim.truePose().getTranslation().getNorm(),
         0.01,
         "the robot translated while spinning: " + sim.truePose());
+  }
+
+  // The controller reports what it applied, and under a current limit that is not what it was
+  // asked for: the two only meet once the wheel is turning fast enough that the back-EMF carries
+  // most of the command.
+  @Test
+  void theAppliedVoltsAreTheLimitedOnesUntilTheWheelIsUpToSpeed() {
+    double limited = config.drive().currentLimit().in(Amps) * config.drive().motor().R;
+    Arrays.fill(driveVolts, 12.0);
+
+    state = sim.update(driveVolts, steerVolts, SUB_STEP);
+
+    assertEquals(
+        limited,
+        state[0].driveAppliedVolts(),
+        limited * 0.02,
+        "a step from rest was applied as more than the current limit allows");
+
+    advance(Seconds.of(3));
+
+    assertTrue(
+        state[0].driveAppliedVolts() > 11.0,
+        "the wheel is at speed and the command is still being limited: "
+            + state[0].driveAppliedVolts());
   }
 
   @Test

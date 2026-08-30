@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted — 2026-08-26.
+Accepted — 2026-08-26. Amended 2026-08-29: the characterisation raise
+ADR 0009 decided is now budgeted here, beside the tuning one it is
+smaller than.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -199,6 +201,30 @@ apply the winner to four. Status9 is MAXMotion (`:819-820, 856-857`)
 A tuning session is the one time the bus is allowed to run near its
 ceiling, because it happens on a bench with nobody on the field and it
 ends when the gains are written into the repo.
+
+### Characterisation raises one of those three, not all three
+
+A characterisation run is not a tuning session and does not spend a
+tuning session's budget. The voltage column of its log is the applied
+output, which is Status0 — so **a characterisation raises Status0 alone
+to loop rate on a single named SPARK**, for **10 to 200 frames/s: +190
+to ~4110 total, 54–64%**. **[unverified — arithmetic]** It raises
+nothing else, and it is put back when the run ends.
+
+Status7 and Status8 stay at their periods because there is no closed
+loop running during a characterisation: `iAccumulation` and the setpoint
+readback would report zeros at 390 frames/s. **[decided]**
+
+`appliedOutputPeriodMs` and `busVoltagePeriodMs` are both Status0
+(`SignalsConfig.java:95-96, 115-116`) **[source]**, which is what the
+column needs — applied output is a duty cycle and the bus voltage is the
+rail it is a fraction of — and output current and motor temperature ride
+the same frame for nothing.
+
+Which controller is instrumented is a constant naming one module, and
+the routine picks the motor role: drive and rotation instrument that
+module's drive SPARK, steer its steer SPARK. ADR 0009 owns what the
+column is for.
 
 ### One project constant per physical bus, converted at each call site
 

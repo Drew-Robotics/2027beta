@@ -63,6 +63,9 @@ public final class DriveConstants {
   public static final Time FAULT_FRAME_PERIOD = Milliseconds.of(50);
   public static final Time DIAGNOSTIC_FRAME_PERIOD = Milliseconds.of(100);
 
+  // What the applied-output frame runs at while a characterisation is reading a column off it.
+  public static final Time CHARACTERISATION_FRAME_PERIOD = Constants.LOOP_PERIOD;
+
   // === SDS Mk5i, off the manufacturer's layout drawing =========================================
 
   // The three ratios are the manufacturer's; which of them this robot runs is not confirmed, and

@@ -343,6 +343,13 @@ The index of the ADRs themselves is
   one model over it, so they are one measurement rather than four, and
   it will not open a log that is missing one
   ([ADR 0009](docs/adr/0009-characterisation-and-tuning.md)).
+- **Applied output** — the duty cycle a SPARK reports it actually ran
+  at, which multiplied by the bus voltage is the volts that reached the
+  motor. It is not the volts that were asked for: a current limit holds
+  the output to `backEmf ± currentLimit · R`, so a step from rest
+  applies a fraction of itself. The voltage column of a characterisation
+  log is the applied one
+  ([ADR 0009](docs/adr/0009-characterisation-and-tuning.md)).
 - **Effective wheel radius** — the radius a wheel behaves as if it has,
   which is smaller than the one it was bought with and shrinks as it
   wears. Measured by spinning the robot on the spot and comparing the

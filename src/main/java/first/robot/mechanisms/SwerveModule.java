@@ -245,6 +245,43 @@ final class SwerveModule {
     closingLoops = true;
   }
 
+  // Applied output and bus voltage share Status0 with output current and motor temperature, so
+  // raising the two the characterisation column needs raises those two for no extra frame.
+  void instrumentDrive(boolean raised) {
+    Hardware.configureSpark(
+        "Swerve" + name + "DriveFrames",
+        () ->
+            driveMotor.configure(
+                appliedOutputFrames(raised),
+                ResetMode.kNoResetSafeParameters,
+                PersistMode.kNoPersistParameters));
+  }
+
+  void instrumentSteer(boolean raised) {
+    Hardware.configureSpark(
+        "Swerve" + name + "SteerFrames",
+        () ->
+            steerMotor.configure(
+                appliedOutputFrames(raised),
+                ResetMode.kNoResetSafeParameters,
+                PersistMode.kNoPersistParameters));
+  }
+
+  // A fresh config each time, because the period setters keep the smaller of the requested and the
+  // value already in the object they are called on: restoring through one that has been raised
+  // leaves it raised.
+  private static SparkFlexConfig appliedOutputFrames(boolean raised) {
+    var config = new SparkFlexConfig();
+    int periodMs =
+        (int)
+            (raised
+                    ? DriveConstants.CHARACTERISATION_FRAME_PERIOD
+                    : DriveConstants.DIAGNOSTIC_FRAME_PERIOD)
+                .in(Milliseconds);
+    config.signals.appliedOutputPeriodMs(periodMs).busVoltagePeriodMs(periodMs);
+    return config;
+  }
+
   // kNoResetSafeParameters and kNoPersistParameters, both load-bearing: the first leaves every
   // setting this config does not name alone, and the second is what makes a tuned gain die at the
   // next power cycle rather than becoming an undocumented property of one controller.
@@ -301,6 +338,16 @@ final class SwerveModule {
 
   LinearVelocity getDriveSpeed() {
     return MetersPerSecond.of(driveEncoder.getVelocity().get());
+  }
+
+  // What the controller put on the motor, which is below what it was asked for whenever the
+  // current limit is binding. Applied output is a duty cycle, so the rail comes back with it.
+  Voltage getDriveAppliedVoltage() {
+    return Volts.of(driveMotor.getAppliedOutput().get() * driveMotor.getBusVoltage().get());
+  }
+
+  Voltage getSteerAppliedVoltage() {
+    return Volts.of(steerMotor.getAppliedOutput().get() * steerMotor.getBusVoltage().get());
   }
 
   // The sensor's own reading, before the module offset: it is the signal the steer loop closes on.

@@ -6,7 +6,9 @@ Accepted — 2026-08-26. Resolves ADR 0003's `SparkSim` item, which held
 that this ADR had nothing to write until that class loaded against our
 WPILib. It still does not load, and this ADR does not use it — the
 sensor sims beside it are clean, and they are what the decision rests
-on.
+on. Amended 2026-08-29: applied output is a fourth simulated signal, and
+it is written to the device's `SimDevice` directly because the class that
+would write it is the one that does not load.
 
 The *Open* item asking whether CI runs a headless robot program is
 answered by ADR 0013 and now sits under *Consequences*.
@@ -164,6 +166,38 @@ deliberately loose and #23's `sim-hitl` is *drive around in sim*.
 integration, so `setPosition` writes the value the model already
 computed. `iterate(velocity, dt)` would integrate a second time on top
 of it, and it carries a defect besides — see Traps.
+
+### Applied output is written where `SparkSim` would write it
+
+A fourth signal joined the three above once ADR 0009's voltage column
+became the applied output rather than the request: **what the controller
+put on the motor.** Nothing writes it today —
+`SparkBase.getAppliedOutput`'s own javadoc says *"this value will not be
+updated during simulation unless `SparkSim.iterate` is called"*
+(`com/revrobotics/spark/SparkBase.java:707-708`) **[source]** — and
+`SparkSim` is the one class this ADR cannot load.
+
+Both values behind that column live on the device's own `SimDevice`:
+`SparkSim` reaches them as `"Applied Output"` and `"Bus Voltage"` on
+`SimDeviceSim("SPARK Flex [" + busId + "," + deviceId + "]")`
+(`com/revrobotics/spark/SparkSim.java:80-85`) **[source]**, which is the
+same door the sensor sims go through. **They are written directly, from
+`first.robot.mechanisms`.** **[decided]** That is eight lines against a
+class that will not load, and it is the *whole* of what `SparkSim` would
+have contributed here: the plant already integrates and the loops are
+already modelled, so nothing else in that class is wanted.
+
+The number written is the plant's applied voltage, not the mechanism's
+commanded one. `SwerveDriveSim` clamps against the current limit exactly
+where the controller does and now reports what it clamped to, so the
+simulated column has the same shape as the real one — including the flat
+stretch at the bottom of a step that ADR 0009's traps are about.
+
+`SimDeviceSim.getDouble` returns `null` for a name it cannot resolve
+(`wpilibj/src/main/java/org/wpilib/simulation/SimDeviceSim.java:117-123`)
+**[source]**, so a handle taken before its SPARK exists drops every write
+rather than throwing — the same silent no-op the sensor sims have. See
+Traps.
 
 ### The tick is 5 ms and the sub-step is 1 ms
 

@@ -6,7 +6,10 @@ Accepted — 2026-08-26. Amended 2026-08-29, on implementing it: the
 analyser fits one model over all four tests combined, so *every* routine
 runs all four whatever it can use of the result — see *Traps* and the
 steer decision. The routines are also enumerated now that there are
-four of them, and a wheel-radius measurement joins them.
+four of them, and a wheel-radius measurement joins them. Amended again
+2026-08-29, on building the frame raise: the voltage column is the
+applied output rather than the request, and it is honest under a stated
+condition rather than unconditionally.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -106,9 +109,22 @@ compensation **[source]**. So the `Voltage` the routine hands out is the
 voltage the controller applies **while nothing else is limiting the
 output**, and the current limit is something else limiting the output.
 See *Traps*: the request and the application are the same number for the
-quasistatic ramp and part of the dynamic step, and the log records the
-request. Making the column unconditionally honest is
-[#81](https://github.com/Drew-Robotics/2027beta/issues/81).
+quasistatic ramp and part of the dynamic step, and they part company
+through the rest of it.
+
+**So the column is not the request.** The voltage logged is
+`getAppliedOutput() × getBusVoltage()` — the controller's own report of
+the duty cycle it ran at, multiplied back by the rail it was a fraction
+of. **[decided]** That is a number the robot reads rather than one it
+wrote, which is what the frame raise below is for.
+
+**The column is honest while the applied-output frame is at the loop
+rate, and stale by up to one frame period otherwise.** It is a status
+frame, not a readback: what `getAppliedOutput()` returns is the last
+frame that arrived, so at the 100 ms diagnostic period a 5 ms log
+repeats one sample twenty times. The raise is what makes the condition
+hold for the length of a run, and nothing outside a characterisation
+holds it.
 
 The closed loop is not running during a characterisation. Open-loop
 voltage in, velocity out, is the whole test.
@@ -223,6 +239,22 @@ on Status0 at 100 ms.
 test** — 10 to 200 frames/s, **+190 to ~4110 total** **[unverified —
 arithmetic; ADR 0007 owns the budget]** — and raises nothing else.
 
+The raise is written by the command that runs the routine, not by the
+opmode that binds it: it goes up before anything the command does and
+comes back down when the routine ends, on both the path where the body
+finishes and the path where it is cancelled. For drive and rotation the
+settle sits between the two, so the frame is at rate well before the
+first sample. **Steer has no settle**, so its raise and its first sample
+share a loop, and a steer log can open on one sample up to a frame period
+stale.
+
+`appliedOutputPeriodMs` and `busVoltagePeriodMs` are both Status0
+(`SignalsConfig.java:95-96, 115-116`) **[source]**, so the two signals the
+column is computed from ride up together, and output current and motor
+temperature come with them for no extra frame. Faults and warnings are
+Status1 (`:192-193, 230-231`) **[source]** and are not touched, so the
+restore does not quietly slow the fault frame down with it. **[decided]**
+
 That is a *different* raise from ADR 0007's tuning allowance, which
 takes Status0 + Status7 + Status8. Status7 is `iAccumulation` and
 Status8 is the setpoint readback (`SignalsConfig.java:671-672`,
@@ -230,9 +262,18 @@ Status8 is the setpoint readback (`SignalsConfig.java:671-672`,
 closed loop, so both are reporting nothing. Raising them buys a reader
 two columns of zeros at 390 frames/s.
 
-Which controller is instrumented is a constant in `Constants` naming one
-module and one motor role, exactly as ADR 0007 requires: a redeploy, not
-a dashboard setting.
+Which controller is instrumented is a constant naming one module, exactly
+as ADR 0007 requires: a redeploy, not a dashboard setting. The motor role
+is the routine's rather than a second constant — drive and rotation
+instrument that module's drive SPARK, steer its steer SPARK — because a
+routine that raised the frame on a controller it does not read would log
+a column at 100 ms and a raise at 5 ms.
+
+**The restore is a blocking `configure()` on the loop thread**, and it
+runs from the cancellation path, so a run that ends in a cancel can
+overrun its loop while the write retries. That is accepted: it happens
+once, at the end of a supervised bench test, with the mechanism already
+stopped — and deferring it is how a frame stays raised into a match.
 
 ### Feedforward stays split across two machines, and steer's is `kS` alone
 
@@ -543,8 +584,8 @@ in Traps.
   encoder settings, and they change the *measurement*, not the plant —
   see Open.
 
-- **A current-limited motor applies a voltage that rises with speed
-  while the log records the one that was asked for.** A smart current
+- **A current-limited motor applies a voltage that rises with speed, and
+  a column carrying the request would read it as flat.** A smart current
   limit holds the output to `backEmf ± currentLimit · R`; for a NEO
   Vortex at ADR 0008's 60 A that span is 3.41 V, so a 7 V step applies
   **3.41 V from rest** and only reaches 7 V at **1.82 m/s**. Constant
@@ -559,8 +600,10 @@ in Traps.
   fit whole. In that run it took `kA` from the plant's 0.4052 to a
   fitted 0.4631, **+14%** — on the one gain the dynamic test exists to
   produce and the one ADR 0011 hands to `arbFeedforward`. **[executed]**
-  The fix is to log what was applied rather than what was asked for,
-  which is the frame raise this ADR already decided; see *Open*.
+  The fix is to log what was applied rather than what was asked for. The
+  column is `getAppliedOutput() × getBusVoltage()` and the frame carrying
+  both runs at the loop rate for the length of a run, which is the
+  decision above.
 
 - **A step test begun on the move reports the time it spent stopping as
   measurement delay.** `TrimStepVoltageData` takes the velocity delay as
@@ -613,18 +656,6 @@ in Traps.
   are two routines and take two names.
 
 ## Open
-
-- **The Status0 raise this ADR decided is not built, and the voltage
-  column is the requested voltage until it is.** **[unverified]** The
-  raise was argued around on the grounds that `setVoltage` makes the
-  request and the application the same number, which holds until the
-  current limiter binds — and it binds through the lower half of every
-  dynamic step. *Unblocked by*
-  [#81](https://github.com/Drew-Robotics/2027beta/issues/81), which
-  carries the raise, the applied-output column, and the simulation
-  problem underneath it: nothing drives a SPARK's applied output in
-  simulation today, and ADR 0010 forbids `first.robot.sim` learning what
-  a SPARK is.
 
 - **How a chassis-level rotation gain reaches modules that close
   velocity on the SPARK.** **[unverified]** The rotation fit is in volts
