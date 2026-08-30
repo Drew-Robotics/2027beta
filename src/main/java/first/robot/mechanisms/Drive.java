@@ -25,6 +25,7 @@ import first.robot.DriveConstants;
 import first.robot.DriveConstants.DriveConfig;
 import first.robot.DriveConstants.ModuleGains;
 import first.robot.DriveConstants.SwerveModuleConfig;
+import first.robot.FieldConstants;
 import first.robot.Hardware;
 import first.robot.HolonomicPathFollower;
 import first.robot.sim.OnboardLoopSim;
@@ -545,7 +546,10 @@ public class Drive implements Mechanism {
   // wheel back to its setpoint, and a driver reads that as the robot arguing. A voltage does what
   // the stick did.
   public Command driverControl(CommandGamepad driver) {
-    return fieldRelative(() -> driverVelocities(driver), this::setOpenLoopVelocities)
+    // Read every loop: the alliance arrives after the Driver Station does, and latching it at
+    // construction hands a red driver blue controls for the whole match.
+    return fieldRelative(
+            () -> driverVelocities(driver, FieldConstants.onRed()), this::setOpenLoopVelocities)
         .named("Drive.DriverControl");
   }
 
@@ -571,13 +575,26 @@ public class Drive implements Mechanism {
         .whenCanceled(this::stopModules);
   }
 
+  private static ChassisVelocities driverVelocities(CommandGamepad driver, boolean onRed) {
+    return driverVelocities(driver.getLeftY(), driver.getLeftX(), driver.getRightX(), onRed);
+  }
+
   // Away from the driver station is +x and to the driver's left is +y, and both stick axes read
   // the other way round.
-  private static ChassisVelocities driverVelocities(CommandGamepad driver) {
+  //
+  // The field is blue-origin whichever alliance is driving, so +x is the red wall for both of
+  // them and a red driver's forward is -x. The axes and the alliance arrive as doubles because a
+  // CommandGamepad needs the HAL and DriverStationSim.setAllianceStationId segfaults the test
+  // JVM: what cannot be reached from Tier 1 is what nobody checks.
+  static ChassisVelocities driverVelocities(
+      double leftY, double leftX, double rightX, boolean onRed) {
+    double perspective = onRed ? -1 : 1;
     return new ChassisVelocities(
-        DriveConstants.MAX_VELOCITY.times(stick(-driver.getLeftY())),
-        DriveConstants.MAX_VELOCITY.times(stick(-driver.getLeftX())),
-        DriveConstants.MAX_ANGULAR_VELOCITY.times(stick(-driver.getRightX())));
+        DriveConstants.MAX_VELOCITY.times(stick(-leftY) * perspective),
+        DriveConstants.MAX_VELOCITY.times(stick(-leftX) * perspective),
+        // A rotation about field centre does not change which way is clockwise, so the spin is
+        // the one component the perspective leaves alone.
+        DriveConstants.MAX_ANGULAR_VELOCITY.times(stick(-rightX)));
   }
 
   // Asymptotically linear: the curve eases out of zero over the width and then converges onto the
@@ -732,11 +749,14 @@ public class Drive implements Mechanism {
     // The setpoints are held constant across the sub-steps, which is what reproduces a 200 Hz
     // robot commanding a 1 kHz controller rather than pretending they run at the same rate.
     for (int step = 0; step < SUB_STEPS; step++) {
+      double rail = physics.batteryVoltage().in(Volts);
       for (int i = 0; i < MODULES; i++) {
         double wheelSpeed =
             state[i].wheelVelocityRadPerSec() * DriveConstants.WHEEL_RADIUS.in(Meters);
         double sensor = modules[i].toSensorRotations(state[i].azimuth());
         if (!modules[i].isClosingLoops()) {
+          // Zero volts into a DCMotorSim is a shorted motor, which is what idleMode kBrake makes
+          // a stopped SPARK. Coasting would have to zero the current instead.
           driveVolts[i] = 0;
           steerVolts[i] = 0;
         } else {
@@ -745,17 +765,21 @@ public class Drive implements Mechanism {
           driveVolts[i] =
               modules[i].isDriveVoltageMode()
                   ? modules[i].getDriveVolts()
-                  : driveLoops[i].calculate(wheelSpeed, SUB_STEP);
+                  : driveLoops[i].calculate(wheelSpeed, SUB_STEP, rail);
           steerVolts[i] =
               modules[i].isSteerVoltageMode()
                   ? modules[i].getSteerVolts()
-                  : steerLoops[i].calculate(sensor, SUB_STEP);
+                  : steerLoops[i].calculate(sensor, SUB_STEP, rail);
         }
       }
       state = physics.update(driveVolts, steerVolts, SUB_STEP);
     }
 
     double busVolts = physics.batteryVoltage().in(Volts);
+    // The rail the plant clamped against, not the one it sagged to afterwards: the SPARK reports
+    // a duty cycle and a bus voltage measured together, and dividing by the later number puts the
+    // duty outside [-1, 1].
+    double appliedRail = physics.appliedRailVoltage().in(Volts);
     for (int i = 0; i < MODULES; i++) {
       // setPosition takes the value after the conversion factor, so these are the metres and the
       // rotations the mechanism will read back, not raw encoder units.
@@ -766,8 +790,8 @@ public class Drive implements Mechanism {
       steerSensorSims[i].setPosition(modules[i].toSensorRotations(state[i].azimuth()));
       // The plant's applied volts, not the mechanism's commanded ones: the model clamps where the
       // controller does, and this is the signal that reports the clamp.
-      driveOutputSims[i].set(state[i].driveAppliedVolts(), busVolts);
-      steerOutputSims[i].set(state[i].steerAppliedVolts(), busVolts);
+      driveOutputSims[i].set(state[i].driveAppliedVolts(), appliedRail);
+      steerOutputSims[i].set(state[i].steerAppliedVolts(), appliedRail);
     }
 
     RoboRioSim.setVInVoltage(busVolts);

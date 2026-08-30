@@ -7,7 +7,10 @@ package first.robot.sim;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.wpilib.units.Units.Amps;
+import static org.wpilib.units.Units.Degrees;
+import static org.wpilib.units.Units.Kilograms;
 import static org.wpilib.units.Units.Meters;
+import static org.wpilib.units.Units.Rotations;
 import static org.wpilib.units.Units.Seconds;
 import static org.wpilib.units.Units.Volts;
 
@@ -20,6 +23,7 @@ import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.system.DCMotor;
 import org.wpilib.math.util.MathUtil;
+import org.wpilib.units.measure.Angle;
 import org.wpilib.units.measure.Time;
 
 class SwerveDriveSimTest {
@@ -135,6 +139,160 @@ class SwerveDriveSimTest {
         "the battery did not recover once the wheels stopped accelerating");
   }
 
+  // The whole of the floaty-simulation bug: the SPARK's feedback output is a duty cycle, so a
+  // model that reads kP as volts steers at a twelfth of the authority the device has. A 90-degree
+  // step took 895 ms on the log that found this; the module physically slews a turn in 274 ms.
+  @Test
+  void aQuarterTurnStepSettlesInsideTheTimeADriverWouldNotice() {
+    for (int i = 0; i < MODULES; i++) {
+      steerLoops[i].setSetpoint(0.25);
+    }
+
+    double settled = settleTime(0.25, Degrees.of(5), Seconds.of(1));
+
+    assertTrue(
+        settled < 0.3, "steer took " + Math.round(settled * 1000) + " ms to settle a quarter turn");
+  }
+
+  // Both SPARKs idle in brake, and zero volts into the plant is the short across the motor that
+  // makes. A coasting module would hold its speed here instead.
+  @Test
+  void aWheelHandedZeroVoltsBrakesRatherThanCoasting() {
+    Arrays.fill(driveVolts, DRIVE_VOLTS);
+    advance(Seconds.of(3));
+    double rolling = state[0].wheelVelocityRadPerSec();
+    assertTrue(rolling > 1, "the wheel never spun up");
+
+    Arrays.fill(driveVolts, 0);
+    advance(Seconds.of(1));
+
+    assertTrue(
+        state[0].wheelVelocityRadPerSec() < rolling * 0.02,
+        "a wheel handed zero volts kept rolling at "
+            + state[0].wheelVelocityRadPerSec()
+            + " of "
+            + rolling);
+  }
+
+  // The other half of the floaty-simulation bug. The battery model was charged the winding
+  // current, so four drives held at their limit down at a couple of volts read as 240 A and sagged
+  // the rail to its floor -- at exactly the moment a launch needs the volts. A log measured 1440 ms
+  // from rest to 90% of a request over 4 m/s.
+  @Test
+  void aFullThrottleLaunchReachesSpeedInTheTimeTheCurrentLimitAllows() {
+    Arrays.fill(driveVolts, 12.0);
+
+    double launched = timeToSpeed(4.0, Seconds.of(3));
+
+    assertTrue(
+        launched < 1.0, "the launch took " + Math.round(launched * 1000) + " ms to reach 4 m/s");
+  }
+
+  // A launch is current-limited, and a motor at its limit down at a couple of volts is a small
+  // load on the pack. A rail that collapses here is charging the battery the winding's amps.
+  @Test
+  void aLaunchDoesNotCollapseTheRail() {
+    Arrays.fill(driveVolts, 12.0);
+
+    advance(Seconds.of(1));
+
+    assertTrue(
+        sim.batteryVoltage().gt(Volts.of(10)),
+        "four current-limited modules sagged the pack to " + sim.batteryVoltage());
+  }
+
+  // Seconds until the chassis is at least this fast, or the timeout if it never is.
+  private double timeToSpeed(double metresPerSecond, Time timeout) {
+    int ticks = (int) Math.round(timeout.in(Seconds) / Constants.LOOP_PERIOD.in(Seconds));
+    for (int tick = 0; tick < ticks; tick++) {
+      tick();
+      if (Math.hypot(sim.trueVelocity().vx, sim.trueVelocity().vy) >= metresPerSecond) {
+        return (tick + 1) * Constants.LOOP_PERIOD.in(Seconds);
+      }
+    }
+    return timeout.in(Seconds);
+  }
+
+  // A launch is where this broke: the plant clamps against the rail from before the step and the
+  // pack sags during it, so dividing the applied volts by the later number reported a duty cycle
+  // of 1.65. Applied output is what ADR 0009's characterisation column is built from.
+  @Test
+  void theAppliedOutputStaysADutyCycleThroughAnAccelerationThatSagsThePack() {
+    Arrays.fill(driveVolts, 12.0);
+    // Half a turn of error, which asks the steer loop for more volts than the rail has.
+    for (int i = 0; i < MODULES; i++) {
+      steerLoops[i].setSetpoint(0.5);
+    }
+
+    int ticks = (int) Math.round(1.0 / Constants.LOOP_PERIOD.in(Seconds));
+    for (int tick = 0; tick < ticks; tick++) {
+      tick();
+      double rail = sim.appliedRailVoltage().in(Volts);
+      for (int i = 0; i < MODULES; i++) {
+        assertTrue(
+            Math.abs(state[i].driveAppliedVolts()) <= rail + 1e-9,
+            "drive applied " + state[i].driveAppliedVolts() + " volts against a " + rail + " rail");
+        assertTrue(
+            Math.abs(state[i].steerAppliedVolts()) <= rail + 1e-9,
+            "steer applied " + state[i].steerAppliedVolts() + " volts against a " + rail + " rail");
+      }
+    }
+  }
+
+  // Braking is where the pack was charged a full load for a motor that was pushing power back
+  // into it, and the sag then clamped the volts that were doing the braking. What is left is the
+  // current limit, which is arithmetic rather than a tuning knob.
+  @Test
+  void aHardReversalBrakesAtTheCurrentLimitWithoutSaggingThePack() {
+    Arrays.fill(driveVolts, 12.0);
+    advance(Seconds.of(3));
+    double rolling = sim.trueVelocity().vx;
+    assertTrue(rolling > 4, "the wheels never reached speed: " + rolling);
+
+    Arrays.fill(driveVolts, -12.0);
+    double started = sim.trueVelocity().vx;
+    double railFloor = 12.0;
+    int ticks = (int) Math.round(0.25 / Constants.LOOP_PERIOD.in(Seconds));
+    for (int i = 0; i < ticks; i++) {
+      tick();
+      railFloor = Math.min(railFloor, sim.batteryVoltage().in(Volts));
+    }
+    double decel = (started - sim.trueVelocity().vx) / 0.25;
+
+    // Four modules, each turning the limit into torque at the wheel and that into a share of the
+    // robot's mass. Nothing here is a gain.
+    double limit =
+        4
+            * config.drive().currentLimit().in(Amps)
+            * config.drive().motor().Kt
+            * DriveConstants.DRIVE_REDUCTION
+            / (DriveConstants.ROBOT_MASS.in(Kilograms) * DriveConstants.WHEEL_RADIUS.in(Meters));
+
+    assertEquals(limit, decel, limit * 0.1, "braking is not at the current limit");
+    assertTrue(railFloor > 10, "a regenerating pack sagged to " + railFloor + " volts");
+  }
+
+  // Seconds until every module is inside tolerance of the setpoint, or the timeout if it never is.
+  private double settleTime(double setpointRotations, Angle tolerance, Time timeout) {
+    int ticks = (int) Math.round(timeout.in(Seconds) / Constants.LOOP_PERIOD.in(Seconds));
+    for (int tick = 0; tick < ticks; tick++) {
+      tick();
+      boolean all = true;
+      for (int i = 0; i < MODULES; i++) {
+        double error =
+            MathUtil.inputModulus(
+                setpointRotations - MathUtil.inputModulus(state[i].azimuth().getRotations(), 0, 1),
+                -0.5,
+                0.5);
+        all &= Math.abs(error) <= tolerance.in(Rotations);
+      }
+      if (all) {
+        return (tick + 1) * Constants.LOOP_PERIOD.in(Seconds);
+      }
+    }
+    return timeout.in(Seconds);
+  }
+
   private void advance(Time duration) {
     int ticks = (int) Math.round(duration.in(Seconds) / Constants.LOOP_PERIOD.in(Seconds));
     for (int i = 0; i < ticks; i++) {
@@ -146,10 +304,11 @@ class SwerveDriveSimTest {
   // across the sub-steps: what a 200 Hz robot commanding a 1 kHz loop actually looks like.
   private void tick() {
     for (int step = 0; step < SUB_STEPS; step++) {
+      double rail = sim.batteryVoltage().in(Volts);
       for (int i = 0; i < MODULES; i++) {
         // Rotation2d reads back over [-0.5, 0.5) and the analog sensor over [0, 1).
         double azimuth = MathUtil.inputModulus(state[i].azimuth().getRotations(), 0, 1);
-        steerVolts[i] = steerLoops[i].calculate(azimuth, SUB_STEP);
+        steerVolts[i] = steerLoops[i].calculate(azimuth, SUB_STEP, rail);
       }
       state = sim.update(driveVolts, steerVolts, SUB_STEP);
     }

@@ -37,6 +37,7 @@ public final class SwerveDriveSim {
   private Pose2d pose = Pose2d.kZero;
   private ChassisVelocities velocity = new ChassisVelocities();
   private double batteryVolts = BatterySim.calculateDefaultBatteryLoadedVoltage();
+  private double appliedRailVolts = batteryVolts;
 
   public SwerveDriveSim(SwerveSimConfig config) {
     kinematics = new SwerveDriveKinematics(config.moduleLocations());
@@ -52,6 +53,7 @@ public final class SwerveDriveSim {
   }
 
   public SimModuleState[] update(double[] driveVolts, double[] steerVolts, double dtSeconds) {
+    appliedRailVolts = batteryVolts;
     for (int i = 0; i < MODULES; i++) {
       driveAppliedVolts[i] = applied(drive[i], driveMotor, driveCurrentLimit, driveVolts[i]);
       steerAppliedVolts[i] = applied(steer[i], steerMotor, steerCurrentLimit, steerVolts[i]);
@@ -103,6 +105,13 @@ public final class SwerveDriveSim {
     return Volts.of(batteryVolts);
   }
 
+  // The rail the last step's applied volts were clamped against, which is the one before that
+  // step's sag. Dividing them by any other number can put an applied output outside [-1, 1],
+  // where no duty cycle goes.
+  public Voltage appliedRailVoltage() {
+    return Volts.of(appliedRailVolts);
+  }
+
   // A single-jointed arm with no gravity term is the plain DC motor plant, and DCMotorSim's own
   // javadoc names this factory for it.
   private static DCMotorSim axis(SwerveSimConfig.Axis axis) {
@@ -124,12 +133,28 @@ public final class SwerveDriveSim {
   private double[] currents() {
     var currents = new double[MODULES * 2];
     for (int i = 0; i < MODULES; i++) {
-      // Magnitudes: a regenerating motor charges the pack, and a simulation whose battery gains
-      // voltage under braking accelerates out of a stop better than the robot ever will.
-      currents[i] = Math.abs(drive[i].getCurrentDraw());
-      currents[MODULES + i] = Math.abs(steer[i].getCurrentDraw());
+      currents[i] = supplyCurrent(drive[i], driveAppliedVolts[i]);
+      currents[MODULES + i] = supplyCurrent(steer[i], steerAppliedVolts[i]);
     }
     return currents;
+  }
+
+  // What the battery sees, not what the winding sees. A half-bridge is a DC-DC converter: it
+  // trades the rail's volts for the motor's amps, so a motor held at its current limit down at a
+  // couple of volts costs the pack a fraction of that current. Charging the pack with the winding
+  // current instead collapses the rail at exactly the moment a robot launches, and the sag then
+  // caps the volts that were going to accelerate it.
+  private double supplyCurrent(DCMotorSim axis, double appliedVolts) {
+    double motorAmps = axis.getCurrentDraw();
+    // getCurrentDraw is signed against the bus: negative is a motor pushing power back into it.
+    // A braking motor is credited as nothing rather than as charge, because a simulation whose
+    // battery gains voltage under braking accelerates out of a stop better than the robot ever
+    // will — but nothing is also not a full load, which is what taking the magnitude made it. A
+    // hard stop then sagged the rail into the clamp that was holding the wheels back.
+    if (motorAmps <= 0 || batteryVolts == 0) {
+      return 0;
+    }
+    return motorAmps * Math.abs(appliedVolts) / batteryVolts;
   }
 
   private SwerveModuleVelocity[] velocities(SimModuleState[] states) {

@@ -12,7 +12,12 @@ would write it is the one that does not load. Amended 2026-08-30: this
 architecture now runs — ADR 0015's shim binds REVLib's native, and the
 whole of `updateSim()` has been executed against a real `Robot` on the
 desktop. `SparkSim` is still not loaded and this ADR still does not use
-it.
+it. Amended 2026-08-30, second: the loop model reads its
+feedback gains as a duty cycle rather than as volts, which is what the
+device does; `SIM_GAINS` moved with it. Amended 2026-08-30, third: the
+battery is charged the supply current rather than the winding current. The applied output is
+reported against the rail it was clamped against. A regenerating motor is
+credited as no load rather than as a full one.
 
 The *Open* item asking whether CI runs a headless robot program is
 answered by ADR 0013 and now sits under *Consequences*.
@@ -166,6 +171,87 @@ a different artefact at a different bar — #19's Tier 2 assertions are
 deliberately loose and #23's `sim-hitl` is *drive around in sim*.
 **[decided]**
 
+**The loop model's feedback output is a duty cycle, and its feedforward
+is volts.** They are not the same unit and the difference is the whole
+bus voltage. `ClosedLoopConfig.minOutput` and `maxOutput` are the only
+documented output units on the class and both are *"the minimum output
+value in the range [-1, 1]"*
+(`com/revrobotics/spark/config/ClosedLoopConfig.java:252, :277`); every
+`FeedForwardConfig` gain beside them is documented *"in Volts"*
+(`com/revrobotics/spark/config/FeedForwardConfig.java:64, :80`); and
+`arbFeedforward` is applied *"after the result of the specified control
+mode"* in units chosen from an `ArbFFUnits` of `kVoltage` or
+`kPercentOut` (`com/revrobotics/spark/SparkClosedLoopController.java:40-42,
+:140-142`). **[source]** No javadoc states outright what the P term
+outputs — it is firmware, so none can — so the reading itself is
+**[unverified]**, but nothing in the library contradicts it.
+
+`OnboardLoopSim` originally returned every term as volts, which made the
+modelled steer loop weaker than the device by a factor of twelve. That
+is not a fidelity nicety: a P loop on this plant is speed-limited rather
+than torque-limited, so the gain sets the closed-loop time constant
+directly, at `2π / (kP · V · Kv_module)`. A driving log measured the
+modules settling a 30-degree step in **895 ms** with a median tracking
+error of 8 degrees **[measured]**, which reads from the driver's seat as
+a floating, unresponsive robot and reads in a plot as a tuning problem.
+With the feedback terms scaled by the rail the same step settles in
+**220 ms** **[measured]**, and
+`SwerveDriveSimTest.aQuarterTurnStepSettlesInsideTheTimeADriverWouldNotice`
+is the regression that holds it there.
+
+The trap this ADR is guarding is not the units themselves but where they
+get absorbed: a model that reads a gain in the wrong unit looks exactly
+like a model that needs its own gains, and the second set of gains
+quietly becomes a conversion factor. See ADR 0009.
+
+### The battery is loaded with supply current, not winding current
+
+`BatterySim.calculateDefaultBatteryLoadedVoltage` is `12 - Σ(I · 0.02)`
+(`wpilibj/src/main/java/org/wpilib/simulation/BatterySim.java:42-44`)
+**[source]**, and what it wants is the current out of the pack.
+`DCMotorSim.getCurrentDraw()` is the *winding* current, which is a
+different quantity: a half-bridge is a DC-DC converter, so
+`I_supply = I_motor · V_applied / V_bus`.
+
+The distinction is invisible at speed and dominant at a standstill,
+which is where a drive base spends every launch. Four drive motors held
+at a 60 A limit down at the ~3.4 V the limit allows from rest are 68 A
+out of the pack, not 240 A — and 240 A against this model is 7.2 V,
+the floor, at exactly the moment the volts were going to accelerate
+something. The rail then clamps `applied()` and caps the acceleration.
+A driving log measured **1440 ms** from rest to 90% of a request over
+4 m/s, with the pack's 5th percentile at 7.216 V **[measured]**;
+referred to the supply side the same launch reaches 4 m/s in **575 ms**
+with the rail above 10 V **[measured]**.
+
+`getCurrentDraw()` is signed against the bus — negative is a motor
+pushing power back into it
+(`wpilibj/src/main/java/org/wpilib/simulation/DCMotorSim.java:158-164`)
+**[source]** — and taking its magnitude charged the pack a *full load*
+for a motor that was feeding it. Under the supply referral above that
+turns into a runaway: a braking motor's applied volts sit close to its
+back-EMF, so the duty is near one, the sag drives the duty higher still,
+and the rail latches at the 7.2 V floor during exactly the manoeuvre the
+volts were braking. A regenerating motor is now credited as **nothing** —
+not as charge, because a simulation whose battery gains voltage under
+braking accelerates out of a stop better than the robot ever will, and
+not as a load either.
+
+What is left bounding a hard stop is the **drive current limit**, and it
+is arithmetic rather than a knob:
+`a = 4 · I_limit · Kt · G / (m · r)` = 8.6 m/s² at 60 A. A driving log
+measured a full-speed wheel reversal at **8.36 m/s², three times, to
+within a percent** **[measured]** — the limit, not a defect.
+`aHardReversalBrakesAtTheCurrentLimitWithoutSaggingThePack` asserts
+against that expression rather than against a number, so a changed limit
+moves the test with it.
+
+Both halves of this ADR's amendments are the same mistake — a quantity
+used in the frame it was not measured in — and both presented as a
+simulation that felt sluggish rather than as a number that was wrong.
+`SwerveDriveSimTest.aFullThrottleLaunchReachesSpeedInTheTimeTheCurrentLimitAllows`
+and `aLaunchDoesNotCollapseTheRail` are the regressions.
+
 **Write positions; do not call `iterate()`.** Our model owns the
 integration, so `setPosition` writes the value the model already
 computed. `iterate(velocity, dt)` would integrate a second time on top
@@ -196,6 +282,18 @@ commanded one. `SwerveDriveSim` clamps against the current limit exactly
 where the controller does and now reports what it clamped to, so the
 simulated column has the same shape as the real one — including the flat
 stretch at the bottom of a step that ADR 0009's traps are about.
+
+**The duty cycle is reported against the rail it was clamped against.**
+`applied()` clamps to the rail as it stood *before* the step, and the
+pack sags *during* it, so dividing by the rail afterwards is dividing by
+a smaller number than the clamp used. Under a launch that gap put
+`/Drive/Modules/*/DriveOutput` at **1.647** **[measured]** — outside
+`[-1, 1]`, where no duty cycle goes, in the signal ADR 0009 builds a
+characterisation's voltage column from. `SwerveDriveSim` therefore
+reports `appliedRailVoltage()` beside `batteryVoltage()`, and the two
+`SimDevice` values are written as a matched pair, the way a real SPARK
+measures them. `RoboRioSim`'s VIn keeps the later number, because that
+is the freshest thing the rail knows about itself. **[decided]**
 
 `SimDeviceSim.getDouble` returns `null` for a name it cannot resolve
 (`wpilibj/src/main/java/org/wpilib/simulation/SimDeviceSim.java:117-123`)

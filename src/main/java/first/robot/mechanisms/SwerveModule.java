@@ -319,8 +319,9 @@ final class SwerveModule {
   }
 
   void stop() {
-    // A zero velocity setpoint would hold the wheel against a shove, which is the brake a driver
-    // cannot drive out of. Dropping the output is what leaves the robot pushable.
+    // Both SPARKs idle in brake, so this is not a coast: dropping the output leaves the short
+    // across the motor, which resists a shove without driving back against one. A zero velocity
+    // setpoint would do the second, and that is the brake a driver cannot drive out of.
     driveMotor.stopMotor();
     steerMotor.stopMotor();
     desired = new SwerveModuleVelocity(0, getAngle());
@@ -386,7 +387,9 @@ final class SwerveModule {
     moduleLog.log("DriveOutput", driveMotor.getAppliedOutput().get());
     moduleLog.log("DriveCurrent", Amps.of(driveMotor.getOutputCurrent().get()));
     moduleLog.log("DriveTemp", Celsius.of(driveMotor.getMotorTemperature().get()));
-    moduleLog.log("SteerSetpoint", Rotations.of(steerSetpointRotations));
+    // The module angle, not the sensor rotations the SPARK was handed: the sensor frame runs
+    // [0, 1) and SteerAngle runs [-0.5, 0.5), so the logged pair could not be subtracted.
+    moduleLog.log("SteerSetpoint", desired.angle.getMeasure());
     moduleLog.log("SteerAngle", getAngle().getMeasure());
     moduleLog.log("SteerCurrent", Amps.of(steerMotor.getOutputCurrent().get()));
     moduleLog.log("SteerTemp", Celsius.of(steerMotor.getMotorTemperature().get()));

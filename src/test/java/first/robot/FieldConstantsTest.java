@@ -5,10 +5,9 @@
 package first.robot;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -18,7 +17,6 @@ import org.wpilib.math.kinematics.ChassisAccelerations;
 import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.trajectory.HolonomicSample;
 import org.wpilib.math.trajectory.HolonomicTrajectory;
-import org.wpilib.util.AlertDataJNI;
 
 class FieldConstantsTest {
   private static final double TOLERANCE = 1e-9;
@@ -94,20 +92,13 @@ class FieldConstantsTest {
   }
 
   // No Driver Station is attached under a unit test, which is the same case as a robot on a bench
-  // with nobody plugged in.
+  // with nobody plugged in. Saying so out loud is Robot's alliance-unknown alert, which is gated
+  // on a Driver Station being attached and so stays silent here.
   @Test
-  void aMissingAllianceRaisesAnAlertRatherThanFlippingOnAGuess() {
+  void aMissingAllianceDefaultsToBlueRatherThanFlippingOnAGuess() {
     assertSame(
         PATH, FieldConstants.forAlliance(PATH), "a path was flipped with no alliance to go on");
-
-    assertTrue(
-        Arrays.stream(AlertDataJNI.getAlerts())
-            .anyMatch(
-                alert ->
-                    alert.id.equals("path-alliance-unknown")
-                        && alert.activeStartTime != 0
-                        && alert.level == AlertDataJNI.LEVEL_HIGH),
-        "no high-level alert was raised for a path followed without an alliance");
+    assertFalse(FieldConstants.onRed(), "a missing alliance did not default to blue");
   }
 
   // The mirror is a reflection and the flip is a rotation, so the mirror negates the two spins the

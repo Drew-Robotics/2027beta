@@ -45,7 +45,7 @@ public final class OnboardLoopSim {
     this.setpoint = setpoint;
   }
 
-  public double calculate(double measurement, double dtSeconds) {
+  public double calculate(double measurement, double dtSeconds, double busVolts) {
     double error = setpoint - measurement;
     if (wrapping) {
       error = MathUtil.inputModulus(error, -inputRange / 2, inputRange / 2);
@@ -58,6 +58,8 @@ public final class OnboardLoopSim {
     lastError = error;
     started = true;
 
-    return kP * error + kD * derivative + kS * Math.signum(setpoint) + kV * setpoint;
+    // The SPARK's feedback output is a duty cycle and its FeedForwardConfig gains are volts, so
+    // only the first pair scales with the rail.
+    return busVolts * (kP * error + kD * derivative) + kS * Math.signum(setpoint) + kV * setpoint;
   }
 }

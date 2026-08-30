@@ -10,6 +10,7 @@ import static org.wpilib.units.Units.Centimeters;
 import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Seconds;
+import static org.wpilib.units.Units.Volts;
 
 import first.robot.sim.OnboardLoopSim;
 import first.robot.sim.SimModuleState;
@@ -187,10 +188,11 @@ class PoseEstimatorTest {
 
   private void tick() {
     for (int step = 0; step < SUB_STEPS; step++) {
+      double rail = sim.batteryVoltage().in(Volts);
       for (int i = 0; i < MODULES; i++) {
         // Rotation2d reads back over [-0.5, 0.5) and the analog sensor over [0, 1).
         double azimuth = MathUtil.inputModulus(state[i].azimuth().getRotations(), 0, 1);
-        steerVolts[i] = steerLoops[i].calculate(azimuth, SUB_STEP);
+        steerVolts[i] = steerLoops[i].calculate(azimuth, SUB_STEP, rail);
       }
       state = sim.update(driveVolts, steerVolts, SUB_STEP);
     }

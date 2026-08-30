@@ -341,6 +341,15 @@ The sim gains want a comment at the line saying they exist to make the
 model track and are **not** a prediction of the real robot's. That is
 the one thing about them a reader cannot recover from the code.
 
+What separates the two sets has to be a property of the plant, and it is
+worth naming at the line: the model has no stiction to break, so both
+`kS` terms are zero, and nothing to damp, so steer needs no `kD`. The
+feedback gains themselves now **match** the real set, because ADR 0010's
+loop model reads them in the units the device does. A sim gain that
+differs from its real counterpart for no physical reason is a units bug
+being absorbed rather than a modelling choice, which is the same failure
+as tuning one until a test passes.
+
 This is a narrow graduation of the robot-identity question, not the
 whole of it. Competition-versus-practice gains stay fog — see Open.
 

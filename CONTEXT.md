@@ -272,6 +272,17 @@ The index of the ADRs themselves is
   by the Driver Station. A reflection where the flip is a rotation, so
   it inverts the spins the flip leaves alone
   ([ADR 0011](docs/adr/0011-autonomous-and-choreo.md)).
+- **Driver perspective** — the driver's *forward*, which is the field
+  half they are not standing in. The field is blue-origin whichever
+  alliance is driving, so +x is the red wall for both of them and a red
+  driver's stick has to be rotated 180 degrees before it means a field
+  velocity. Not *the flip*: the flip transforms a path once when the
+  follower is built, this transforms operator input every loop, and each
+  applied where the other belongs drives the robot at a wall. Read live,
+  because the alliance arrives after the Driver Station does
+  ([ADR 0011](docs/adr/0011-autonomous-and-choreo.md) owns the flip and
+  the mirror beside it).
+
 - **AprilTag** — the printed square markers around the field that a
   camera locates itself against.
 - **The gate** — a season's vision code deciding whether to accept one

@@ -14,18 +14,10 @@ import org.wpilib.math.trajectory.HolonomicSample;
 import org.wpilib.math.trajectory.HolonomicTrajectory;
 import org.wpilib.tunable.TunableBoolean;
 import org.wpilib.tunable.Tunables;
-import org.wpilib.util.Alert;
-import org.wpilib.util.Alert.Level;
 
 public final class FieldConstants {
   // False is the path exactly as it was drawn.
   public static final TunableBoolean MIRRORED = Tunables.addBoolean("Mirrored", false);
-
-  // Blue is the answer that looks right on a bench and is wrong in half of every match, so a
-  // missing alliance is said out loud rather than defaulted through.
-  private static final Alert ALLIANCE_UNKNOWN =
-      new Alert(
-          "path-alliance-unknown", "Following a path with no alliance; assuming blue", Level.HIGH);
 
   // Choreo draws in the blue-alliance-corner frame and WPILib publishes its tag layouts in it; the
   // robot works in field centre, which is where 2027 is going. The dimensions are the 2026 field's
@@ -106,9 +98,10 @@ public final class FieldConstants {
     return new Pose2d(pose.getX(), -pose.getY(), pose.getRotation().unaryMinus());
   }
 
-  private static boolean onRed() {
-    var alliance = MatchState.getAlliance();
-    ALLIANCE_UNKNOWN.set(alliance.isEmpty());
-    return alliance.orElse(Alliance.BLUE) == Alliance.RED;
+  // Blue is the answer that looks right on a bench and is wrong in half of every match. Robot's
+  // alliance-unknown alert is what says so out loud, and it is gated on a Driver Station actually
+  // being attached, which a guess made on a bench with nothing plugged in is not.
+  public static boolean onRed() {
+    return MatchState.getAlliance().orElse(Alliance.BLUE) == Alliance.RED;
   }
 }
