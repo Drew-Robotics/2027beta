@@ -594,7 +594,7 @@ public class Drive implements Mechanism {
         DriveConstants.MAX_VELOCITY.times(stick(-leftX) * perspective),
         // A rotation about field centre does not change which way is clockwise, so the spin is
         // the one component the perspective leaves alone.
-        DriveConstants.MAX_ANGULAR_VELOCITY.times(stick(-rightX)));
+        DriveConstants.DRIVER_MAX_ANGULAR_VELOCITY.times(stick(-rightX)));
   }
 
   // Asymptotically linear: the curve eases out of zero over the width and then converges onto the
@@ -635,11 +635,16 @@ public class Drive implements Mechanism {
   }
 
   private SwerveModuleVelocity[] moduleTargets(ChassisVelocities velocities) {
-    desiredVelocities = velocities;
     var target = velocities.discretize(Constants.LOOP_PERIOD.in(Seconds));
-    return SwerveDriveKinematics.desaturateWheelVelocities(
-        kinematics.toSwerveModuleVelocities(target),
-        DriveConstants.MAX_VELOCITY.in(MetersPerSecond));
+    var states =
+        SwerveDriveKinematics.desaturateWheelVelocities(
+            kinematics.toSwerveModuleVelocities(target),
+            DriveConstants.MAX_VELOCITY.in(MetersPerSecond));
+    // What the wheels were actually asked for, which is what the measurement can be subtracted
+    // from. A translation and a spin at once oversaturate the modules, and the caller's request
+    // then names a chassis velocity nothing ever attempted.
+    desiredVelocities = kinematics.toChassisVelocities(states);
+    return states;
   }
 
   public void stopModules() {
