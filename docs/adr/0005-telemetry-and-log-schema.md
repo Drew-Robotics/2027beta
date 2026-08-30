@@ -7,7 +7,7 @@ Accepted — 2026-08-26. Superseded in part by ADR 0011, which owns the
 an alert is visible during a match is answered by #22 and now sits
 under *Consequences*. Amended 2026-08-28: the signal list gains
 `/Check`, the opmode-scoped root the utility checks report under.
-Amended 2026-08-29 by #76: the signal list gains `/Match/Mirrored`, and
+Amended 2026-08-30 by #76: the signal list gains `/Match/Mirrored`, and
 the *Open* item on how `/Tunables` reaches the file records its first
 instance.
 

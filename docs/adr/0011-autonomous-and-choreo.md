@@ -19,7 +19,7 @@ blue-corner flip as a reflection, which is the wrong flip for a
 rotationally symmetric field and is not what ChoreoLib does; corrected
 there.
 
-Amended again 2026-08-29 by #76, which adds the side mirror beside the
+Amended again 2026-08-30 by #76, which adds the side mirror beside the
 alliance flip — see *The side mirror is a reflection, chosen by a
 dashboard boolean*. The *Consequences* entry reading *"Autonomous is
 selected on the Driver Station, not a dashboard"* is **narrowed there**
