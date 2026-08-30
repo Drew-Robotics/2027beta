@@ -19,10 +19,10 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.wpilib.hardware.hal.AllianceStationID;
+import org.wpilib.hardware.hal.HAL;
 import org.wpilib.hardware.hal.OpModeOption;
 import org.wpilib.hardware.hal.RobotMode;
 import org.wpilib.simulation.DriverStationSim;
@@ -32,11 +32,8 @@ import org.wpilib.units.measure.Time;
 import org.wpilib.util.AlertDataJNI;
 import org.wpilib.util.AlertDataJNI.AlertInfo;
 
-// REVLib's libREVLibWpi.so needs fmt::v12::vformat, and no WPILib this project can compile against
-// exports it, so constructing a SPARK terminates the JVM with exit 127. Robot's constructor builds
-// eight of them, and the process dies before the first assertion — taking the rest of the suite in
-// the same executor with it. Delete this annotation when a SPARK can be constructed.
-@Disabled("constructing a SPARK terminates the JVM")
+// This is the check that says whether src/main/native/revshim is still needed: run it with no
+// LD_PRELOAD set, and a green run means REVLib's native binds on its own and the shim can go.
 @ResourceLock("timing")
 class WiringTest {
   private static final String OPMODE = "DrivePathCheck";
@@ -53,6 +50,10 @@ class WiringTest {
 
   @BeforeEach
   void setUp() {
+    // Before any SimHooks call: the timing hooks lock a mutex the HAL creates, so a JVM that has
+    // not initialised it segfaults here rather than throwing. Whether some earlier test already
+    // did is not this test's business to know.
+    HAL.initialize();
     SimHooks.pauseTiming();
     SimHooks.setProgramStarted(false);
     DriverStationSim.resetData();
@@ -89,6 +90,12 @@ class WiringTest {
 
       // Selected first and enabled second, which is the order the operator does it in: the opmode
       // is constructed on selection, and its enabled-trigger needs an edge to fire on.
+      //
+      // The mode and the id are separate fields on the simulated Driver Station, and the control
+      // word is assembled from both. Setting only the id leaves the mode bits clear, so the id the
+      // robot reads back is not the id the opmode was registered under, and the lookup misses
+      // without raising anything a test can see.
+      DriverStationSim.setRobotMode(option.getMode());
       DriverStationSim.setOpMode(option.id);
       DriverStationSim.notifyNewData();
       SimHooks.stepTiming(Constants.LOOP_PERIOD.in(Seconds));

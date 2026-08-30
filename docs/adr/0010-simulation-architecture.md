@@ -8,7 +8,11 @@ WPILib. It still does not load, and this ADR does not use it — the
 sensor sims beside it are clean, and they are what the decision rests
 on. Amended 2026-08-29: applied output is a fourth simulated signal, and
 it is written to the device's `SimDevice` directly because the class that
-would write it is the one that does not load.
+would write it is the one that does not load. Amended 2026-08-30: this
+architecture now runs — ADR 0015's shim binds REVLib's native, and the
+whole of `updateSim()` has been executed against a real `Robot` on the
+desktop. `SparkSim` is still not loaded and this ADR still does not use
+it.
 
 The *Open* item asking whether CI runs a headless robot program is
 answered by ADR 0013 and now sits under *Consequences*.

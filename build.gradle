@@ -39,6 +39,15 @@ deploy {
                 // getTargetTypeClass is a shortcut to get the class type using a string
 
                 wpilibJava(getArtifactTypeClass('WPILibJavaArtifact')) {
+                    // Departs from the template: see src/main/native/revshim.
+                    javaCommand = "LD_PRELOAD=/home/systemcore/deploy/librevshim.so /usr/bin/java"
+                }
+
+                // Departs from the template: the aarch64 shim the line above preloads.
+                revShim(getArtifactTypeClass('FileTreeArtifact')) {
+                    files = project.fileTree('src/main/native/revshim/linuxsystemcore')
+                    directory = '/home/systemcore/deploy'
+                    deleteOldFiles = false
                 }
 
                 // Static files artifact
@@ -52,6 +61,12 @@ deploy {
         }
     }
 }
+
+// Departs from the template: REVLib alpha-6's native imports two symbols no WPILib this project
+// can compile against exports, and the linker aborts the JVM the first time a SPARK is
+// constructed. src/main/native/revshim supplies them; every JVM that touches REVLib preloads it.
+// Delete all of this when REVLib publishes against a current WPILib.
+def revShimDesktop = file('src/main/native/revshim/linuxx86-64/librevshim.so').absolutePath
 
 def deployArtifact = deploy.targets.systemcore.artifacts.wpilibJava
 
@@ -113,6 +128,15 @@ dependencies {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+    // -PnoRevShim is the check that says whether the shim is still needed: without it, a green
+    // WiringTest means REVLib's native binds on its own and src/main/native/revshim can go.
+    if (!project.hasProperty('noRevShim')) {
+        environment 'LD_PRELOAD', revShimDesktop
+    }
+    // A fresh JVM per test class. The HAL, the alert table and the data log are all process-wide
+    // and started once: a class that stands up a real Robot claims the data log for the rest of
+    // the JVM, and the next class to want its own gets the first one's.
+    forkEvery = 1
     systemProperty 'junit.jupiter.extensions.autodetection.enabled', 'true'
     // Departs from the template: GradleRIO adds these to the sim and deploy JVMs but not to test.
     // Commands v3 privateLookupIn's jdk.internal.vm.Continuation(Scope) and java.lang.Thread, and
@@ -139,6 +163,9 @@ tasks.register('sysidLog', Test) {
 }
 
 // Simulation configuration (e.g. environment variables).
+tasks.withType(org.wpilib.gradlerio.simulation.JavaSimulationTask).configureEach {
+    environment 'LD_PRELOAD', revShimDesktop
+}
 wpi.sim.addGui().defaultEnabled = true
 wpi.sim.addDriverstation()
 

@@ -19,6 +19,8 @@
 *.so
 *.dylib
 *.dll
+# The REVLib linker shim ships built rather than compiled by Gradle; revshim.cpp is beside it.
+!src/main/native/revshim/**/*.so
 
 # Fortran module files
 *.mod

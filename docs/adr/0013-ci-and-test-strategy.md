@@ -6,7 +6,12 @@ Accepted — 2026-08-27. Amended the same day: Tier 1 has been run, and
 it loads the HAL — see *Tier 1 owns every number*. Resolves #25's ruling
 that Tier 2 and `sim-hitl` stay dormant: that dormancy was named against `SparkSim`, and ADR 0010
 put the onboard loop in our own model and stopped loading the class at
-all. Both tiers are live.
+all. Both tiers are live. Amended 2026-08-30: Tier 2 now actually runs.
+It was dormant in fact if not in principle until ADR 0015's shim let a
+SPARK be constructed; `WiringTest` is green, and the test task forks a
+JVM per class because the HAL, the alert table and the data log are all
+process-wide and a Tier 2 class claims the data log for the rest of the
+JVM.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
