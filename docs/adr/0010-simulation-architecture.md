@@ -612,6 +612,33 @@ numbered recipe belongs in the README, not here.
   a top-down world. Its cost is also recorded there — it cuts against
   the prefer-built-in-WPILib principle, and it is that map's to confirm.
 
+- **The free-space model has no drag, and drag — not slip — is what the
+  driving feel is missing.** Nothing resists a rolling wheel, so the
+  chassis reaches `MAX_VELOCITY` exactly. That constant is the nameplate
+  free speed at this reduction, 5.99 m/s, and its own comment says it is
+  "not a measurement of a chassis"; a real one tops out lower once
+  rolling resistance and drivetrain losses are in. The error is not
+  confined to the top end: `SwerveModule.openLoopVolts` maps a stick
+  position to a fraction of 12 V *through* `MAX_VELOCITY`, so teleop's
+  whole curve is calibrated against a speed the robot cannot hold, and
+  every stick position under-delivers by the same ratio.
+
+  **A traction limit is not the lever, which is worth knowing before
+  the physics map spends effort on one.** At the 60 A drive limit each
+  wheel puts **121 N** at the contact patch against **125–167 N** of
+  grip for μ between 0.9 and 1.2, so the wheels never break traction in
+  a straight line and a slip model would sit inert. Braking and
+  launching are bounded by the current limit at
+  `4 · I · Kt · G / (m · r)` = **8.57 m/s²**, 0.87 g, and a driving log
+  measured a full-speed wheel reversal at 8.36 m/s² three times to
+  within a percent **[measured]**. Slip becomes reachable only above
+  about 69 A. **[measured]**
+
+  *Unblocked by* a chassis to drive flat out and time, which is the same
+  session that turns `MAX_VELOCITY` and ADR 0009's effective wheel
+  radius into measurements. Until then the sim is optimistic about top
+  speed by a knowable ratio and honest about everything else.
+
 ## Rejected
 
 ### maple-sim, as a vendordep or as a fork
