@@ -86,6 +86,8 @@ public final class PoseEstimator {
   public void resetPose(Pose2d pose) {
     // Both, always. Reset one and the gap between them stops being wheel error and becomes wheel
     // error plus this offset, with nothing in the log to say which.
+    // Drive's yaw-rate history is deliberately not among them: yaw rate is frame-independent, and
+    // clearing it here would reject every vision frame for the whole history from autonomousInit.
     var widened = new Pose3d(pose);
     fused.resetPose(widened);
     odometryOnly.resetPose(widened);
