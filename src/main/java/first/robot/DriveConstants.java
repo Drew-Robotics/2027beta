@@ -173,9 +173,12 @@ public final class DriveConstants {
   // nothing but the distance — pick the number at the first bench session, with the room measured.
   public static final Time CHARACTERISATION_TIMEOUT = Seconds.of(5);
 
-  // Long enough for the steer loop to bring a module round from any angle. A wheel still slewing
-  // turns its own drive encoder through the module's coupling, and that motion would otherwise
-  // land in the low-voltage samples kS is fitted from.
+  // Two jobs, and it is long enough for both. Long enough for the steer loop to bring a module
+  // round from any angle, because a wheel still slewing turns its own drive encoder through the
+  // module's coupling and that motion lands in the low-voltage samples kS is fitted from. And long
+  // enough for the robot to stop, at zero volts against the motor's own back-EMF — several
+  // response timescales — because a step test begun on the move spends its first samples
+  // arresting, which the analyser reads as measurement delay.
   public static final Time CHARACTERISATION_SETTLE = Seconds.of(1);
 
   // The rotation routine spins the robot on the spot, so its step is gentler than the drive's: a

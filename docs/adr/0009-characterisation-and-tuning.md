@@ -539,6 +539,23 @@ in Traps.
   encoder settings, and they change the *measurement*, not the plant —
   see Open.
 
+- **A step test begun on the move reports the time it spent stopping as
+  measurement delay.** `TrimStepVoltageData` takes the velocity delay as
+  the gap between the first sample carrying voltage and the first
+  carrying near-peak acceleration, and it ranks acceleration by
+  `sgn(velocity) · acceleration` (`analysis/FilteringUtils.cpp:143-170`)
+  **[source]**. While the robot is still rolling the other way that
+  product is negative, so nothing qualifies until the velocity crosses
+  zero. Running the four tests back to back with no pause put a drive
+  dynamic test on the log at −2.26 m/s and reported **332.5 ms** of
+  velocity delay on a plant that models no measurement dynamics at all;
+  settling first brought it to 5 ms, which is one loop period and the
+  floor. **[executed — 2026-08-29]** The number is not nonsense and the
+  fit is not saved by the trim being generous: it is a true measurement
+  of a manoeuvre nobody is characterising. Every ramp gets a settle in
+  front of it, and an operator running these by hand waits for the robot
+  to stop.
+
 - **The analyser refuses a log that is missing any of the four tests,
   whatever the mechanism can use.** `DataSelector` checks the discovered
   state values against

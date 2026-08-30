@@ -34,6 +34,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -81,12 +82,17 @@ class CharacterisationTest {
   private static final double SUB_STEP = DriveConstants.CONTROLLER_PERIOD.in(Seconds);
   private static final int SUB_STEPS = (int) Math.round(STEP.in(Seconds) / SUB_STEP);
   private static final Time BUDGET = Seconds.of(600);
-  private static final int SETTLE_CYCLES = 3;
+  private static final int SETTLE_CYCLES =
+      (int) Math.round(DriveConstants.CHARACTERISATION_SETTLE.in(Seconds) / STEP.in(Seconds));
+  private static final int RELEASE_CYCLES = 3;
   private static final int TESTS_PER_ROUTINE = 4;
   private static final int ROUTINES = 3;
   private static final Time WRITE_DEADLINE = Seconds.of(10);
   private static final long POLL = 150;
   private static final int STABLE_READS = 4;
+  // Metres per second, or radians per second for the rotation routine. Loose: what it has to rule
+  // out is a test opening at the several units per second the previous one left behind.
+  private static final double AT_REST = 0.05;
   private static final String LOG_DIR_PROPERTY = "sysid.logDir";
   private static final String LOG_FILE = "sysid-simulation.wpilog";
   private static final String MOTOR = "FrontLeft";
@@ -175,11 +181,18 @@ class CharacterisationTest {
         DataLogManager.getLogDir(),
         "something else in this JVM started the data log first, so this log is not ours");
 
-    for (var routine : List.of(drive, steer, rotation)) {
-      run(scheduler, routine.quasistatic(Direction.FORWARD));
-      run(scheduler, routine.quasistatic(Direction.REVERSE));
-      run(scheduler, routine.dynamic(Direction.FORWARD));
-      run(scheduler, routine.dynamic(Direction.REVERSE));
+    // The output callback travels with its routine, because the settle in front of each test has
+    // to point the modules the way that routine's ramp will push.
+    record Under(SysIdRoutine routine, Consumer<Voltage> output) {}
+    for (var each :
+        List.of(
+            new Under(drive, this::commandDrive),
+            new Under(steer, this::commandSteer),
+            new Under(rotation, this::commandRotation))) {
+      run(scheduler, each.routine().quasistatic(Direction.FORWARD), each.output());
+      run(scheduler, each.routine().quasistatic(Direction.REVERSE), each.output());
+      run(scheduler, each.routine().dynamic(Direction.FORWARD), each.output());
+      run(scheduler, each.routine().dynamic(Direction.REVERSE), each.output());
     }
 
     // The record appended last is not visible to a reader of a log whose writer is still open, so
@@ -291,6 +304,23 @@ class CharacterisationTest {
             + " of ramp");
   }
 
+  // A step test has to start from rest. SysId measures its velocity delay as the gap between the
+  // first sample carrying voltage and the first carrying near-peak acceleration, and while the
+  // robot is still rolling the other way that product is negative — so a test begun on the move
+  // reports a delay that is really the time spent stopping.
+  @Test
+  void everyDynamicTestStartsFromRest() {
+    for (var routine : List.of(DRIVE_LOG, ROTATION_LOG)) {
+      for (var test : List.of("dynamic-forward", "dynamic-reverse")) {
+        double opening = log.firstValueOf("velocity-" + MOTOR + "-" + routine, routine, test);
+
+        assertTrue(
+            Math.abs(opening) < AT_REST,
+            routine + " " + test + " opened at " + opening + ", so it began by stopping");
+      }
+    }
+  }
+
   @Test
   void theCancellationPathZeroesTheOutputAndClosesEveryTest() {
     // What the routines commanded, not what the plant was handed: the steer array carries the
@@ -305,7 +335,16 @@ class CharacterisationTest {
     }
   }
 
-  private void run(Scheduler scheduler, Command command) {
+  // The settle Drive.settledFirst puts in front of every ramp, which the routines themselves do
+  // not carry. Without it a test starts from whatever speed the last one left the robot at, and a
+  // step spends its first samples arresting that instead of accelerating from rest — which is
+  // real data about a manoeuvre nobody is trying to characterise.
+  private void run(Scheduler scheduler, Command command, Consumer<Voltage> output) {
+    for (int cycle = 0; cycle < SETTLE_CYCLES; cycle++) {
+      output.accept(Volts.zero());
+      step(scheduler);
+    }
+
     scheduler.schedule(command);
     while (scheduler.isScheduledOrRunning(command) && now.lte(BUDGET)) {
       step(scheduler);
@@ -316,7 +355,7 @@ class CharacterisationTest {
     // The timeout is a race, so the command handed to the scheduler ends a cycle before the body
     // it wraps is cancelled, and the plant needs a cycle after that to see the zero the
     // cancellation wrote rather than carrying the last ramp voltage into the next test.
-    for (int settling = 0; settling < SETTLE_CYCLES; settling++) {
+    for (int cycle = 0; cycle < RELEASE_CYCLES; cycle++) {
       step(scheduler);
     }
   }
@@ -472,6 +511,23 @@ class CharacterisationTest {
         }
       }
       return found;
+    }
+
+    // The first sample of the named entry at or after the test's state value first appears.
+    double firstValueOf(String entry, String logName, String test) {
+      long start =
+          samples.stream()
+              .filter(sample -> sample.name.equals("sysid-test-state-" + logName))
+              .filter(sample -> test.equals(sample.text))
+              .mapToLong(Sample::timestampMicros)
+              .min()
+              .orElseThrow(() -> new AssertionError(test + " never ran on " + logName));
+      return samples.stream()
+          .filter(sample -> sample.name.equals(entry))
+          .filter(sample -> sample.timestampMicros >= start)
+          .mapToDouble(Sample::value)
+          .findFirst()
+          .orElseThrow(() -> new AssertionError("no " + entry + " after " + test));
     }
 
     Time span() {
