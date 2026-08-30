@@ -31,6 +31,8 @@ public final class SwerveDriveSim {
   private final double driveCurrentLimit;
   private final double steerCurrentLimit;
   private final double wheelRadius;
+  private final double[] driveAppliedVolts = new double[MODULES];
+  private final double[] steerAppliedVolts = new double[MODULES];
 
   private Pose2d pose = Pose2d.kZero;
   private ChassisVelocities velocity = new ChassisVelocities();
@@ -51,8 +53,10 @@ public final class SwerveDriveSim {
 
   public SimModuleState[] update(double[] driveVolts, double[] steerVolts, double dtSeconds) {
     for (int i = 0; i < MODULES; i++) {
-      drive[i].setInput(applied(drive[i], driveMotor, driveCurrentLimit, driveVolts[i]));
-      steer[i].setInput(applied(steer[i], steerMotor, steerCurrentLimit, steerVolts[i]));
+      driveAppliedVolts[i] = applied(drive[i], driveMotor, driveCurrentLimit, driveVolts[i]);
+      steerAppliedVolts[i] = applied(steer[i], steerMotor, steerCurrentLimit, steerVolts[i]);
+      drive[i].setInput(driveAppliedVolts[i]);
+      steer[i].setInput(steerAppliedVolts[i]);
       drive[i].update(dtSeconds);
       steer[i].update(dtSeconds);
     }
@@ -76,7 +80,9 @@ public final class SwerveDriveSim {
               drive[i].getAngularVelocity(),
               new Rotation2d(steer[i].getAngularPosition()),
               // Always false: free space has no ground contact to break.
-              false);
+              false,
+              driveAppliedVolts[i],
+              steerAppliedVolts[i]);
     }
     return states;
   }

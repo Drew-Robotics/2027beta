@@ -7,6 +7,7 @@ package first.robot.sysid;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Microseconds;
@@ -32,6 +33,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.LongSummaryStatistics;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -64,6 +66,10 @@ import org.wpilib.units.measure.Voltage;
 // back through the rule tools/sysid discovers tests by. The callbacks here mirror Drive's, because
 // no SPARK can be constructed in this JVM. What this proves is the pipeline; none of it is a
 // number about a robot.
+//
+// The routine configs mirror Drive's too, with one exception: the steer routine is built with
+// DRIVE_STEP_VOLTAGE where Drive uses STEER_STEP_VOLTAGE. Nothing here reads the steer step, so
+// the number is the harness's rather than the drive base's.
 //
 // One log, written once: DataLogManager is process-wide and its directory is fixed by the first
 // start() anything makes, so every assertion below reads the same file.
@@ -321,6 +327,29 @@ class CharacterisationTest {
     }
   }
 
+  // The current limiter binds from the first sample of a step from rest and lets go partway up, so
+  // the voltage that reaches the motor climbs where the request is one flat number. A log carrying
+  // the request fits that flat number against the acceleration the limited voltage produced, and
+  // what comes out is kA — the one gain the dynamic test exists to produce.
+  @Test
+  void theDynamicStepLogsTheVoltageTheLimiterAllowedRatherThanTheOneRequested() {
+    var axis = DriveConstants.simConfig().drive();
+    double limited = axis.currentLimit().in(Amps) * axis.motor().R;
+    double step = DriveConstants.DRIVE_STEP_VOLTAGE.in(Volts);
+    var volts =
+        log.valuesDuring("voltage-" + MOTOR + "-" + DRIVE_LOG, DRIVE_LOG, "dynamic-forward");
+
+    assertTrue(
+        volts.stream().anyMatch(v -> Math.abs(v - limited) < limited * 0.1),
+        "no sample of the step sat near the " + limited + " V the current limit allows: " + volts);
+    assertTrue(
+        volts.stream().anyMatch(v -> v > step * 0.95),
+        "the step never reached the " + step + " V it asked for, so the column is not a voltage");
+    assertTrue(
+        volts.stream().allMatch(v -> v <= step),
+        "a sample exceeded the " + step + " V step, which no applied output can: " + volts);
+  }
+
   @Test
   void theCancellationPathZeroesTheOutputAndClosesEveryTest() {
     // What the routines commanded, not what the plant was handed: the steer array carries the
@@ -416,10 +445,11 @@ class CharacterisationTest {
     steerOpenLoop = true;
   }
 
+  // The applied voltage, as Drive reads it back off the SPARK's applied-output frame.
   private void logDrive(SysIdRoutineLog motors) {
     motors
         .motor(MOTOR)
-        .voltage(Volts.of(lastDriveCommand))
+        .voltage(Volts.of(state[0].driveAppliedVolts()))
         .linearPosition(Meters.of(state[0].wheelPositionRad() * WHEEL_RADIUS))
         .linearVelocity(MetersPerSecond.of(state[0].wheelVelocityRadPerSec() * WHEEL_RADIUS));
   }
@@ -427,7 +457,7 @@ class CharacterisationTest {
   private void logSteer(SysIdRoutineLog motors) {
     motors
         .motor(MOTOR)
-        .voltage(Volts.of(lastSteerCommand))
+        .voltage(Volts.of(state[0].steerAppliedVolts()))
         .angularPosition(state[0].azimuth().getMeasure())
         .angularVelocity(RotationsPerSecond.of(azimuthRate));
   }
@@ -435,7 +465,7 @@ class CharacterisationTest {
   private void logRotation(SysIdRoutineLog motors) {
     motors
         .motor(MOTOR)
-        .voltage(Volts.of(lastDriveCommand))
+        .voltage(Volts.of(state[0].driveAppliedVolts()))
         .angularPosition(Radians.of(yawRadians))
         .angularVelocity(RadiansPerSecond.of(physics.trueVelocity().omega));
   }
@@ -513,15 +543,34 @@ class CharacterisationTest {
       return found;
     }
 
-    // The first sample of the named entry at or after the test's state value first appears.
-    double firstValueOf(String entry, String logName, String test) {
-      long start =
+    // The stamps over which the test's state value stands in the log.
+    LongSummaryStatistics window(String logName, String test) {
+      var stamps =
           samples.stream()
               .filter(sample -> sample.name.equals("sysid-test-state-" + logName))
               .filter(sample -> test.equals(sample.text))
               .mapToLong(Sample::timestampMicros)
-              .min()
-              .orElseThrow(() -> new AssertionError(test + " never ran on " + logName));
+              .summaryStatistics();
+      if (stamps.getCount() == 0) {
+        throw new AssertionError(test + " never ran on " + logName);
+      }
+      return stamps;
+    }
+
+    // Every sample of the named entry inside that window.
+    List<Double> valuesDuring(String entry, String logName, String test) {
+      var window = window(logName, test);
+      return samples.stream()
+          .filter(sample -> sample.name.equals(entry))
+          .filter(sample -> sample.timestampMicros >= window.getMin())
+          .filter(sample -> sample.timestampMicros <= window.getMax())
+          .map(Sample::value)
+          .toList();
+    }
+
+    // The first sample of the named entry at or after the test's state value first appears.
+    double firstValueOf(String entry, String logName, String test) {
+      long start = window(logName, test).getMin();
       return samples.stream()
           .filter(sample -> sample.name.equals(entry))
           .filter(sample -> sample.timestampMicros >= start)

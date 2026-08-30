@@ -36,6 +36,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.wpilib.command3.Command;
+import org.wpilib.command3.Coroutine;
 import org.wpilib.command3.Mechanism;
 import org.wpilib.command3.NeedsNameBuilderStage;
 import org.wpilib.command3.Scheduler;
@@ -58,6 +59,7 @@ import org.wpilib.system.Timer;
 import org.wpilib.telemetry.TelemetryTable;
 import org.wpilib.units.measure.Angle;
 import org.wpilib.units.measure.Voltage;
+import org.wpilib.util.function.BooleanConsumer;
 
 public class Drive implements Mechanism {
   private static final int MODULES = 4;
@@ -95,6 +97,8 @@ public class Drive implements Mechanism {
   private final OnboardLoopSim[] steerLoops = new OnboardLoopSim[MODULES];
   private final SparkRelativeEncoderSim[] driveEncoderSims = new SparkRelativeEncoderSim[MODULES];
   private final SparkAnalogSensorSim[] steerSensorSims = new SparkAnalogSensorSim[MODULES];
+  private final SparkOutputSim[] driveOutputSims = new SparkOutputSim[MODULES];
+  private final SparkOutputSim[] steerOutputSims = new SparkOutputSim[MODULES];
   private final Pigeon2SimState gyroSim;
   private Angle simDrift;
   private Angle simYaw;
@@ -191,6 +195,8 @@ public class Drive implements Mechanism {
         // write, and the mechanism's encoders then read zero forever with nothing thrown.
         driveEncoderSims[i] = new SparkRelativeEncoderSim(modules[i].getDriveMotor());
         steerSensorSims[i] = new SparkAnalogSensorSim(modules[i].getSteerMotor());
+        driveOutputSims[i] = new SparkOutputSim(modules[i].getDriveMotor());
+        steerOutputSims[i] = new SparkOutputSim(modules[i].getSteerMotor());
       }
     } else {
       physics = null;
@@ -293,28 +299,28 @@ public class Drive implements Mechanism {
   // carried routine, whose own command keeps its upstream name — "sysid-quasistatic-forward-drive"
   // and its siblings — because the analyser's readers already know them.
   public Command driveQuasistatic(Direction direction) {
-    return settledFirst(
+    return settledDriveRun(
         this::pointForward,
         driveCharacterisation.quasistatic(direction),
         "Drive.DriveQuasistatic[" + direction + "]");
   }
 
   public Command driveDynamic(Direction direction) {
-    return settledFirst(
+    return settledDriveRun(
         this::pointForward,
         driveCharacterisation.dynamic(direction),
         "Drive.DriveDynamic[" + direction + "]");
   }
 
   public Command rotationQuasistatic(Direction direction) {
-    return settledFirst(
+    return settledDriveRun(
         this::pointAroundTheSpin,
         rotationCharacterisation.quasistatic(direction),
         "Drive.RotationQuasistatic[" + direction + "]");
   }
 
   public Command rotationDynamic(Direction direction) {
-    return settledFirst(
+    return settledDriveRun(
         this::pointAroundTheSpin,
         rotationCharacterisation.dynamic(direction),
         "Drive.RotationDynamic[" + direction + "]");
@@ -323,19 +329,47 @@ public class Drive implements Mechanism {
   // No settle, and none to make: the module starts wherever it is parked, and where it is parked
   // is not a property the measurement depends on.
   public Command steerQuasistatic(Direction direction) {
-    return steerCharacterisation.quasistatic(direction);
+    return steerRun(
+        steerCharacterisation.quasistatic(direction), "Drive.SteerQuasistatic[" + direction + "]");
   }
 
   public Command steerDynamic(Direction direction) {
-    return steerCharacterisation.dynamic(direction);
+    return steerRun(
+        steerCharacterisation.dynamic(direction), "Drive.SteerDynamic[" + direction + "]");
   }
 
-  private Command settledFirst(Runnable point, Command routine, String name) {
+  private Command settledDriveRun(Runnable point, Command routine, String name) {
+    return instrumented(
+        raised -> modules[DriveConstants.CHARACTERISED_MODULE].instrumentDrive(raised),
+        coroutine -> {
+          coroutine.await(settle(point));
+          coroutine.await(routine);
+        },
+        name);
+  }
+
+  private Command steerRun(Command routine, String name) {
+    return instrumented(
+        raised -> modules[DriveConstants.CHARACTERISED_MODULE].instrumentSteer(raised),
+        coroutine -> coroutine.await(routine),
+        name);
+  }
+
+  // The applied-output frame is a 100 ms diagnostic and it is where the voltage column comes from,
+  // so it runs at the loop rate for the length of a run and goes back afterwards. It goes up ahead
+  // of the settle rather than ahead of the ramp: a frame requested at the ramp's first sample
+  // arrives after it.
+  private static Command instrumented(
+      BooleanConsumer instrument, Consumer<Coroutine> body, String name) {
     return Command.noRequirements(
             coroutine -> {
-              coroutine.await(settle(point));
-              coroutine.await(routine);
+              instrument.accept(true);
+              body.accept(coroutine);
+              instrument.accept(false);
             })
+        // whenCanceled does not run when a body ends on its own and the line after the body does
+        // not run when it is cancelled, so the frame is put back on both paths or on neither.
+        .whenCanceled(() -> instrument.accept(false))
         .named(name);
   }
 
@@ -384,7 +418,7 @@ public class Drive implements Mechanism {
   private void logDriveRamp(SysIdRoutineLog log) {
     var module = modules[DriveConstants.CHARACTERISED_MODULE];
     log.motor(module.getName())
-        .voltage(Volts.of(module.getDriveVolts()))
+        .voltage(module.getDriveAppliedVoltage())
         .linearPosition(module.getDriveDistance())
         .linearVelocity(module.getDriveSpeed());
   }
@@ -392,7 +426,7 @@ public class Drive implements Mechanism {
   private void logSteerRamp(SysIdRoutineLog log) {
     var module = modules[DriveConstants.CHARACTERISED_MODULE];
     log.motor(module.getName())
-        .voltage(Volts.of(module.getSteerVolts()))
+        .voltage(module.getSteerAppliedVoltage())
         .angularPosition(module.getSteerRotation())
         .angularVelocity(module.getSteerRate());
   }
@@ -402,8 +436,9 @@ public class Drive implements Mechanism {
   // largest a profile may ask for — none of which a module-level test can produce. The Pigeon's
   // yaw accumulates past a turn, so the position column is continuous where a Rotation2d wraps.
   private void logRotationRamp(SysIdRoutineLog log) {
-    log.motor(modules[DriveConstants.CHARACTERISED_MODULE].getName())
-        .voltage(Volts.of(modules[DriveConstants.CHARACTERISED_MODULE].getDriveVolts()))
+    var module = modules[DriveConstants.CHARACTERISED_MODULE];
+    log.motor(module.getName())
+        .voltage(module.getDriveAppliedVoltage())
         .angularPosition(gyro.getYaw().getValue())
         .angularVelocity(gyro.getAngularVelocityZWorld().getValue());
   }
@@ -684,6 +719,7 @@ public class Drive implements Mechanism {
       state = physics.update(driveVolts, steerVolts, SUB_STEP);
     }
 
+    double busVolts = physics.batteryVoltage().in(Volts);
     for (int i = 0; i < MODULES; i++) {
       // setPosition takes the value after the conversion factor, so these are the metres and the
       // rotations the mechanism will read back, not raw encoder units.
@@ -692,9 +728,13 @@ public class Drive implements Mechanism {
       driveEncoderSims[i].setVelocity(
           state[i].wheelVelocityRadPerSec() * DriveConstants.WHEEL_RADIUS.in(Meters));
       steerSensorSims[i].setPosition(modules[i].toSensorRotations(state[i].azimuth()));
+      // The plant's applied volts, not the mechanism's commanded ones: the model clamps where the
+      // controller does, and this is the signal that reports the clamp.
+      driveOutputSims[i].set(state[i].driveAppliedVolts(), busVolts);
+      steerOutputSims[i].set(state[i].steerAppliedVolts(), busVolts);
     }
 
-    RoboRioSim.setVInVoltage(physics.batteryVoltage().in(Volts));
+    RoboRioSim.setVInVoltage(busVolts);
 
     // The Pigeon integrates what setRawYaw is handed, so it has to be a continuous angle. A
     // Rotation2d is wrapped, and handing it one steps a whole turn at the boundary, which the
