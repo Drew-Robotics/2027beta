@@ -39,8 +39,11 @@ deploy {
                 // getTargetTypeClass is a shortcut to get the class type using a string
 
                 wpilibJava(getArtifactTypeClass('WPILibJavaArtifact')) {
-                    // Departs from the template: see src/main/native/revshim.
-                    javaCommand = "LD_PRELOAD=/home/systemcore/deploy/librevshim.so /usr/bin/java"
+                    // Departs from the template: see src/main/native/revshim. wpiutil comes
+                    // first because the shim forwards a symbol into it and the JVM loads it
+                    // RTLD_LOCAL, where a preloaded library cannot see it; this is the copy on
+                    // java.library.path, not /usr/lib's, so the process holds only one wpiutil.
+                    javaCommand = "LD_PRELOAD=/home/systemcore/wpilib/third-party/lib/libwpiutil.so:/home/systemcore/deploy/librevshim.so /usr/bin/java"
                 }
 
                 // Departs from the template: the aarch64 shim the line above preloads.
@@ -63,9 +66,9 @@ deploy {
 }
 
 // Departs from the template: REVLib alpha-6's native imports two symbols no WPILib this project
-// can compile against exports, and the linker aborts the JVM the first time a SPARK is
-// constructed. src/main/native/revshim supplies them; every JVM that touches REVLib preloads it.
-// Delete all of this when REVLib publishes against a current WPILib.
+// can compile against exports, and calls two more with signatures that have since changed. Either
+// one kills the JVM. src/main/native/revshim bridges both; every JVM that touches REVLib preloads
+// it. Delete all of this when REVLib publishes against a current WPILib.
 def revShimDesktop = file('src/main/native/revshim/linuxx86-64/librevshim.so').absolutePath
 
 def deployArtifact = deploy.targets.systemcore.artifacts.wpilibJava
