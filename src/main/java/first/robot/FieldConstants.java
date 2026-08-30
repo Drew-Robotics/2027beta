@@ -54,11 +54,12 @@ public final class FieldConstants {
 
   // Each transform is its own inverse and the two commute, so applying whichever are in force
   // again carries a measured pose back into the frame the path was drawn in. A threshold written
-  // against the drawn path is wrong otherwise, and wrong by never being reached rather than by
-  // being reached in the wrong place.
-  public static Pose2d asAuthored(Pose2d pose) {
-    var unflipped = onRed() ? flip(pose) : pose;
-    return MIRRORED.getAsBoolean() ? mirror(unflipped) : unflipped;
+  // against the drawn path is compared in the wrong frame otherwise, and fires at the wrong
+  // moment — which way depends on the threshold's sign, so it is as likely to fire at once as
+  // never.
+  public static Pose2d flipAndMirrorIfNeeded(Pose2d pose) {
+    var flipped = onRed() ? flip(pose) : pose;
+    return MIRRORED.getAsBoolean() ? mirror(flipped) : flipped;
   }
 
   // The origin is field centre, where the flip is a 180-degree rotation about it. Anything drawn

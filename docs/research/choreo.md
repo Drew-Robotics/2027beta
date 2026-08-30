@@ -1267,7 +1267,7 @@ should get the rotation rather than the mirror:
 | vx, vy, omega | `-vx, -vy, omega` | **unchanged** |
 | ax, ay, alpha | `-ax, -ay, alpha` | **unchanged** |
 
-Both forms are their own inverse (`L - (L - x) = x`), so `asAuthored`'s comment holds either way.
+Both forms are their own inverse (`L - (L - x) = x`), so `flipAndMirrorIfNeeded`'s comment holds either way.
 
 ---
 

@@ -25,8 +25,8 @@ dashboard boolean*. The *Consequences* entry reading *"Autonomous is
 selected on the Driver Station, not a dashboard"* is **narrowed there**
 to the string-chooser finding it rests on, which has nothing to say
 about a boolean. *No splits, no event markers* gains the rule that
-every pose trigger reads through `asAuthored`, and its example is
-corrected to show it — the example predated `asAuthored` and read a raw
+every pose trigger reads through `flipAndMirrorIfNeeded`, and its example is
+corrected to show it — the example predated `flipAndMirrorIfNeeded` and read a raw
 estimate.
 
 Amended by ADR 0012, which owns the pose
@@ -312,7 +312,7 @@ and a pose trigger —
 
 ```java
 public final Trigger inNeutralZone =
-    new Trigger(() -> inZone(FieldConstants.asAuthored(poseEstimator.getEstimatedPose())));
+    new Trigger(() -> inZone(FieldConstants.flipAndMirrorIfNeeded(poseEstimator.getEstimatedPose())));
 ```
 
 A **pose**-triggered action beats a **time**-triggered one for the
@@ -321,20 +321,25 @@ wheel slipped, a time marker fires in the wrong place and a pose
 trigger does not. Splits stop being necessary once each segment is its
 own file.
 
-⚠️ **Every pose trigger goes through `asAuthored`, and the threshold is
+⚠️ **Every pose trigger goes through `flipAndMirrorIfNeeded`, and the threshold is
 written against the path as drawn.** The estimate is where the robot
 is; the threshold was read off Choreo. Compare the two raw and the
-trigger is wrong on any run the path was transformed for — on red it is
-never reached, and on a mirrored run a `y` threshold is reached on the
-wrong side of the field. Both transforms are their own inverse and
-`asAuthored` applies whichever are in force, so one call covers the
+trigger fires at the wrong moment on any run the path was transformed
+for. **Which way it goes is the threshold's sign, not a rule**:
+`SweepLeftAuto`'s zone line is -4.27 m and the red path runs x +6.27 to
++2.77, so raw it is true on the *first loop*; a positive threshold on
+the same path would never be reached. On a mirrored run a `y` threshold
+fires on the wrong side of the field. Both transforms are their own
+inverse and
+`flipAndMirrorIfNeeded` applies whichever are in force, so one call covers the
 alliance flip and the side mirror together and will cover whatever is
 added beside them.
 
 This is a rule and not a mechanism. There is nothing to stop a trigger
 reading `getEstimatedPose()` directly, and a wrong one throws nothing —
-it just never fires. The only pose trigger that exists reads through
-`asAuthored`; the next one has to as well.
+it fires early, late, or not at all. The only pose trigger that exists
+reads through
+`flipAndMirrorIfNeeded`; the next one has to as well.
 
 ### Trajectories arrive in the robot's frame; the alliance flip happens at follower construction
 
@@ -417,12 +422,12 @@ fails when `omega` carries through unmirrored.
 **The two commute**, so nothing sequences them: `rot180 ∘ reflect` and
 `reflect ∘ rot180` are both `diag(-1, 1)`, and the heading composes to
 `-θ + π` either way. A test asserts it so the ordering cannot quietly
-become load-bearing. Each is also its own inverse, so `asAuthored`
+become load-bearing. Each is also its own inverse, so `flipAndMirrorIfNeeded`
 undoes both by applying whichever are in force again — a pose threshold
 written against the drawn path is compared in the frame it was written
 in on either side of the field, the same reason it already was on red.
 
-⚠️ `asAuthored` reads the toggle **every loop**, where the trajectory
+⚠️ `flipAndMirrorIfNeeded` reads the toggle **every loop**, where the trajectory
 reads it once at follower construction, so toggling mid-autonomous puts
 a pose trigger in a frame the path being driven is not in. That is the
 shape the alliance already has and nobody can change the alliance

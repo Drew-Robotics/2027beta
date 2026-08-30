@@ -168,14 +168,15 @@ class FieldConstantsTest {
   }
 
   // The same threshold problem the flip has: a trigger written against the drawn path is compared
-  // against a mirrored estimate and never fires, so one function has to undo both transforms.
+  // against a mirrored estimate and fires on the wrong side of the field, so one call has to undo
+  // both transforms.
   @Test
   void asAuthoredUndoesTheMirrorAsWellAsTheFlip() {
     FieldConstants.MIRRORED.set(true);
     var drawn = PATH.start().pose;
 
     var driven = FieldConstants.forSide(PATH).start().pose;
-    var back = FieldConstants.asAuthored(driven);
+    var back = FieldConstants.flipAndMirrorIfNeeded(driven);
 
     assertEquals(-3, driven.getY(), TOLERANCE);
     assertEquals(drawn.getX(), back.getX(), TOLERANCE);
@@ -183,9 +184,9 @@ class FieldConstantsTest {
     assertEquals(drawn.getRotation().getDegrees(), back.getRotation().getDegrees(), TOLERANCE);
   }
 
-  // What asAuthored leans on: it has to undo exactly what the trajectory flip did, or a threshold
-  // written against the drawn path is compared against the wrong half of the field on red — and a
-  // trigger that never fires is quieter than one that fires in the wrong place.
+  // What the pose call leans on: it has to undo exactly what the trajectory flip did, or a
+  // threshold written against the drawn path is compared against the wrong half of the field on
+  // red, and fires at a moment nothing in the log explains.
   @Test
   void thePoseFlipUndoesWhatTheTrajectoryFlipDidToTheSamePose() {
     var drawn = PATH.start().pose;
