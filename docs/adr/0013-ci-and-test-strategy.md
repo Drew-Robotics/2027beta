@@ -545,6 +545,40 @@ covers, or general code-quality opinion.
 
 ## Traps
 
+- **A Tier 2 test must call `HAL.initialize()` before it touches
+  `SimHooks`.** The timing hooks lock a mutex the HAL creates, so
+  `SimHooks.pauseTiming()` in a JVM that has not initialised it
+  **segfaults rather than throwing** — `SimulatorJNI.pauseTiming` on
+  `pthread_mutex_lock`. **[executed]** It hides easily: a suite where
+  some earlier class happened to load the HAL passes, and the same test
+  run alone takes the JVM down with SIGSEGV. Run every new Tier 2 test
+  on its own once, before trusting a green suite.
+
+- **Selecting an opmode on the simulated Driver Station takes two calls,
+  and using one silently selects nothing.** `DriverStationSim` keeps the
+  robot mode and the opmode hash as **separate fields**, and the control
+  word is assembled from both (`ControlWord.setOpModeId`, masking
+  `ROBOT_MODE_MASK | OPMODE_HASH_MASK`). **[source]** Calling
+  `setOpMode(option.id)` alone leaves the mode bits clear, so
+  `0x03FFFFFFBEE3CD99` goes in and `0x00FFFFFFBEE3CD99` comes back — an
+  id that was never registered. **[executed]** `OpModeRobot` reports the
+  miss through `DriverStationErrors.reportError(..., false)`, which a
+  headless test never sees, so the robot simply enables with no opmode
+  and the only symptom is a pose that never moves. Always pair it:
+
+  ```java
+  DriverStationSim.setRobotMode(option.getMode());
+  DriverStationSim.setOpMode(option.id);
+  ```
+
+- **The HAL, the alert table and the data log are process-wide and
+  start once.** A Tier 2 class that constructs a real `Robot` claims
+  `DataLogManager` for the rest of the JVM, and the next class wanting
+  its own log gets the first one's directory. The `test` task therefore
+  sets `forkEvery = 1`. **[executed]** A new global-state dependency is
+  a reason to check that the fork is still there, not a reason to
+  reorder tests.
+
 - **Neither the stock template nor GradleRIO's test-task configuration
   adds `--add-opens`, so every Commands v3 test dies before its first
   assertion.** `WPIJavaExtension.configureTestTasks(Test)` calls
