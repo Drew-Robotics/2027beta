@@ -16,7 +16,8 @@ it. Amended 2026-08-30, second: the loop model reads its
 feedback gains as a duty cycle rather than as volts, which is what the
 device does; `SIM_GAINS` moved with it. Amended 2026-08-30, third: the
 battery is charged the supply current rather than the winding current. The applied output is
-reported against the rail it was clamped against.
+reported against the rail it was clamped against. A regenerating motor is
+credited as no load rather than as a full one.
 
 The *Open* item asking whether CI runs a headless robot program is
 answered by ADR 0013 and now sits under *Consequences*.
@@ -222,6 +223,28 @@ A driving log measured **1440 ms** from rest to 90% of a request over
 4 m/s, with the pack's 5th percentile at 7.216 V **[measured]**;
 referred to the supply side the same launch reaches 4 m/s in **575 ms**
 with the rail above 10 V **[measured]**.
+
+`getCurrentDraw()` is signed against the bus — negative is a motor
+pushing power back into it
+(`wpilibj/src/main/java/org/wpilib/simulation/DCMotorSim.java:158-164`)
+**[source]** — and taking its magnitude charged the pack a *full load*
+for a motor that was feeding it. Under the supply referral above that
+turns into a runaway: a braking motor's applied volts sit close to its
+back-EMF, so the duty is near one, the sag drives the duty higher still,
+and the rail latches at the 7.2 V floor during exactly the manoeuvre the
+volts were braking. A regenerating motor is now credited as **nothing** —
+not as charge, because a simulation whose battery gains voltage under
+braking accelerates out of a stop better than the robot ever will, and
+not as a load either.
+
+What is left bounding a hard stop is the **drive current limit**, and it
+is arithmetic rather than a knob:
+`a = 4 · I_limit · Kt · G / (m · r)` = 8.6 m/s² at 60 A. A driving log
+measured a full-speed wheel reversal at **8.36 m/s², three times, to
+within a percent** **[measured]** — the limit, not a defect.
+`aHardReversalBrakesAtTheCurrentLimitWithoutSaggingThePack` asserts
+against that expression rather than against a number, so a changed limit
+moves the test with it.
 
 Both halves of this ADR's amendments are the same mistake — a quantity
 used in the frame it was not measured in — and both presented as a

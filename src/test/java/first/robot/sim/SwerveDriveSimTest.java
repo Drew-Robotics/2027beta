@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Degrees;
+import static org.wpilib.units.Units.Kilograms;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Rotations;
 import static org.wpilib.units.Units.Seconds;
@@ -236,6 +237,39 @@ class SwerveDriveSimTest {
             "steer applied " + state[i].steerAppliedVolts() + " volts against a " + rail + " rail");
       }
     }
+  }
+
+  // Braking is where the pack was charged a full load for a motor that was pushing power back
+  // into it, and the sag then clamped the volts that were doing the braking. What is left is the
+  // current limit, which is arithmetic rather than a tuning knob.
+  @Test
+  void aHardReversalBrakesAtTheCurrentLimitWithoutSaggingThePack() {
+    Arrays.fill(driveVolts, 12.0);
+    advance(Seconds.of(3));
+    double rolling = sim.trueVelocity().vx;
+    assertTrue(rolling > 4, "the wheels never reached speed: " + rolling);
+
+    Arrays.fill(driveVolts, -12.0);
+    double started = sim.trueVelocity().vx;
+    double railFloor = 12.0;
+    int ticks = (int) Math.round(0.25 / Constants.LOOP_PERIOD.in(Seconds));
+    for (int i = 0; i < ticks; i++) {
+      tick();
+      railFloor = Math.min(railFloor, sim.batteryVoltage().in(Volts));
+    }
+    double decel = (started - sim.trueVelocity().vx) / 0.25;
+
+    // Four modules, each turning the limit into torque at the wheel and that into a share of the
+    // robot's mass. Nothing here is a gain.
+    double limit =
+        4
+            * config.drive().currentLimit().in(Amps)
+            * config.drive().motor().Kt
+            * DriveConstants.DRIVE_REDUCTION
+            / (DriveConstants.ROBOT_MASS.in(Kilograms) * DriveConstants.WHEEL_RADIUS.in(Meters));
+
+    assertEquals(limit, decel, limit * 0.1, "braking is not at the current limit");
+    assertTrue(railFloor > 10, "a regenerating pack sagged to " + railFloor + " volts");
   }
 
   // Seconds until every module is inside tolerance of the setpoint, or the timeout if it never is.

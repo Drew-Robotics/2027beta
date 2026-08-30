@@ -144,14 +144,17 @@ public final class SwerveDriveSim {
   // couple of volts costs the pack a fraction of that current. Charging the pack with the winding
   // current instead collapses the rail at exactly the moment a robot launches, and the sag then
   // caps the volts that were going to accelerate it.
-  //
-  // Magnitudes: a regenerating motor charges the pack, and a simulation whose battery gains
-  // voltage under braking accelerates out of a stop better than the robot ever will.
   private double supplyCurrent(DCMotorSim axis, double appliedVolts) {
-    if (batteryVolts == 0) {
+    double motorAmps = axis.getCurrentDraw();
+    // getCurrentDraw is signed against the bus: negative is a motor pushing power back into it.
+    // A braking motor is credited as nothing rather than as charge, because a simulation whose
+    // battery gains voltage under braking accelerates out of a stop better than the robot ever
+    // will — but nothing is also not a full load, which is what taking the magnitude made it. A
+    // hard stop then sagged the rail into the clamp that was holding the wheels back.
+    if (motorAmps <= 0 || batteryVolts == 0) {
       return 0;
     }
-    return Math.abs(axis.getCurrentDraw()) * Math.abs(appliedVolts) / batteryVolts;
+    return motorAmps * Math.abs(appliedVolts) / batteryVolts;
   }
 
   private SwerveModuleVelocity[] velocities(SimModuleState[] states) {
