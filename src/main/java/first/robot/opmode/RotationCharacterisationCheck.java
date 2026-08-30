@@ -11,16 +11,17 @@ import org.wpilib.opmode.Utility;
 
 @Utility(
     group = "Characterisation",
-    description = "Whole-robot rotation ramps, spinning on the spot. Run supervised, on the ground")
+    description =
+        "Whole-robot rotation ramps, spinning on the spot. Hold to run, supervised, on the ground")
 public class RotationCharacterisationCheck implements OpMode {
   private final Bindings bindings = new Bindings();
 
   public RotationCharacterisationCheck(Robot robot) {
     bindings
-        .onPress(robot.driver.faceUp(), robot.drive.rotationQuasistatic(Direction.FORWARD))
-        .onPress(robot.driver.faceDown(), robot.drive.rotationQuasistatic(Direction.REVERSE))
-        .onPress(robot.driver.faceLeft(), robot.drive.rotationDynamic(Direction.FORWARD))
-        .onPress(robot.driver.faceRight(), robot.drive.rotationDynamic(Direction.REVERSE));
+        .whileHeld(robot.driver.faceUp(), robot.drive.rotationQuasistatic(Direction.FORWARD))
+        .whileHeld(robot.driver.faceDown(), robot.drive.rotationQuasistatic(Direction.REVERSE))
+        .whileHeld(robot.driver.faceLeft(), robot.drive.rotationDynamic(Direction.FORWARD))
+        .whileHeld(robot.driver.faceRight(), robot.drive.rotationDynamic(Direction.REVERSE));
   }
 
   @Override

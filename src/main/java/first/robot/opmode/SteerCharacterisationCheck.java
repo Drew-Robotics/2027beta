@@ -11,16 +11,16 @@ import org.wpilib.opmode.Utility;
 
 @Utility(
     group = "Characterisation",
-    description = "Steer ramps on one module. Run supervised, on the ground")
+    description = "Steer ramps on one module. Hold to run, supervised, on the ground")
 public class SteerCharacterisationCheck implements OpMode {
   private final Bindings bindings = new Bindings();
 
   public SteerCharacterisationCheck(Robot robot) {
     bindings
-        .onPress(robot.driver.faceUp(), robot.drive.steerQuasistatic(Direction.FORWARD))
-        .onPress(robot.driver.faceDown(), robot.drive.steerQuasistatic(Direction.REVERSE))
-        .onPress(robot.driver.faceLeft(), robot.drive.steerDynamic(Direction.FORWARD))
-        .onPress(robot.driver.faceRight(), robot.drive.steerDynamic(Direction.REVERSE));
+        .whileHeld(robot.driver.faceUp(), robot.drive.steerQuasistatic(Direction.FORWARD))
+        .whileHeld(robot.driver.faceDown(), robot.drive.steerQuasistatic(Direction.REVERSE))
+        .whileHeld(robot.driver.faceLeft(), robot.drive.steerDynamic(Direction.FORWARD))
+        .whileHeld(robot.driver.faceRight(), robot.drive.steerDynamic(Direction.REVERSE));
   }
 
   @Override

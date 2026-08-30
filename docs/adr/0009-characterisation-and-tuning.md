@@ -9,7 +9,9 @@ steer decision. The routines are also enumerated now that there are
 four of them, and a wheel-radius measurement joins them. Amended again
 2026-08-29, on building the frame raise: the voltage column is the
 applied output rather than the request, and it is honest under a stated
-condition rather than unconditionally.
+condition rather than unconditionally. Amended again 2026-08-30: the
+four ramps are held rather than pressed, so a release ends the run — the
+supervision requirement below gains a stop the supervisor can reach.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -384,6 +386,19 @@ explicitly as supervised-on-ground. A rule with an exception beside it
 is a rule with two meanings. **[decided]** ADR 0006 and the house-style
 document are amended to match.
 
+**The button is the stop.** Supervision is only worth the name if the
+supervisor can end a run without waiting for it, so every ramp is bound
+`whileTrue` and a release cancels it — the same binding the wheel-radius
+measurement already used, for a different reason. The cancellation path
+is the one that zeroes the output and drops the raised frame, and it was
+already the only path that ran (see *Traps*), so a release ends a run
+exactly the way the timeout does. **[decided]**
+
+The cost is that a release before the timeout truncates the dataset, and
+a truncated test is one the analyser may refuse to fit. That is the
+right way round: a shortened test is repeated, and a run that cannot be
+stopped is not.
+
 ### There is no `/tune` skill
 
 The test #18 set was *process with a completion bar → skill; reference →
@@ -540,10 +555,11 @@ in Traps.
 - **Cleanup goes in `whenCanceled`, and for these commands it is the
   only path that ever runs.** `Command.withTimeout` is implemented as
   `race(this, waitFor(timeout))` (`Command.java:218-222`) **[source]**,
-  and the quasistatic and dynamic bodies loop forever — so the timeout
-  always wins and the command is always **cancelled**. v2's `finallyDo`
-  ran on both the end and the interrupt path (`SysIdRoutine.java:230-235,
-  269-273`) **[source]**; a v3 port that puts the zero-volt write and the
+  and the quasistatic and dynamic bodies loop forever — so the body never
+  ends on its own and the command is always **cancelled**, by the timeout
+  or by the release that beats it. v2's `finallyDo` ran on both the end
+  and the interrupt path (`SysIdRoutine.java:230-235, 269-273`)
+  **[source]**; a v3 port that puts the zero-volt write and the
   `State.NONE` record after the loop in the coroutine body compiles clean
   and never runs them. The symptom is a drive base that keeps its last
   ramp voltage after the test ends, on the ground, with people around

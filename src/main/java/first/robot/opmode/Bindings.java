@@ -16,12 +16,6 @@ import org.wpilib.command3.Trigger;
 final class Bindings {
   private final List<Trigger> bound = new ArrayList<>();
 
-  Bindings onPress(Trigger button, Command command) {
-    button.onTrue(command);
-    bound.add(button);
-    return this;
-  }
-
   Bindings whileHeld(Trigger button, Command command) {
     button.whileTrue(command);
     bound.add(button);
