@@ -319,10 +319,10 @@ the compile-time net **[decided]** — see Traps.
 
 - **Mechanisms are unit-testable without a `RobotBase`, and it has been
   done.** **[executed —
-  `src/test/java/first/robot/InjectedSchedulerTest.java`]** A plain
-  JUnit test builds a mechanism in the shape above against
-  `Scheduler.createIndependentScheduler()` and runs one command to
-  completion, asserting on elapsed time rather than on cycles.
+  `src/test/java/first/robot/mechanisms/DriveSchedulingTest.java`]** A
+  plain JUnit test builds the real `Drive` against
+  `Scheduler.createIndependentScheduler()` and runs one of its commands
+  to completion, asserting on elapsed time rather than on cycles.
 
   The injection is what the second test turns on, and it had to be
   written to. `Mechanism.run(...)` never touches a scheduler
@@ -331,13 +331,19 @@ the compile-time net **[decided]** — see Traps.
   mechanism and prove nothing. `setDefaultCommand` and
   `getRunningCommands` are the methods that route through
   `getRegisteredScheduler()` (`Mechanism.java:55, 130`), so the test
-  registers a default command *on the mechanism* and asserts it runs on
-  the test's scheduler and not on the singleton. With the override
-  deleted it fails. **[executed]** The divergence pays.
+  registers `Drive.Idle` as the drive's *default* command and asserts it
+  runs on the test's scheduler and not on the singleton. Delete
+  `Drive`'s override and it fails. **[executed]** The divergence pays,
+  and it pays on the mechanism the robot drives rather than on a
+  stand-in written in the test file to be injectable.
 
-  What it costs to start a v3 test at all — the `--add-opens` block, the
-  redirected clock, and the HAL that scheduling loads — is ADR 0013's,
-  and is recorded there.
+  **Without a `RobotBase` is not without a HAL, and testing the real
+  drive is no longer without the vendor jars either** — it holds eight
+  SPARKs and a Pigeon2, so the file calls `HAL.initialize()` and needs
+  ADR 0015's shim. What a v3 test costs to start at all — that block,
+  the `--add-opens` flags, the redirected clock, and a SPARK's CAN id
+  being claimed for the life of the process — is ADR 0013's, and is
+  recorded there.
 
 - **Every mechanism constructor grows one parameter**, and every mechanism
   carries one override. That is the whole cost of the divergence.

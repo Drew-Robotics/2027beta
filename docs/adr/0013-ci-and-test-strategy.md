@@ -571,6 +571,22 @@ covers, or general code-quality opinion.
   DriverStationSim.setOpMode(option.id);
   ```
 
+- **A SPARK claims its CAN id for the life of the JVM.**
+  `SparkLowLevel`'s constructor calls `c_Spark_RegisterId` and throws
+  `IllegalStateException: A CANSparkMax instance has already been
+  created with this device ID` on the second instance
+  (`SparkLowLevel.java:261-267`). **[source]** So a `@BeforeEach` that
+  constructs a mechanism holding SPARKs passes its first test and dies
+  on every one after it. **[executed]** Build the mechanism once for the
+  class and reset the scheduler between tests instead. That reset is not
+  total, and the gap is worth knowing: `cancelAll()` drains the queued
+  and running commands and `getDefaultEventLoop().clear()` drops the
+  trigger bindings, but a default command registered on a mechanism
+  lives in a map neither touches (`Scheduler.java:109`) and is
+  rescheduled on the next `run()` (`Scheduler.java:1194`). **[source]**
+  A test that registers one leaves it running for the rest of the class,
+  so it had better be `LOWEST_PRIORITY`.
+
 - **The HAL, the alert table and the data log are process-wide and
   start once.** A Tier 2 class that constructs a real `Robot` claims
   `DataLogManager` for the rest of the JVM, and the next class wanting
