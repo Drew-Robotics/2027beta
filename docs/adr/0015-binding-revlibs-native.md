@@ -220,7 +220,9 @@ about more than two symbol names — a struct that links but no longer
 matches — in which case no shim fixes it and only a REVLib rebuild will.
 
 Unblocking it means a REVLib built against a current WPILib, or a
-narrower diagnosis than this ADR has. Until then the aarch64 binary and
+narrower diagnosis than this ADR has — the evidence and the next
+measurements are on
+[#87](https://github.com/Drew-Robotics/2027beta/issues/87). Until then the aarch64 binary and
 the `LD_PRELOAD` on `robotCommand` are shipped because they are correct
 and cost nothing, not because they have been shown to help.
 
