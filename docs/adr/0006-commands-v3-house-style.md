@@ -219,7 +219,7 @@ built-in `idle()` attaches that priority for you (`Mechanism.java:106-108`)
 
 Any other `withPriority` call **needs a comment naming what it is meant
 to beat.** If you cannot name it, you do not want a priority. Priorities
-are load-bearing in a way that is easy to miss — see Traps.
+are easy to miss but necessary — see Traps.
 
 ### `StateMachine` is an escape hatch, and the drive base does not use it
 

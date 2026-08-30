@@ -154,7 +154,7 @@ public class Robot extends OpModeRobot {
     poseEstimator =
         new PoseEstimator(
             drive.getKinematics(),
-            drive.getGyroHeading(),
+            drive.getGyroOrientation(),
             drive.getModulePositions(),
             TelemetryRegistry.getTable("/Drive"));
 
@@ -179,7 +179,8 @@ public class Robot extends OpModeRobot {
   // on a lookup, which autonomous makes once per schedule and therefore once per enable. They
   // commute, so this ordering is a reading preference and nothing else.
   public HolonomicTrajectory trajectory(String name) {
-    return FieldConstants.forSide(FieldConstants.forAlliance(trajectories.get(name)));
+    return FieldConstants.withDashboardMirror(
+        FieldConstants.forCurrentAlliance(trajectories.get(name)));
   }
 
   private static PowerDistribution openPdh() {
@@ -217,8 +218,7 @@ public class Robot extends OpModeRobot {
       pdhLog.log("TotalEnergy", Joules.of(pdh.getTotalEnergy()));
     }
 
-    // Read every loop, never once. driverStationConnected() fires on the control word's
-    // DS-attached bit, and the alliance station arrives from the FMS some time after that.
+    // Alliance can arrive after the Driver Station connects, so read it every loop.
     var alliance = MatchState.getAlliance();
     matchLog.log("Alliance", alliance.map(Enum::name).orElse("Unknown"));
     matchLog.log("Station", MatchState.getLocation().orElse(0));
@@ -234,20 +234,17 @@ public class Robot extends OpModeRobot {
     matchLog.log("Mirrored", mirrored);
     pathsMirrored.set(mirrored);
 
-    // A DS that is attached and has not said which alliance it is means every alliance-dependent
-    // decision on the robot is about to be made against a guess.
+    // An attached Driver Station without an alliance would make alliance logic guess.
     allianceUnknown.set(RobotState.isDSAttached() && alliance.isEmpty());
 
     drive.updateYawRateHistory();
     drive.log();
 
-    // Before the scheduler, and the order is load-bearing: every command that runs below reads a
-    // pose built from this iteration's module positions rather than the previous one's.
-    poseEstimator.odometryUpdate(drive.getGyroHeading(), drive.getModulePositions());
+    // Update before commands so they use this loop's module positions.
+    poseEstimator.odometryUpdate(drive.getGyroOrientation(), drive.getModulePositions());
     poseEstimator.log();
 
-    // Nothing in OpModeRobot runs the Commands v3 scheduler, so a mechanism whose scheduler is
-    // never run has a default command that never starts and commands that never execute.
+    // OpModeRobot does not run the Commands v3 scheduler.
     Scheduler.getDefault().run();
 
     var can = RobotController.getCANStatus(Constants.CAN_BUS);

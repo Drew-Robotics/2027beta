@@ -482,7 +482,7 @@ numbered recipe belongs in the README, not here.
   have not modelled.
 
 - **The project keeps building against a released alpha.** ADR 0003's
-  rule that `~/dev/allwpilib` is reference-only is load-bearing here
+  rule that `~/dev/allwpilib` is reference-only is necessary here
   specifically: building against local `main` costs the sim story and
   nothing else, which is the failure that would be noticed last.
 

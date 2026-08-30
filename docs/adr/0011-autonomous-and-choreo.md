@@ -25,12 +25,12 @@ dashboard boolean*. The *Consequences* entry reading *"Autonomous is
 selected on the Driver Station, not a dashboard"* is **narrowed there**
 to the string-chooser finding it rests on, which has nothing to say
 about a boolean. *No splits, no event markers* gains the rule that
-every pose trigger reads through `flipAndMirrorIfNeeded`, and its example is
-corrected to show it — the example predated `flipAndMirrorIfNeeded` and read a raw
+every pose trigger reads through `toAuthoredPathFrame`, and its example is
+corrected to show it — the example predated `toAuthoredPathFrame` and read a raw
 estimate.
 
 Amended by ADR 0012, which owns the pose
-estimator: `Drive.getGyroHeading()` returns a `Rotation3d` rather than a
+estimator: `Drive.getGyroOrientation()` returns a `Rotation3d` rather than a
 `Rotation2d`, and the estimator beside `Drive` is
 `SwerveDrivePoseEstimator3d`. Two statements below survive the widening
 because ADR 0012 keeps them true deliberately rather than by luck —
@@ -176,7 +176,7 @@ paid again on every scroll of the dropdown.
 `PoseEstimator` is a **plain class, not a `Mechanism`**, held as a
 public field on `Robot` (`.../rebuiltcmdv3/Robot.java:27`)
 **[source]**. What `Drive` exposes *for pose* is two accessors and
-nothing else — `getGyroHeading()` and `getModulePositions()`
+nothing else — `getGyroOrientation()` and `getModulePositions()`
 (`.../rebuiltcmdv3/mechanisms/SwerveDrive.java:69, 78`) **[source]**.
 It has no `getPose()`, no `resetPose()` and no estimator field. (The
 flagship's `SwerveDrive` also exposes `getModuleVelocities()` (`:82`)
@@ -184,13 +184,13 @@ and its `kinematics` (`:33`) **[source]**; those are telemetry and
 wiring, not pose.)
 
 `robotPeriodic()` updates odometry **before** running the scheduler,
-and the flagship comments the order because it is load-bearing
+and the flagship comments the order because it matters
 (`Robot.java:40-46`) **[source]**:
 
 ```java
 @Override
 public void robotPeriodic() {
-  poseEstimator.odometryUpdate(drive.getGyroHeading(), drive.getModulePositions());
+  poseEstimator.odometryUpdate(drive.getGyroOrientation(), drive.getModulePositions());
   Scheduler.getDefault().run();
 }
 ```
@@ -312,7 +312,7 @@ and a pose trigger —
 
 ```java
 public final Trigger inNeutralZone =
-    new Trigger(() -> inZone(FieldConstants.flipAndMirrorIfNeeded(poseEstimator.getEstimatedPose())));
+    new Trigger(() -> inZone(FieldConstants.toAuthoredPathFrame(poseEstimator.getEstimatedPose())));
 ```
 
 A **pose**-triggered action beats a **time**-triggered one for the
@@ -321,7 +321,7 @@ wheel slipped, a time marker fires in the wrong place and a pose
 trigger does not. Splits stop being necessary once each segment is its
 own file.
 
-⚠️ **Every pose trigger goes through `flipAndMirrorIfNeeded`, and the threshold is
+⚠️ **Every pose trigger goes through `toAuthoredPathFrame`, and the threshold is
 written against the path as drawn.** The estimate is where the robot
 is; the threshold was read off Choreo. Compare the two raw and the
 trigger fires at the wrong moment on any run the path was transformed
@@ -331,7 +331,7 @@ for. **Which way it goes is the threshold's sign, not a rule**:
 the same path would never be reached. On a mirrored run a `y` threshold
 fires on the wrong side of the field. Both transforms are their own
 inverse and
-`flipAndMirrorIfNeeded` applies whichever are in force, so one call covers the
+`toAuthoredPathFrame` applies whichever are in force, so one call covers the
 alliance flip and the side mirror together and will cover whatever is
 added beside them.
 
@@ -339,7 +339,7 @@ This is a rule and not a mechanism. There is nothing to stop a trigger
 reading `getEstimatedPose()` directly, and a wrong one throws nothing —
 it fires early, late, or not at all. The only pose trigger that exists
 reads through
-`flipAndMirrorIfNeeded`; the next one has to as well.
+`toAuthoredPathFrame`; the next one has to as well.
 
 ### Trajectories arrive in the robot's frame; the alliance flip happens at follower construction
 
@@ -422,12 +422,12 @@ fails when `omega` carries through unmirrored.
 **The two commute**, so nothing sequences them: `rot180 ∘ reflect` and
 `reflect ∘ rot180` are both `diag(-1, 1)`, and the heading composes to
 `-θ + π` either way. A test asserts it so the ordering cannot quietly
-become load-bearing. Each is also its own inverse, so `flipAndMirrorIfNeeded`
+become necessary. Each is also its own inverse, so `toAuthoredPathFrame`
 undoes both by applying whichever are in force again — a pose threshold
 written against the drawn path is compared in the frame it was written
 in on either side of the field, the same reason it already was on red.
 
-⚠️ `flipAndMirrorIfNeeded` reads the toggle **every loop**, where the trajectory
+⚠️ `toAuthoredPathFrame` reads the toggle **every loop**, where the trajectory
 reads it once at follower construction, so toggling mid-autonomous puts
 a pose trigger in a frame the path being driven is not in. That is the
 shape the alliance already has and nobody can change the alliance
@@ -638,9 +638,9 @@ produce it. ADR 0009 owns that.
   robot is a metre short of where the next command assumes it is.
   **Read the result and log it.**
 
-- **The follower's velocities are FIELD-relative.** `PathFollower.next()`
+- **The follower's velocities are FIELD-relative.** `PathFollower.nextFieldRelativeVelocities()`
   is documented as such, and `driveFieldRelative` does the conversion
-  with `toRobotRelative(getGyroHeading())`
+  with `toRobotRelative(getGyroOrientation())`
   (`SwerveDrive.java:197-200`) **[source]**. A follower that returns
   robot-relative velocities compiles, runs, and drives a path that is
   correct only while the robot faces field-forward. The symptom is a
@@ -880,7 +880,7 @@ tracking well and the residual error is per-module.
 on the reason under Decision: a pose estimator has nothing to own, so
 it is not a mechanism, and putting pose on `Drive` would drag ADR
 0012's vision seam into the drive base with it. `Drive` exposing
-`getGyroHeading()` and `getModulePositions()` and nothing else is what
+`getGyroOrientation()` and `getModulePositions()` and nothing else is what
 keeps both autonomous and vision out of it.
 
 ### Module-force feedforward

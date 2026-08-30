@@ -139,7 +139,7 @@ It is still fully schema-driven — it hardcodes no type name — it simply
 does not implement enums, arrays or bitfields. **[decided]**
 
 **On a schema it cannot parse it reports the signal as opaque and prints
-the schema text.** That is the load-bearing half of the decision.
+the schema text.** That is the necessary half of the decision.
 Silence would be indistinguishable from a signal that was not logged,
 and there is exactly one such schema in our own file — see *Traps*.
 

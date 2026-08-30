@@ -133,7 +133,7 @@ class PathFollowingTest {
     double worstCrossTrack = 0;
     double worstHeadingError = 0;
     double deadline = trajectory.duration + margin.in(Seconds);
-    while (!follower.isDone() && now < deadline) {
+    while (!follower.isFinished() && now < deadline) {
       step(follower);
       now += LOOP;
       worstCrossTrack =
@@ -145,7 +145,7 @@ class PathFollowingTest {
     }
 
     assertTrue(
-        follower.isDone(),
+        follower.isFinished(),
         pathName + " was still not done " + now + " s in, against a deadline of " + deadline);
     assertTrue(
         worstCrossTrack <= maxCrossTrack.in(Meters),
@@ -159,9 +159,9 @@ class PathFollowingTest {
   // their own rate rather than at the robot's.
   private void step(HolonomicPathFollower follower) {
     var heading = physics.truePose().getRotation();
-    var field = follower.next();
+    var field = follower.nextFieldRelativeVelocities();
     var robotRelative = field.toRobotRelative(heading);
-    var accelerations = follower.acceleration().toRobotRelative(heading);
+    var accelerations = follower.currentAcceleration().toRobotRelative(heading);
 
     var targets =
         SwerveDriveKinematics.desaturateWheelVelocities(

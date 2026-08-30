@@ -345,7 +345,7 @@ Java holds a 1 ms period at p99 (1.021 ms with RT priority) and JIT-ed
 math comes within ~17% of C++. **[measured]** It is not rejected for being
 impossible. It is rejected because the fidelity it would buy is gated on
 CAN frame rates we cannot raise that far (ADR 0007), the tail behaviour at
-1 ms is where RT priority starts being load-bearing rather than optional,
+1 ms is where RT priority becomes necessary rather than optional,
 and 200 Hz already spends 1.3% of the budget for everything we know we
 need.
 

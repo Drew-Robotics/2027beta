@@ -286,8 +286,10 @@ public class Drive implements Mechanism {
           followingLog.log("TimedOut", false);
           autoLog.log("PlannedPath", follower.plannedPath(), Pose2d.struct);
 
-          coroutine.fork(driveFieldRelative(follower::next, follower::acceleration));
-          var result = coroutine.waitUntil(follower::isDone, follower.timeout());
+          coroutine.fork(
+              driveFieldRelative(
+                  follower::nextFieldRelativeVelocities, follower::currentAcceleration));
+          var result = coroutine.waitUntil(follower::isFinished, follower.timeout());
           pathTimedOut = result.timedOut();
           followingLog.log("TimedOut", result.timedOut());
         })
@@ -568,7 +570,7 @@ public class Drive implements Mechanism {
       Supplier<ChassisVelocities> velocities, Consumer<ChassisVelocities> output) {
     return run(coroutine -> {
           while (true) {
-            output.accept(velocities.get().toRobotRelative(getGyroHeading().toRotation2d()));
+            output.accept(velocities.get().toRobotRelative(getGyroOrientation().toRotation2d()));
             coroutine.yield();
           }
         })
@@ -612,7 +614,7 @@ public class Drive implements Mechanism {
   public void setVelocities(ChassisVelocities velocities) {
     var states = moduleTargets(velocities);
     for (int i = 0; i < MODULES; i++) {
-      modules[i].setVelocity(states[i]);
+      modules[i].setTarget(states[i]);
     }
   }
 
@@ -623,14 +625,14 @@ public class Drive implements Mechanism {
     var moduleAccelerations =
         kinematics.toSwerveModuleAccelerations(accelerations, velocities.omega);
     for (int i = 0; i < MODULES; i++) {
-      modules[i].setVelocity(states[i], moduleAccelerations[i]);
+      modules[i].setTarget(states[i], moduleAccelerations[i]);
     }
   }
 
   public void setOpenLoopVelocities(ChassisVelocities velocities) {
     var states = moduleTargets(velocities);
     for (int i = 0; i < MODULES; i++) {
-      modules[i].setOpenLoopVelocity(states[i]);
+      modules[i].setOpenLoopTarget(states[i]);
     }
   }
 
@@ -660,7 +662,7 @@ public class Drive implements Mechanism {
     return pathTimedOut;
   }
 
-  public Rotation3d getGyroHeading() {
+  public Rotation3d getGyroOrientation() {
     // Not Pigeon2.getRotation3d(): through 26.50.0-alpha-1 nothing drives the four quaternion
     // signals it reads in simulation, so it answers identity there for ever. Yaw, pitch and roll
     // are driven, and are the same three numbers.
@@ -706,7 +708,7 @@ public class Drive implements Mechanism {
     return kinematics;
   }
 
-  public ChassisVelocities getVelocities() {
+  public ChassisVelocities getMeasuredVelocities() {
     return kinematics.toChassisVelocities(measuredStates());
   }
 
@@ -719,7 +721,7 @@ public class Drive implements Mechanism {
     // reads, and a corner/index mismatch is only visible if both are written.
     moduleLog.log("DesiredStates", desiredStates(), SwerveModuleVelocity.struct);
     moduleLog.log("MeasuredStates", measured, SwerveModuleVelocity.struct);
-    odometryLog.log("GyroHeading", getGyroHeading(), Rotation3d.struct);
+    odometryLog.log("GyroHeading", getGyroOrientation(), Rotation3d.struct);
     // The buffer's own newest sample rather than a second read of the signal: a GyroRate that
     // stayed healthy while nothing was sampling would hide a blind gate rather than show it.
     var latestYawRate = yawRateHistory.getInternalBuffer().lastEntry();
@@ -830,7 +832,7 @@ public class Drive implements Mechanism {
   private SwerveModuleVelocity[] measuredStates() {
     var states = new SwerveModuleVelocity[MODULES];
     for (int i = 0; i < MODULES; i++) {
-      states[i] = modules[i].getVelocity();
+      states[i] = modules[i].getMeasuredVelocity();
     }
     return states;
   }

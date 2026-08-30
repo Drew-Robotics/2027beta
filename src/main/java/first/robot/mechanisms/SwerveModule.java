@@ -168,11 +168,11 @@ final class SwerveModule {
         .setpointPeriodMs(diagnosticMs);
   }
 
-  void setVelocity(SwerveModuleVelocity target) {
+  void setTarget(SwerveModuleVelocity target) {
     command(resolve(target), 0, false);
   }
 
-  void setVelocity(SwerveModuleVelocity target, SwerveModuleAcceleration acceleration) {
+  void setTarget(SwerveModuleVelocity target, SwerveModuleAcceleration acceleration) {
     // Resolved once, so the direction the feedforward is projected onto is the same one the wheel
     // is commanded in. Reading the sensor twice can straddle the 90-degree optimise boundary and
     // leave the feedforward pushing against the setpoint.
@@ -181,7 +181,7 @@ final class SwerveModule {
         resolved, DriveConstants.DRIVE_KA * accelerationAlong(acceleration, resolved.angle), false);
   }
 
-  void setOpenLoopVelocity(SwerveModuleVelocity target) {
+  void setOpenLoopTarget(SwerveModuleVelocity target) {
     command(resolve(target), 0, true);
   }
 
@@ -267,9 +267,7 @@ final class SwerveModule {
                 PersistMode.kNoPersistParameters));
   }
 
-  // A fresh config each time, because the period setters keep the smaller of the requested and the
-  // value already in the object they are called on: restoring through one that has been raised
-  // leaves it raised.
+  // Build a fresh config: period setters cannot restore a lower period.
   private static SparkFlexConfig appliedOutputFrames(boolean raised) {
     var config = new SparkFlexConfig();
     int periodMs =
@@ -282,9 +280,7 @@ final class SwerveModule {
     return config;
   }
 
-  // kNoResetSafeParameters and kNoPersistParameters, both load-bearing: the first leaves every
-  // setting this config does not name alone, and the second is what makes a tuned gain die at the
-  // next power cycle rather than becoming an undocumented property of one controller.
+  // Do not reset unspecified settings or persist temporary tuning changes.
   void applyGains(ModuleGains gains) {
     Hardware.configureSpark(
         "Swerve" + name + "DriveGains",
@@ -371,7 +367,7 @@ final class SwerveModule {
     return Rotation2d.fromRotations(steerSensor.getPosition().get() - steerOffsetRotations);
   }
 
-  SwerveModuleVelocity getVelocity() {
+  SwerveModuleVelocity getMeasuredVelocity() {
     return new SwerveModuleVelocity(driveEncoder.getVelocity().get(), getAngle());
   }
 

@@ -22,9 +22,8 @@ The index of the ADRs themselves is
 - **Fog** — a question you can see coming but cannot yet phrase
   sharply. It is recorded rather than omitted, and *Open* is where it
   lands.
-- **Load-bearing** — said of a line, a rule or a fact that something
-  else quietly depends on. The ADRs mark them so that a later reader
-  does not tidy one away.
+- **Important dependency** — a line, rule, or fact that other work
+  depends on. ADRs mark these so they are not removed by accident.
 - **Enforcement machinery** — a framework, base class, lint rule or
   compliance test whose whole job is to make people follow a rule.
   This project repeatedly declines it in favour of a construction
@@ -241,6 +240,8 @@ The index of the ADRs themselves is
   `Drive.getModulePositions()` hands the pose estimator, and it is a
   different quantity from module angle rather than a longer name for
   it.
+- **Module target** — the requested wheel speed and module angle. A
+  `SwerveModule` optimizes and applies it to both motors.
 - **Field-relative** — velocities expressed against the field, so
   *forward* means the same direction whichever way the robot is
   facing. **Robot-relative** is against the chassis. The follower

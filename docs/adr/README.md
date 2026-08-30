@@ -1,26 +1,21 @@
 # Architecture decision records
 
-One decision area per document. Each ADR states the decision **as it
-stands today** — corrections and withdrawn arguments are resolved, not
-narrated. The argument that produced a decision lives on the tracker;
-the ADR links it under *Source*.
+One decision area per document. Each ADR states the current decision.
+The tracker holds the discussion that led to it; the ADR links that
+discussion under *Source*.
 
 Every ADR carries the same seven sections, in this order:
 
 **Status** · **Context** · **Decision** · **Consequences** · **Traps** ·
 **Rejected** · **Source**
 
-An ADR that carries unresolved fog adds an **Open** heading before
-*Rejected*, naming each open question and what would unblock it. Fog is
-recorded, never omitted — an absent Open heading means the area has
-none, not that nobody looked.
+An ADR with unresolved fog adds **Open** before *Rejected*. It names each
+question and what would answer it. No *Open* heading means no known open
+questions.
 
-*Decision* is written to be read by a first-year programmer without
-*Traps*. *Traps* is the section that earns the document: the failure
-modes that compile clean and fail on the field, each with the source
-location that verifies it. *Rejected* records what was ruled out and
-why, including where an option must not be re-raised without new
-evidence.
+*Decision* should make sense to a first-year programmer without *Traps*.
+*Traps* lists failures that compile but fail on the field, with evidence.
+*Rejected* lists ruled-out options and why.
 
 ## Claim tags
 
@@ -29,16 +24,15 @@ names the source tree and commit its `[source]` tags were read at.
 
 | Tag | Means |
 |---|---|
-| **[source]** | Read out of a named file, cited by path and line. |
-| **[measured]** | Measured on the Pi. The number and its method live in `docs/research/`. |
-| **[executed]** | Verified by running it, not by reading it. |
-| **[field]** | From field evidence — someone else's season, not ours. |
-| **[decided]** | A team decision. There is nothing to verify: it is a choice, and the ticket carries the argument. |
-| **[unverified]** | Nobody has checked. Tagged so that fog stays visibly fog rather than reading as fact. |
+| **[source]** | Read from a named file, cited by path and line. |
+| **[measured]** | Measured on the Pi; method is in `docs/research/`. |
+| **[executed]** | Verified by running it. |
+| **[field]** | Evidence from another team's season. |
+| **[decided]** | Team choice; the ticket records why. |
+| **[unverified]** | Not checked yet. |
 
-The first four are not interchangeable, and the distinction is the point
-— a number measured on the Pi and a behaviour inferred from source are
-worth different amounts when one of them turns out to be wrong.
+These tags are not interchangeable: source, measurement, and execution
+support claims differently.
 
 ## Index
 
@@ -60,14 +54,11 @@ worth different amounts when one of them turns out to be wrong.
 | [0014](0014-ai-log-analysis-contract.md) | AI log-analysis contract | **Accepted** — 2026-08-27 |
 | [0015](0015-binding-revlibs-native.md) | Binding REVLib's native | **Accepted** — 2026-08-30 |
 
-Numbering follows decision area, not the date a document landed. The
-set is complete: every row above resolves to a document.
+Numbers follow decision area, not document date. Every row has a document.
 
 ## Related documents
 
-- [`CONTEXT.md`](../../CONTEXT.md) — the project glossary: every term this
-  project invents or overloads, pointing at the ADR that owns the concept.
+- [`CONTEXT.md`](../../CONTEXT.md) — the project glossary.
 - [`docs/commands-v3-house-style.md`](../commands-v3-house-style.md) — the
-  student-facing teaching document for ADR 0006. The drive base is its
-  worked example.
-- [`docs/research/`](../research/) — the measurements and source readings the ADRs cite, with their methods.
+  student guide for ADR 0006.
+- [`docs/research/`](../research/) — cited measurements and source notes.
