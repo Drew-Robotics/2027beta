@@ -67,6 +67,10 @@ import org.wpilib.units.measure.Voltage;
 // no SPARK can be constructed in this JVM. What this proves is the pipeline; none of it is a
 // number about a robot.
 //
+// The routine configs mirror Drive's too, with one exception: the steer routine is built with
+// DRIVE_STEP_VOLTAGE where Drive uses STEER_STEP_VOLTAGE. Nothing here reads the steer step, so
+// the number is the harness's rather than the drive base's.
+//
 // One log, written once: DataLogManager is process-wide and its directory is fixed by the first
 // start() anything makes, so every assertion below reads the same file.
 //
