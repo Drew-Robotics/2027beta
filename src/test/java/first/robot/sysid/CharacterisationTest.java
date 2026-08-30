@@ -24,6 +24,7 @@ import first.robot.sim.SimModuleState;
 import first.robot.sim.SwerveDriveSim;
 import first.robot.sysid.SysIdRoutine.Direction;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -39,19 +40,21 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestInstance.Lifecycle;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Mechanism;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.datalog.DataLogReader;
 import org.wpilib.datalog.DataLogRecord;
 import org.wpilib.datalog.StringLogEntry;
+import org.wpilib.hardware.hal.HAL;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.util.MathUtil;
+import org.wpilib.simulation.SimHooks;
 import org.wpilib.sysid.SysIdRoutineLog;
 import org.wpilib.system.DataLogManager;
-import org.wpilib.system.RobotController;
 import org.wpilib.units.measure.Time;
 import org.wpilib.units.measure.Voltage;
 
@@ -63,7 +66,15 @@ import org.wpilib.units.measure.Voltage;
 //
 // One log, written once: DataLogManager is process-wide and its directory is fixed by the first
 // start() anything makes, so every assertion below reads the same file.
+//
+// The clock is stepped rather than injected. DataLog stamps every record with wpi::Now, which the
+// simulation HAL points at its own monotonic time (MockHooks.cpp: SetNowImpl(GetMonotonicTime)),
+// and the analyser reads velocity and acceleration out of those timestamps. Left on the wall
+// clock, a minute of simulated ramp lands inside a fraction of a second of real time and the file
+// is unanalysable. Stepping it makes the log the analyser's, not just ours — see the sysidLog
+// task, which writes this same file somewhere a human can pick it up.
 @TestInstance(Lifecycle.PER_CLASS)
+@ResourceLock("timing")
 class CharacterisationTest {
   private static final int MODULES = 4;
   private static final Time STEP = Constants.LOOP_PERIOD;
@@ -71,9 +82,13 @@ class CharacterisationTest {
   private static final int SUB_STEPS = (int) Math.round(STEP.in(Seconds) / SUB_STEP);
   private static final Time BUDGET = Seconds.of(600);
   private static final int SETTLE_CYCLES = 3;
+  private static final int TESTS_PER_ROUTINE = 4;
+  private static final int ROUTINES = 3;
   private static final Time WRITE_DEADLINE = Seconds.of(10);
   private static final long POLL = 150;
   private static final int STABLE_READS = 4;
+  private static final String LOG_DIR_PROPERTY = "sysid.logDir";
+  private static final String LOG_FILE = "sysid-simulation.wpilog";
   private static final String MOTOR = "FrontLeft";
   private static final String DRIVE_LOG = "drive";
   private static final String STEER_LOG = "steer";
@@ -103,7 +118,12 @@ class CharacterisationTest {
 
   @BeforeAll
   void runTheWholePipeline() throws IOException, InterruptedException {
-    RobotController.setTimeSource(() -> (long) now.in(Microseconds));
+    // The HAL first: SimHooks reaches straight into the simulation HAL's own timing state, and
+    // touching it before that library is up segfaults the JVM rather than throwing.
+    HAL.initialize();
+    SimHooks.pauseTiming();
+    SimHooks.restartTiming();
+
     var scheduler = Scheduler.createIndependentScheduler();
     var wheels = new Wheels(scheduler);
     var gains = DriveConstants.SIM_GAINS;
@@ -142,10 +162,16 @@ class CharacterisationTest {
 
     // start() first, and only then the NetworkTables flag: logNetworkTables() with no log yet
     // calls start() itself, which would put this log in the robot's default directory.
-    DataLogManager.start(logDir.toString(), "sysid.wpilog");
+    var directory = logDirectory();
+    var file = directory.resolve(LOG_FILE);
+    // start() opens the file with create-new and quietly randomises the name if one is already
+    // there, which would leave the assertions reading the previous run's log.
+    Files.createDirectories(directory);
+    Files.deleteIfExists(file);
+    DataLogManager.start(directory.toString(), LOG_FILE);
     DataLogManager.logNetworkTables(false);
     assertEquals(
-        logDir.toString(),
+        directory.toString(),
         DataLogManager.getLogDir(),
         "something else in this JVM started the data log first, so this log is not ours");
 
@@ -159,7 +185,15 @@ class CharacterisationTest {
     // The record appended last is not visible to a reader of a log whose writer is still open, so
     // the last thing written is a marker nothing asserts on rather than the last routine's "none".
     new StringLogEntry(DataLogManager.getLog(), "end-of-run").append("");
-    log = readWhenWritten(logDir.resolve("sysid.wpilog"));
+    log = readWhenWritten(file);
+    System.out.println("SysId log: " + file.toAbsolutePath());
+  }
+
+  // The temporary directory unless somebody asked for a real one. The sysidLog Gradle task points
+  // this at logs/, which is where a run meant for the analyser rather than for an assertion goes.
+  private static Path logDirectory() {
+    var override = System.getProperty(LOG_DIR_PROPERTY, "");
+    return override.isBlank() ? logDir : Path.of(override);
   }
 
   // flush() only wakes the writer thread; it does not block until the bytes are on disk, and
@@ -182,7 +216,7 @@ class CharacterisationTest {
 
   @AfterAll
   void restoreClock() {
-    RobotController.setTimeSource(RobotController::getMonotonicTime);
+    SimHooks.resumeTiming();
   }
 
   // Four, in every routine. The analyser combines all four into one dataset before it fits
@@ -241,6 +275,22 @@ class CharacterisationTest {
             + yaw.stream().mapToDouble(Double::doubleValue).max().orElse(0));
   }
 
+  // The one property that decides whether the analyser can do anything with this file. DataLog
+  // stamps records with wpi::Now, the analyser reads velocity and acceleration out of those
+  // stamps, and a harness on the wall clock writes a minute of ramp into a fraction of a second.
+  @Test
+  void theLogIsStampedInSimulatedTimeRatherThanWallClock() {
+    var expected = DriveConstants.CHARACTERISATION_TIMEOUT.times(TESTS_PER_ROUTINE * ROUTINES);
+
+    assertTrue(
+        log.span().gte(expected.times(0.8)),
+        "the log spans "
+            + log.span().in(Seconds)
+            + " s of stamps against "
+            + expected
+            + " of ramp");
+  }
+
   @Test
   void theCancellationPathZeroesTheOutputAndClosesEveryTest() {
     // What the routines commanded, not what the plant was handed: the steer array carries the
@@ -274,6 +324,9 @@ class CharacterisationTest {
   // Everything Drive does between a routine and the plant, with the SPARK-side steer loop modelled
   // at its own rate. The steer routine is the one case with no loop to model: it writes volts.
   private void step(Scheduler scheduler) {
+    // Before the scheduler, so a command that reads the clock on the cycle it starts sees the
+    // cycle it is on rather than the previous one.
+    SimHooks.stepTiming(STEP.in(Seconds));
     now = now.plus(STEP);
     scheduler.run();
 
@@ -364,7 +417,7 @@ class CharacterisationTest {
   // A reader of only what the analyser reads: the entry names, the numbers under them, and the
   // test-state strings.
   private record Log(List<String> entryNames, List<Sample> samples) {
-    private record Sample(String name, double value, String text) {}
+    private record Sample(String name, long timestampMicros, double value, String text) {}
 
     static Log read(Path file) throws IOException {
       var names = new ArrayList<String>();
@@ -385,9 +438,9 @@ class CharacterisationTest {
           var name = entryNamesById.get(record.getEntry());
           var type = typesById.get(record.getEntry());
           if ("double".equals(type)) {
-            samples.add(new Sample(name, record.getDouble(), null));
+            samples.add(new Sample(name, record.getTimestamp(), record.getDouble(), null));
           } else if ("string".equals(type)) {
-            samples.add(new Sample(name, 0, record.getString()));
+            samples.add(new Sample(name, record.getTimestamp(), 0, record.getString()));
           }
         }
       }
@@ -419,6 +472,12 @@ class CharacterisationTest {
         }
       }
       return found;
+    }
+
+    Time span() {
+      var stamps = samples.stream().mapToLong(Sample::timestampMicros);
+      var summary = stamps.summaryStatistics();
+      return Microseconds.of(summary.getMax() - summary.getMin());
     }
 
     Set<String> motorEntries() {

@@ -128,9 +128,13 @@ pushed. The other three are dropped. **[decided]**
 
 **Whole-robot rotation — all four modules, wheels tangent to the spin.**
 The columns are the *robot's*: the applied voltage against the Pigeon's
-yaw and yaw rate, so the fit is volts per radian per second of chassis
-rotation — the quantity a trajectory's `omega` is expressed in, and the
-one no module-level test produces. The azimuths come from the kinematics
+yaw and yaw rate. **It is for turning the robot to an angle** — the
+rotate-to-angle side of teleop and autonomous, which no module-level test
+says anything about. `kS` is the smallest chassis `omega` that breaks the
+robot away at all, which is the floor a heading controller's output
+disappears below; `kV` and `kA` are the largest a profile may ask for,
+and they replace `MAX_ANGULAR_VELOCITY`'s nameplate arithmetic with a
+measurement. **[decided]** The azimuths come from the kinematics
 rather than being written out as four angles, so they cannot disagree
 with it. Pigeon2 yaw spans ±368640°
 (`com/ctre/phoenix6/hardware/core/CorePigeon2.java`, `getYaw`)
@@ -156,6 +160,26 @@ Slowly, and this is the whole of the method's fragility: the arithmetic
 assumes the wheels rolled rather than slipped, and the estimate means
 nothing before a full turn, because the error in where the modules were
 pointing at the start is otherwise a large share of the arc.
+
+### The analyser is fed a simulated log before it is fed a real one
+
+`./gradlew sysidLog` runs the three routines against ADR 0010's plant and
+writes `logs/sysid-simulation.wpilog`, which opens in the analyser like
+any other. It is the same run the pipeline test asserts on, so a log that
+opens is a log CI checked. **[decided]**
+
+The clock is what makes it worth anything. `DataLog` stamps every record
+with `wpi::Now`, and the simulation HAL points that at its own monotonic
+time (`hal/src/main/native/sim/MockHooks.cpp:27`) **[source]**, so a
+harness left on the wall clock writes a minute of simulated ramp into a
+fraction of a second and the analyser fits a derivative of nonsense. The
+harness steps `SimHooks` instead, and a test asserts the span.
+**[executed]**
+
+⚠️ The gains it produces are the model's. Under free-space physics the
+fit recovers whatever went into the plant, so a number read off this file
+and written into `Constants` is the failure this ADR's sim/real split
+exists to prevent.
 
 ### The analyser eats a WPILOG, and what it requires is the state strings
 
@@ -549,6 +573,17 @@ in Traps.
   are two routines and take two names.
 
 ## Open
+
+- **How a chassis-level rotation gain reaches modules that close
+  velocity on the SPARK.** **[unverified]** The rotation fit is in volts
+  per unit of chassis angular velocity, and nothing in this drive base
+  takes chassis volts: a heading controller emits an `omega`, hands it to
+  `setVelocities`, and the module `kS`/`kV` do the voltage work from
+  there. So the rotation numbers are usable immediately as *profile
+  constraints and a stiction floor*, and using them as a feedforward
+  voltage would need a path that does not exist. *Unblocked by* whoever
+  writes the rotate-to-angle command deciding which of the two they
+  want.
 
 - **Whether to shorten the SPARK's velocity filter for the
   characterisation run.** **[unverified]** The default 8-sample /

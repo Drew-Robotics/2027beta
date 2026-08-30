@@ -397,9 +397,10 @@ public class Drive implements Mechanism {
         .angularVelocity(module.getSteerRate());
   }
 
-  // The robot's rotation, not a wheel's: the gain this fit produces is volts per radian per second
-  // of chassis spin, which is the quantity a trajectory's omega is expressed in. The Pigeon's yaw
-  // accumulates past a turn, so the position column is continuous where a Rotation2d would wrap.
+  // The robot's rotation, not a wheel's. What the fit is for is turning the robot to an angle: kS
+  // is the smallest omega command that breaks the robot away at all, and kV and kA give the
+  // largest a profile may ask for — none of which a module-level test can produce. The Pigeon's
+  // yaw accumulates past a turn, so the position column is continuous where a Rotation2d wraps.
   private void logRotationRamp(SysIdRoutineLog log) {
     log.motor(modules[DriveConstants.CHARACTERISED_MODULE].getName())
         .voltage(Volts.of(modules[DriveConstants.CHARACTERISED_MODULE].getDriveVolts()))
