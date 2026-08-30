@@ -5,8 +5,17 @@
 Accepted — 2026-08-30. Resolves the blocker ADR 0013 records against
 Tier 2 and ADR 0010 records against running the simulation at all: both
 were written while constructing a SPARK terminated the JVM, and on the
-desktop it no longer does. It does **not** resolve the deploy, which
-fails further in for a different reason — see *Open*.
+desktop it no longer does.
+
+**Amended — 2026-08-30**, after the deploy failure this ADR first filed
+under *Open* was diagnosed. That section concluded that "no shim fixes
+it and only a REVLib rebuild will". It was wrong, and *Context*,
+*Decision*, *Consequences*, *Traps*, *Open* and *Rejected* all move with
+it: the shim stops being twenty lines that alias two link-time gaps and
+becomes a live interposer on a console path WPILib itself uses. The
+argument is on
+[#87](https://github.com/Drew-Robotics/2027beta/issues/87) and
+[#92](https://github.com/Drew-Robotics/2027beta/issues/92).
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -51,9 +60,55 @@ compile against it, and no development build past it exports the symbol
 at all. That is the whole reason this ADR exists: the fix cannot be a
 version number.
 
+### The second gap: two symbols that resolve and still misfire
+
+Everything above is a *linker* problem — symbols with no definition
+anywhere. There is a second gap that is not, and it is why the deploy
+stayed down after the shim landed.
+
+allwpilib `6e5171cd8` — "[hal] Use MrcLib to talk to DS" (#8858),
+2026-06-06 — rewrote both Driver Station console entry points
+(`hal/src/main/native/include/wpi/hal/DriverStation.h:37,55`).
+**[source]** A parameter was dropped and three `const char*` became
+`const WPI_String*`, where `WPI_String` is `{ const char* str; size_t
+len; }` (`wpiutil/src/main/native/include/wpi/util/string.h:40`):
+**[source]**
+
+```c
+-int32_t HAL_SendError(HAL_Bool isError, int32_t errorCode, HAL_Bool isLVCode,
+-                      const char* details, const char* location,
+-                      const char* callStack, HAL_Bool printMsg);
++int32_t HAL_SendError(HAL_Bool isError, int32_t errorCode,
++                      const struct WPI_String* details,
++                      const struct WPI_String* location,
++                      const struct WPI_String* callStack, HAL_Bool printMsg);
+
+-int32_t HAL_SendConsoleLine(const char* line);
++int32_t HAL_SendConsoleLine(const struct WPI_String* line);
+```
+
+These are `extern "C"`, so the names never changed. REVLib
+`2027.0.0-alpha-6`, compiled against a header older than that commit,
+resolves them, calls them with the old ABI, and nothing anywhere reports
+a mismatch. The HAL then reads a *length* out of the message text: for
+REVLib's status-logger banner, bytes 0–7 become `str` and bytes 8–15
+become `len`, and MrcLib asks for `len + 1` bytes to NUL-terminate a
+string whose length is the ASCII of `"gger: Lo"`. That allocation is the
+`std::bad_alloc` this ADR originally recorded under *Open*, and every
+digit of it is accounted for. **[executed]**
+[#87](https://github.com/Drew-Robotics/2027beta/issues/87) has the
+interposed backtrace and the arithmetic.
+
+It is one path with three failures on it, not one. Removing each exposes
+the next: the banner through `HAL_SendConsoleLine`; then REVLib's CAN
+error reporting through `HAL_SendError`, where the dropped `isLVCode`
+shifts the whole argument list and a `bool` is dereferenced as a
+`callStack` pointer, giving `SIGSEGV`; then the shim's own unresolved
+forward target. **[executed]**
+
 ## Decision
 
-### A shim supplies the two symbols, and nothing else changes
+### A shim supplies the two missing symbols, and nothing in Java changes
 
 `src/main/native/revshim/revshim.cpp` — about twenty lines — defines
 exactly the two symbols above and is preloaded into every JVM that
@@ -82,12 +137,86 @@ Nothing this project reads is downstream of that string: the SPARK
 resolve by name, are built on a different path and come back correct
 and distinct as `SPARK Flex [0,1]` through `[0,4]`. **[executed]**
 
+### The console pair is translated, and the caller says which ABI
+
+The same shim defines `HAL_SendError` and `HAL_SendConsoleLine` with the
+**current** signatures and routes each call by where it came from.
+`dladdr(__builtin_return_address(0))` against the four native libraries
+`vendordeps/REVLib.json` pins — `libREVLib.so`, `libREVLibDriver.so`,
+`libBackendDriver.so`, `libREVLibWpi.so` — decides it. A hit is REVLib,
+so the arguments are read as the old ABI, wrapped in `WPI_String`s, and
+forwarded to the real HAL. Anything else — including a `dladdr` that
+fails — is passed straight through. **[decided]**
+
+**The partition is closed, not a sniff test.** Across every
+`linuxsystemcore` native GradleRIO resolves, exactly two libraries import
+the pair, one per ABI, and the library that defines them imports
+neither, so there is no intra-library traffic to interpose:
+**[executed]**
+
+| Library | Imports | Defines |
+|---|---|---|
+| `libwpiHal.so` | — | both |
+| `libwpiHaljni.so` | both, new ABI | — |
+| `libREVLibWpi.so` | both, old ABI | — |
+
+Nothing else in the tree imports either symbol — not Phoenix, not
+PhotonVision, not ntcore, datalog or telemetry. **[executed]**
+
+**Match the set, not the importer.**
+[#87](https://github.com/Drew-Robotics/2027beta/issues/87) measured
+REVLib's calls arriving from `libREVLibDriver.so`, which imports
+neither symbol; the call tail-jumps through it out of
+`libREVLibWpi.so`, which imports both. Both land on the same side of a
+test that asks *is this any REVLib native*, so the discriminator
+survives either codegen where a test
+naming the importer would not. `libBackendDriver.so` is why the four
+names are written out rather than matched as a `libREVLib*` prefix.
+**[decided]**
+
+**An unknown caller gets the modern ABI.** The fallback direction is the
+whole safety argument: a WPILib native that starts calling the pair is
+handled correctly by default, and the only thing a misclassification can
+damage belongs to a vendor whose native set is pinned by a file in this
+repository. **[decided]**
+
+**Forwarded, not swallowed.** *Swallowing* both is already known to be
+enough — it gets the real jar to *"Robot program startup complete"* with
+eight SPARKs constructed, Phoenix up and 25 s clean, swallowing 46 calls
+on the way. **[executed]** That is an instrument, not a design. Those 46
+are the status-logger banner, but the same path carries CAN timeouts,
+brownouts and firmware mismatches, and a shim that drops them trades a
+crash for a robot that fails quietly. Translating costs one struct
+literal per function; `HAL_SendError` additionally drops the `isLVCode`
+argument the current signature no longer takes. **[decided]**
+
+**One discriminator, not two.** Argument shape is a clean second check
+for `HAL_SendError` — old-ABI `a2` is `isLVCode` ∈ {0,1} where new-ABI
+`a2` is a pointer — and for `HAL_SendConsoleLine`, which takes one
+argument, it does not exist without dereferencing that argument and
+judging whether sixteen bytes look like a `{ptr, len}`. Reading it
+safely needs a fault-free probe on the one path that must not fault.
+Checking only where checking is cheap buys asymmetric confidence that
+reads as uniform. **[decided]**
+
+**It announces itself on the first translated call**, one line to
+stderr, the posture the `fmt::vformat` stub already takes. stderr is not
+the path that is broken, and on `linuxx86-64` the line never prints,
+because nothing there ever calls the pair. **[decided]**
+
 ### It ships built, with its source beside it
 
-Two binaries are checked in — `linuxx86-64/librevshim.so` and
-`linuxsystemcore/librevshim.so`, stripped, 14 KB and 66 KB — together
-with the `.cpp` they came from and the exact commands that built them.
-Gradle does not compile them. **[decided]**
+Two stripped binaries are checked in — `linuxx86-64/librevshim.so` and
+`linuxsystemcore/librevshim.so` — together with the `.cpp` they came
+from and the exact commands that built them. Gradle does not compile
+them. **[decided]**
+
+**One source, both platforms, no `#ifdef`.** The console translators are
+dead weight on `linuxx86-64`, where REVLib never calls the pair, and
+they are compiled in anyway. Building both binaries from one unguarded
+file is what makes *rebuild both, or edit neither* checkable by reading;
+a platform guard would produce two shims that are hard to tell apart.
+**[decided]**
 
 The point of shipping binaries is that no student needs a C++ toolchain
 to run a simulation, and no `./gradlew build` breaks on a missing
@@ -115,7 +244,25 @@ fix therefore cannot live in Java.
 REVLib: `tasks.withType(Test)`, `JavaSimulationTask`, and the robot's
 own start command, through `WPILibJavaArtifact.setJavaCommand` — a
 public, supported hook whose value is echoed into
-`/home/systemcore/robotCommand`. **[source]** The aarch64 binary
+`/home/systemcore/robotCommand`. **[source]**
+
+**On the Pi, `libwpiutil.so` is preloaded ahead of the shim.** The shim
+forwards `WaitForObject` to wpiutil, and the JVM loads wpiutil with
+`RTLD_LOCAL`, so a library preloaded at process start cannot see the
+symbol it forwards to: preloaded alone, `librevshim.so` dies with
+`undefined symbol: _ZN3wpi4util13WaitForObjectEi` even though the Pi's
+`libwpiutil.so` exports it in all three copies on the image.
+**[executed]** Naming wpiutil first in `LD_PRELOAD` puts it in the
+global scope before the shim is relocated. **[decided]** A `DT_NEEDED`
+plus `RPATH` was rejected for baking the Pi's directory layout into a
+checked-in binary, and a first-call `dlopen(RTLD_GLOBAL)` for putting
+failure handling on the path that must not fail. The desktop does not
+need it: every push preloads the shim alone and `WiringTest` passes.
+**[executed]** Why the two platforms differ here is not established, and
+does not need to be — the ordering is correct on both. On the Pi this
+stayed invisible because the `std::bad_alloc` always arrived first.
+
+The aarch64 binary
 deploys to `/home/systemcore/deploy` as its own `FileTreeArtifact`,
 which is a directory this project already owns with
 `deleteOldFiles = false`, rather than GradleRIO's third-party library
@@ -137,6 +284,18 @@ is the original abort. **[executed]** The shim ships with its own
 dismantling instrument wired up, passing with it and failing without it,
 rather than with a note asking somebody to remember.
 
+**It is necessary and not sufficient.** That test runs on the desktop,
+where REVLib never makes a console call at all: the same interposer on
+`linuxx86-64` records **zero** `HAL_SendError` and `HAL_SendConsoleLine`
+calls from REVLib across a full SPARK construction, while a control
+proves the interposition is live on that platform. **[executed]** So a
+rebuilt REVLib would turn `-PnoRevShim` green while the aarch64 half is
+still load-bearing, and somebody would delete a directory the robot
+needs. The second half of the trigger is a deploy with the preload
+dropped, confirmed to reach *"Robot program startup complete"* on the
+Pi. Both commands live in `revshim.cpp`'s header comment. Nothing
+enforces running both, and nothing should. **[decided]**
+
 ## Consequences
 
 `simulateJava` runs. A student picks an opmode and drives. `first.Main`
@@ -151,23 +310,53 @@ ADR 0013's **Tier 2 is live for the first time**. `WiringTest` runs, so
 `Scheduler` test becomes writable — deliberately as its own change,
 not buried in a linker fix.
 
-**The deploy is not unblocked, and the shim is not what is stopping
-it.** On the Pi, `new SparkFlex(...)` throws `std::bad_alloc` — and it
-throws it identically with the shim preloaded and without it, at the
-same call, with the shim's own stub never reached. **[executed —
-192.168.1.202, 2026-08-30]** So `linuxsystemcore` has a second, earlier
-REVLib failure that the two-symbol gap was hiding, and the aarch64 half
-of this ADR is shipped correct and unproven. See *Open*.
+**The robot boots, and the shim is bigger than it was.** The
+`std::bad_alloc` was a second REVLib/WPILib ABI gap that the two-symbol
+one was hiding, on a path the shim did not touch — see *Context*. With
+both bridged, the real jar on the Pi reaches *"Robot program startup
+complete"* and enters `robotPeriodic`. **[executed — 192.168.1.202,
+2026-08-30]** One boot exercises both branches of the discriminator and
+both are legible: REVLib's own errors arrive intact — *"Bus 0: [Spark
+Flex] IDs: 1, timed out while waiting for Get Firmware Version"* where
+there used to be an abort — and WPILib's arrive with their stack traces
+unchanged.
+
+The shim now interposes two functions WPILib itself calls, on every
+error anything reports, rather than supplying two symbols nobody else
+defines. That is a real increase in what it can break, and it is the
+price of a robot that boots before REV publishes again.
+
+**It is still not a running robot.** `robotPeriodic` throws on its first
+pass — `RobotController.getMeasureBatteryVoltage()` reaches
+`PowerJNI.getVinVoltage()` and gets `HalHandleException` code `-1098`,
+which `startCompetition` does not handle — so the service crash-loops one
+step further along than it did. **[executed]** That is the next failure
+on the same path, it is not REVLib's and not the shim's, and it is
+[#94](https://github.com/Drew-Robotics/2027beta/issues/94).
+
+**The aarch64 half was shipped incorrect, not "correct and unproven".**
+This ADR's first version claimed the latter. In fact `librevshim.so`
+preloaded alone on the Pi never loads at all — it cannot resolve
+`WaitForObject`, the symbol it forwards to — so the `javaCommand` line
+was wrong independently of the console problem, and would have been
+wrong even if REVLib had never printed a line. **[executed]**
+[#93](https://github.com/Drew-Robotics/2027beta/issues/93) carries that
+defect; it lands with this.
 
 **CI covers the desktop binary and nothing covers the aarch64 one.**
 Every push proves `linuxx86-64/librevshim.so` still binds, because the
-test task preloads it. The aarch64 binary is checked only by
-`nm -D --defined-only` at build time and by the static fact that
-`libwpiutil.so` for `linuxsystemcore` exports the `WaitForObject(int)`
-it forwards to. **[executed]** It has never been shown to do anything
-on a running robot, because nothing on the Pi gets far enough to need
-it. The rebuild command in `revshim.cpp` is what keeps that
-reproducible rather than folkloric.
+test task preloads it. The aarch64 binary has now been run on a
+robot — see above — but nothing automated will run it again, and at
+build time it is checked only by `nm -D --defined-only`. The rebuild
+commands in `revshim.cpp` are what keep that reproducible rather than
+folkloric.
+
+That gap is worse than when it was written. The console translators are
+the half of the shim with a way to be *quietly* wrong — a misclassified
+call produces bad Driver Station output, not an abort — and they are the
+half no automated check on any machine will ever execute, because the
+calls they exist for are never made on the desktop. **[executed]** What
+covers them is a deploy and a human reading the console.
 
 **`PathFollowingTest` keeps its copy of `Drive.updateSim()`'s sub-step
 loop.** It could now be written against a real `Drive`, and it must not
@@ -206,25 +395,49 @@ source.** Editing `revshim.cpp` without rebuilding both binaries leaves
 a repository that reads correctly and behaves the way the old binary
 did. Rebuild both, or edit neither.
 
+**A REVLib native the discriminator does not know about is passed
+through.** The four library names are written out in `revshim.cpp`. A
+REVLib release that renames or splits one, plus a `vendordeps` bump that
+pulls it in, silently moves that library's console calls to the
+pass-through branch, where they are read as the new ABI and misfire in
+exactly the way this shim exists to prevent — with no error anywhere.
+Re-read the `libName`s in `vendordeps/REVLib.json` whenever REVLib's
+version moves.
+
+**A misclassified call corrupts output instead of aborting.** Both
+branches return normally, so the failure mode is wrong text on the
+Driver Station console, not a crash. This is the one part of the shim
+that can be wrong without saying so, which is why an unrecognised caller
+falls back to the modern ABI rather than the old one.
+
+**Declare the interposer against the header, never from memory.**
+The first instrument in
+[#87](https://github.com/Drew-Robotics/2027beta/issues/87) used the
+2026 seven-argument `HAL_SendError` and produced a convincing, entirely
+wrong reading in
+which WPILib's own calls looked shifted. The signatures come from
+`hal/src/main/native/include/wpi/hal/DriverStation.h` in
+`~/dev/allwpilib`. **[source]**
+
+**`LD_PRELOAD` order is load-bearing on the Pi and not on the desktop.**
+`libwpiutil.so` must be named before `librevshim.so`. Reversing them, or
+dropping wpiutil, gives `symbol lookup error: undefined symbol:
+_ZN3wpi4util13WaitForObjectEi` at JVM start — on a machine where
+`./gradlew test`, which preloads the shim alone, is green.
+
 ## Open
 
-**Why `new SparkFlex(...)` throws `std::bad_alloc` on the SystemCore.**
-It is not the shim: the failure is byte-identical with `LD_PRELOAD` set
-and unset, and the stub prints its announcement line on first call and
-never printed. **[executed]** Everything around it on the Pi is healthy
-— `HAL.initialize()` returns true, the telemetry backends register,
-`PowerDistribution` opens, `TrajectoryLoader` parses, and `can_s0` and
-`can_s1` are both `UP`. **[executed]** The leading hypothesis is that
-REVLib's `linuxsystemcore` native disagrees with the current wpiutil
-about more than two symbol names — a struct that links but no longer
-matches — in which case no shim fixes it and only a REVLib rebuild will.
+**When this can be deleted.** `maven.revrobotics.com` still lists exactly
+one 2027 version, `2027.0.0-alpha-6`, last published 2026-07-28.
+**[executed — 2026-08-30]** Nothing here waits on a decision; it waits on
+REV. No defect has been filed with them, because a beta run against a
+WPILib it was not built for is not a supportable report. **[decided]**
 
-Unblocking it means a REVLib built against a current WPILib, or a
-narrower diagnosis than this ADR has — the evidence and the next
-measurements are on
-[#87](https://github.com/Drew-Robotics/2027beta/issues/87). Until then the aarch64 binary and
-the `LD_PRELOAD` on `robotCommand` are shipped because they are correct
-and cost nothing, not because they have been shown to help.
+The question this section used to hold — why `new SparkFlex(...)` threw
+`std::bad_alloc` on the SystemCore — is answered in *Context*, and the
+conclusion it drew, that no shim could fix it, was wrong.
+[#87](https://github.com/Drew-Robotics/2027beta/issues/87) has the
+diagnosis.
 
 ## Rejected
 
@@ -261,7 +474,41 @@ already stopped using, bought for fidelity in a string nothing reads.
 
 **Waiting for REVLib to publish against a current WPILib.** The honest
 estimate is weeks-to-never; there is no alpha-7 and no announced date.
-Meanwhile the simulation, Tier 2 and the deploy are all down.
+Meanwhile the simulation, Tier 2 and the deploy are all down. The console
+gap did not change this: a month after that one published version,
+`maven-metadata.xml` is unmoved. **[executed]**
+
+**Swallowing REVLib's console calls rather than translating them.**
+Fewer lines, and already proven to reach *"Robot program startup
+complete"*. **[executed]** It silences the path that reports CAN
+timeouts, brownouts and firmware mismatches, so the first symptom of a
+module dropping off the bus would be a robot that does nothing and says
+nothing. A crash is a better failure than that.
+
+**Redirecting REVLib's imports so no discrimination is needed.**
+`libREVLibWpi.so` is the only REVLib native that imports the pair
+**[executed]**, so a `patchelf`-class rewrite pointing it at a
+shim-private name would remove the classification problem outright. It
+is the same rewrite rejected above for `--add-needed`, for the same
+reasons — it mutates a native Gradle re-extracts, and a patched binary
+outlives its reason — and it trades a bounded runtime test for an
+unbounded build step.
+
+**A second discriminator on argument shape.** Clean and free for
+`HAL_SendError`, unavailable for `HAL_SendConsoleLine` without
+dereferencing its one argument behind a fault-free probe. Half a
+cross-check reads like a whole one.
+
+**`StatusLoggerJNI.disableAutoLogging()` on its own.** It removes the
+startup banner, which is where the crash surfaces, and leaves
+`HAL_SendError` untouched — so the robot boots and then dies the first
+time REVLib reports anything. **[executed]** Insufficient, and worse
+than the crash it hides.
+
+**Filing the ABI break with REV.** The mismatch is between a beta REVLib
+and a WPILib development build it was never compiled against. There is
+no supported configuration to report a defect against, and REV cannot
+act on one. **[decided]**
 
 ## Source
 
