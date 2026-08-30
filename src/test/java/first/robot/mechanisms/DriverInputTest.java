@@ -7,10 +7,13 @@ package first.robot.mechanisms;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.wpilib.units.Units.MetersPerSecond;
+import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.Volts;
 
 import first.robot.DriveConstants;
 import org.junit.jupiter.api.Test;
+import org.wpilib.math.kinematics.ChassisVelocities;
+import org.wpilib.math.kinematics.SwerveDriveKinematics;
 
 class DriverInputTest {
   private static final double DEADBAND = DriveConstants.DRIVER_DEADBAND;
@@ -101,6 +104,35 @@ class DriverInputTest {
   // The perspective is a rotation about field centre, and a rotation does not change which way is
   // clockwise. A perspective that negates the spin turns the wrong way on one alliance only,
   // which reads as a gain problem rather than a sign error.
+  // Translation and rotation share one wheel budget, and each stick alone is defined to spend all
+  // of it -- MAX_ANGULAR_VELOCITY is the spin that puts the corner modules at MAX_VELOCITY. So
+  // full stick on both asks for twice what the modules have, and desaturation halves both. This
+  // is the whole of why the robot will not translate and spin at once at full deflection.
+  @Test
+  void fullTranslationAndFullRotationAtOnceAskForTwiceTheWheelsThereAre() {
+    var kinematics =
+        new SwerveDriveKinematics(
+            DriveConstants.DRIVE.frontLeft().location(),
+            DriveConstants.DRIVE.frontRight().location(),
+            DriveConstants.DRIVE.backLeft().location(),
+            DriveConstants.DRIVE.backRight().location());
+    double max = DriveConstants.MAX_VELOCITY.in(MetersPerSecond);
+
+    var both =
+        kinematics.toSwerveModuleVelocities(
+            new ChassisVelocities(
+                max, 0, DriveConstants.MAX_ANGULAR_VELOCITY.in(RadiansPerSecond)));
+
+    double fastest = 0;
+    for (var state : both) {
+      fastest = Math.max(fastest, Math.abs(state.velocity));
+    }
+
+    assertTrue(
+        fastest > 1.8 * max,
+        "a full translation and a full spin only asked for " + fastest / max + " of a wheel");
+  }
+
   @Test
   void thePerspectiveLeavesTheSpinAlone() {
     var blue = Drive.driverVelocities(0, 0, -0.7, BLUE);
