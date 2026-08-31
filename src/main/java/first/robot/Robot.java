@@ -14,6 +14,7 @@ import first.robot.mechanisms.Drive;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -25,6 +26,7 @@ import org.wpilib.driverstation.DriverStation;
 import org.wpilib.driverstation.MatchState;
 import org.wpilib.driverstation.RobotState;
 import org.wpilib.framework.OpModeRobot;
+import org.wpilib.hardware.hal.util.HalHandleException;
 import org.wpilib.hardware.power.PowerDistribution;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.trajectory.HolonomicTrajectory;
@@ -84,6 +86,16 @@ public class Robot extends OpModeRobot {
 
   private long lastWakeUs;
 
+  // The HAL exposes no capability query, so a read it does not implement is discoverable only by
+  // making it. Whether it is implemented is fixed for the session, so these are probed once here
+  // rather than caught every loop.
+  private final boolean hasBatteryVoltage;
+  private final boolean hasCommsDisableCount;
+  private final boolean hasCpuTemp;
+  private final boolean hasSysActive;
+  private final boolean hasRail3V3;
+  private final boolean hasCanStatus;
+
   /**
    * This function is run when the robot is first started up and should be used for any
    * initialization code.
@@ -115,6 +127,38 @@ public class Robot extends OpModeRobot {
     railLog = robotLog.getTable("Rail3V3");
     pdhLog = robotLog.getTable("Pdh");
     pdh = openPdh();
+
+    var unavailable = new ArrayList<String>();
+    // getVinVoltage warns and returns 0 rather than throwing, so it is probed by its value. A
+    // robot far enough along to run this line is never at 0 V.
+    hasBatteryVoltage = RobotController.getBatteryVoltage() > 0;
+    if (!hasBatteryVoltage) {
+      unavailable.add("BatteryVoltage");
+    }
+    hasCommsDisableCount =
+        implemented(unavailable, "CommsDisableCount", RobotController::getCommsDisableCount);
+    hasCpuTemp = implemented(unavailable, "CpuTemp", RobotController::getCPUTemp);
+    hasSysActive = implemented(unavailable, "SysActive", RobotController::isSysActive);
+    hasCanStatus =
+        implemented(
+            unavailable, "Can/Bus0/*", () -> RobotController.getCANStatus(Constants.CAN_BUS));
+
+    // The fault count is what this group is for: it separates a sensor that failed from a rail
+    // that browned out under it. The voltage alone is a hardcoded constant on some platforms, so
+    // it is logged only alongside the count that makes it worth reading.
+    boolean railCurrent =
+        implemented(unavailable, "Rail3V3/Current", RobotController::getCurrent3V3);
+    boolean railFaults =
+        implemented(unavailable, "Rail3V3/FaultCount", RobotController::getFaultCount3V3);
+    hasRail3V3 = railCurrent && railFaults;
+
+    if (!unavailable.isEmpty()) {
+      new Alert(
+              "hal-unimplemented",
+              "Signals this platform cannot source: " + String.join(", ", unavailable),
+              Level.LOW)
+          .set(true);
+    }
 
     // A brownout that held for the whole match and a brownout signal that stopped being written
     // are otherwise the same bytes on disk.
@@ -183,6 +227,18 @@ public class Robot extends OpModeRobot {
         FieldConstants.forCurrentAlliance(trajectories.get(name)));
   }
 
+  // An unimplemented read reports -1098, which is the HAL's not-implemented sentinel rather than
+  // a bad handle. Naming the signal here is what puts it in the startup alert.
+  private static boolean implemented(List<String> unavailable, String name, Runnable read) {
+    try {
+      read.run();
+      return true;
+    } catch (HalHandleException e) {
+      unavailable.add(name);
+      return false;
+    }
+  }
+
   private static PowerDistribution openPdh() {
     try {
       return new PowerDistribution(Constants.CAN_BUS);
@@ -199,18 +255,26 @@ public class Robot extends OpModeRobot {
     robotLog.log("LoopDelta", Microseconds.of(wake - lastWakeUs));
     lastWakeUs = wake;
 
-    robotLog.log("BatteryVoltage", RobotController.getMeasureBatteryVoltage());
+    if (hasBatteryVoltage) {
+      robotLog.log("BatteryVoltage", RobotController.getMeasureBatteryVoltage());
+    }
     robotLog.log("BrownedOut", RobotController.isBrownedOut());
-    robotLog.log("CommsDisableCount", RobotController.getCommsDisableCount());
-    robotLog.log("CpuTemp", RobotController.getMeasureCPUTemp());
-    robotLog.log("InputVoltage", RobotController.getMeasureInputVoltage());
-    robotLog.log("SysActive", RobotController.isSysActive());
+    if (hasCommsDisableCount) {
+      robotLog.log("CommsDisableCount", RobotController.getCommsDisableCount());
+    }
+    if (hasCpuTemp) {
+      robotLog.log("CpuTemp", RobotController.getMeasureCPUTemp());
+    }
+    if (hasSysActive) {
+      robotLog.log("SysActive", RobotController.isSysActive());
+    }
 
-    // The 3.3 V rail feeds the sensors. Its fault count is what separates a sensor that failed
-    // from a rail that browned out under it.
-    railLog.log("Voltage", RobotController.getMeasureVoltage3V3());
-    railLog.log("Current", RobotController.getMeasureCurrent3V3());
-    railLog.log("FaultCount", RobotController.getFaultCount3V3());
+    // The 3.3 V rail feeds the sensors.
+    if (hasRail3V3) {
+      railLog.log("Voltage", RobotController.getMeasureVoltage3V3());
+      railLog.log("Current", RobotController.getMeasureCurrent3V3());
+      railLog.log("FaultCount", RobotController.getFaultCount3V3());
+    }
 
     if (pdh != null) {
       robotLog.log("Pdh", pdh);
@@ -247,12 +311,14 @@ public class Robot extends OpModeRobot {
     // OpModeRobot does not run the Commands v3 scheduler.
     Scheduler.getDefault().run();
 
-    var can = RobotController.getCANStatus(Constants.CAN_BUS);
-    canLog.log("Utilization", can.percentBusUtilization);
-    canLog.log("ReceiveErrors", can.receiveErrorCount);
-    canLog.log("TransmitErrors", can.transmitErrorCount);
-    canLog.log("BusOff", can.busOffCount);
-    canLog.log("TxFull", can.txFullCount);
+    if (hasCanStatus) {
+      var can = RobotController.getCANStatus(Constants.CAN_BUS);
+      canLog.log("Utilization", can.percentBusUtilization);
+      canLog.log("ReceiveErrors", can.receiveErrorCount);
+      canLog.log("TransmitErrors", can.transmitErrorCount);
+      canLog.log("BusOff", can.busOffCount);
+      canLog.log("TxFull", can.txFullCount);
+    }
   }
 
   @Override
