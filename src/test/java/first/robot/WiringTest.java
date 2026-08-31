@@ -76,6 +76,7 @@ class WiringTest {
 
     double displacement;
     List<String> raised;
+    boolean halUnimplemented;
     try {
       thread.start();
       SimHooks.waitForProgramStart();
@@ -108,6 +109,10 @@ class WiringTest {
       displacement = robot.poseEstimator.getEstimatedPose().getTranslation().getNorm();
       raised = new ArrayList<>(highAlerts());
       raised.removeAll(before);
+
+      // The simulation HAL implements every read the startup probe makes, so a rejection here is
+      // the probe being wrong rather than the platform being thin.
+      halUnimplemented = alertActive("hal-unimplemented");
     } finally {
       robot.endCompetition();
       thread.join((long) SHUTDOWN.in(Milliseconds));
@@ -119,6 +124,7 @@ class WiringTest {
     // Before the displacement, which a robot whose thread died also fails, and less usefully.
     assertNull(failure.get());
     assertEquals(List.of(), raised);
+    assertFalse(halUnimplemented, "the probe rejected a signal simulation implements");
     assertTrue(
         displacement > MOVED.in(Meters),
         "expected displacement > " + MOVED.in(Meters) + ", was " + displacement);
@@ -135,6 +141,11 @@ class WiringTest {
 
   private static List<String> names(OpModeOption[] options) {
     return Arrays.stream(options).map(o -> o.name).toList();
+  }
+
+  private static boolean alertActive(String id) {
+    return Arrays.stream(AlertDataJNI.getAlerts())
+        .anyMatch(a -> a.activeStartTime != 0 && id.equals(a.id));
   }
 
   private static List<String> highAlerts() {

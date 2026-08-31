@@ -9,7 +9,10 @@ under *Consequences*. Amended 2026-08-28: the signal list gains
 `/Check`, the opmode-scoped root the utility checks report under.
 Amended 2026-08-30 by #76: the signal list gains `/Match/Mirrored`, and
 the *Open* item on how `/Tunables` reaches the file records its first
-instance.
+instance. Amended 2026-08-30 by #107: a HAL read the platform does not
+implement is probed once and then not logged, `/Robot/InputVoltage` is
+deleted as a duplicate, and `/Robot/Rail3V3/Voltage` is logged only
+beside its fault count.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -122,14 +125,13 @@ habits below.
 | Signal | Source |
 |---|---|
 | `/Robot/LoopDelta` | wake-to-wake delta, ours to compute — ADR 0002 |
-| `/Robot/BatteryVoltage` | `RobotController.getBatteryVoltage()` (`:117`) |
+| `/Robot/BatteryVoltage` † | `RobotController.getBatteryVoltage()` (`:117`) |
 | `/Robot/BrownedOut` | `RobotController.isBrownedOut()` (`:145`) |
-| `/Robot/CommsDisableCount` | `RobotController.getCommsDisableCount()` (`:155`) |
-| `/Robot/CpuTemp` | `RobotController.getCPUTemp()` (`:296`) |
-| `/Robot/Can/Bus0/{Utilization,ReceiveErrors,TransmitErrors,BusOff,TxFull}` | `RobotController.getCANStatus(CANBus)` (`:315`), fields on `CANStatus` (`:10-22`) |
-| `/Robot/InputVoltage` | `RobotController.getInputVoltage()` (`:182`) |
-| `/Robot/SysActive` | `RobotController.isSysActive()` (`:136`) |
-| `/Robot/Rail3V3/{Voltage,Current,FaultCount}` | `RobotController.getVoltage3V3()` (`:200`), `getCurrent3V3()` (`:218`), `getFaultCount3V3()` (`:255`) |
+| `/Robot/CommsDisableCount` † | `RobotController.getCommsDisableCount()` (`:155`) |
+| `/Robot/CpuTemp` † | `RobotController.getCPUTemp()` (`:296`) |
+| `/Robot/Can/Bus0/{Utilization,ReceiveErrors,TransmitErrors,BusOff,TxFull}` † | `RobotController.getCANStatus(CANBus)` (`:315`), fields on `CANStatus` (`:10-22`) |
+| `/Robot/SysActive` † | `RobotController.isSysActive()` (`:136`) |
+| `/Robot/Rail3V3/{Voltage,Current,FaultCount}` † | `RobotController.getVoltage3V3()` (`:200`), `getCurrent3V3()` (`:218`), `getFaultCount3V3()` (`:255`) |
 | `/Robot/Pdh/{Current,Voltage,TotalCurrent,SwitchableChannel}` | `PowerDistribution.logTo` (`PowerDistribution.java:248-254`) |
 | `/Robot/Pdh/{Temperature,TotalEnergy}` | `getTemperature()` (`:108`), `getTotalEnergy()` (`:158`) |
 | `/Robot/Radio/{Connected,Status}` | the radio's own HTTP status page, at 0.2 Hz |
@@ -141,6 +143,11 @@ habits below.
 **[source]** for the accessors, all in
 `wpilibj/src/main/java/org/wpilib/system/RobotController.java` and
 `hal/src/main/java/org/wpilib/hardware/hal/can/CANStatus.java`.
+
+**†** — present only where the platform implements the read. Every one
+of these is absent on the SystemCore image ADR 0002 records and present
+in simulation. See *A HAL read the platform does not implement is not
+logged*, below.
 
 `LoopDelta` is the one signal in that table nothing in the framework
 provides. `Tracer` publishes nothing — it has no telemetry and no
@@ -198,6 +205,73 @@ in real units, and a tick count is only interpretable with a conversion
 factor the git SHA already pins. A per-loop echo of config values —
 ADR 0004 rules that fixed config is recoverable from the SHA and only
 tunables are logged. Vision internals — ADR 0012.
+
+### A HAL read the platform does not implement is not logged
+
+The SystemCore's HAL stubs the reads it has not implemented: the body
+sets `*status = HAL_HANDLE_ERROR` — `-1098` — and returns, which the
+JNI turns into a `HalHandleException` (`HALUtil.cpp:101-104`)
+**[source]**. It is a not-implemented sentinel, not a bad handle, and
+there is no handle to go and fix. Six of the always-on signals above
+are stubs on the image ADR 0002 records, plus the whole
+`/Robot/Can/Bus0` block — while the same reads are implemented in the
+simulation HAL (`sim/HAL.cpp:183,191`, `sim/Power.cpp:31,37,99`,
+`sim/CAN.cpp:54`) **[source]**. So which signals a log contains depends
+on where it was recorded, and the table marks that with a †.
+
+**The rule: probe each one once at startup, and log only what
+answered.** The HAL exposes no capability query — there is no
+`isSupported()` — so a read is discoverable only by making it. Whether
+it is implemented is fixed for the session, so a per-loop `try`/`catch`
+would pay every iteration for an answer that cannot change.
+**[decided]**
+
+Probing rather than branching on `RobotBase.isSimulation()`, which
+would be right for the wrong reason: these reads work in simulation
+because the simulation HAL implements them, not because it is
+simulation. An image that implements `HAL_GetCPUTemp` next month
+restores the signal on its own under a probe, and stays suppressed
+forever under the branch — silently, which is the failure mode this ADR
+exists to avoid.
+
+**The absence is announced, not inferred.** A `hal-unimplemented` alert
+at `Level.LOW` names the rejected signals once at startup, so it
+reaches `/Robot/Alerts` and the Driver Station rather than leaving a
+reader to work out why a name is missing from a file.
+
+**The rule covers HAL reads and nothing else.** A mechanism signal
+comes from REVLib and fails differently: ADR 0004 rules that config
+errors alert and never block, and every mechanism logs `Faults`.
+Reaching for a probe there would be the wrong habit learned from the
+right rule.
+
+Two rows in the table are corrections rather than instances of it:
+
+- **`/Robot/InputVoltage` is deleted, on every platform.**
+  `RobotController.getInputVoltage()` (`:182`) and
+  `getBatteryVoltage()` (`:117`) are both `PowerJNI.getVinVoltage()`
+  **[source]** — one call under two names. It was a duplicate row from
+  the day it was written, and the SystemCore only made it visible.
+  **[decided]**
+- **`/Robot/Rail3V3/Voltage` is logged only when `FaultCount` is.**
+  `HAL_GetUserVoltage3V3` returns a literal `3.3` and never writes
+  status (`systemcore/Power.cpp:42-47`) **[source]**, so no probe can
+  catch it — it succeeds and lies. The group is here for the fault
+  count, which separates a sensor that failed from a rail that browned
+  out under it; without it the voltage is a constant that reads as a
+  measurement. **[decided]**
+
+`/Robot/BatteryVoltage` is a third case again — implemented, and
+failing at runtime on this image with `HAL_INCOMPATIBLE_STATE` (`1015`)
+rather than the stub's sentinel. A positive status does not throw: the
+JNI walks the Java stack, formats it and prints it
+(`HALUtil.cpp:109-118`) **[source]**, which at ADR 0002's 5 ms period
+is a stack walk and a console line two hundred times a second, folded
+into this same WPILOG by `DataLogManager`. A failing signal would
+flood the log it exists to inform. So it is probed too, by its value
+rather than by an exception: a robot far enough along to run the probe
+is never at 0 V. Why the read fails is #108's, not this ADR's.
+**[decided]**
 
 ### Names are PascalCase, and units are never in the name
 
