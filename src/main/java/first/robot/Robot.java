@@ -89,7 +89,7 @@ public class Robot extends OpModeRobot {
   // The HAL exposes no capability query, so a read it does not implement is discoverable only by
   // making it. Whether it is implemented is fixed for the session, so these are probed once here
   // rather than caught every loop.
-  private final boolean hasBatteryVoltage;
+  private final boolean hasMrcPower;
   private final boolean hasCommsDisableCount;
   private final boolean hasCpuTemp;
   private final boolean hasSysActive;
@@ -129,11 +129,14 @@ public class Robot extends OpModeRobot {
     pdh = openPdh();
 
     var unavailable = new ArrayList<String>();
-    // getVinVoltage warns and returns 0 rather than throwing, so it is probed by its value. A
-    // robot far enough along to run this line is never at 0 V.
-    hasBatteryVoltage = RobotController.getBatteryVoltage() > 0;
-    if (!hasBatteryVoltage) {
+    // BatteryVoltage and BrownedOut are the same MRC power interface, and only the voltage has a
+    // value to probe by: getVinVoltage warns and returns 0 rather than throwing, and a robot far
+    // enough along to run this line is never at 0 V. A failing brownout read returns false, which
+    // is also a valid reading, so it is gated on the voltage rather than probed for itself.
+    hasMrcPower = RobotController.getBatteryVoltage() > 0;
+    if (!hasMrcPower) {
       unavailable.add("BatteryVoltage");
+      unavailable.add("BrownedOut");
     }
     hasCommsDisableCount =
         implemented(unavailable, "CommsDisableCount", RobotController::getCommsDisableCount);
@@ -255,10 +258,10 @@ public class Robot extends OpModeRobot {
     robotLog.log("LoopDelta", Microseconds.of(wake - lastWakeUs));
     lastWakeUs = wake;
 
-    if (hasBatteryVoltage) {
+    if (hasMrcPower) {
       robotLog.log("BatteryVoltage", RobotController.getMeasureBatteryVoltage());
+      robotLog.log("BrownedOut", RobotController.isBrownedOut());
     }
-    robotLog.log("BrownedOut", RobotController.isBrownedOut());
     if (hasCommsDisableCount) {
       robotLog.log("CommsDisableCount", RobotController.getCommsDisableCount());
     }

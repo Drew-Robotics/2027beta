@@ -12,7 +12,9 @@ the *Open* item on how `/Tunables` reaches the file records its first
 instance. Amended 2026-08-30 by #107: a HAL read the platform does not
 implement is probed once and then not logged, `/Robot/InputVoltage` is
 deleted as a duplicate, and `/Robot/Rail3V3/Voltage` is logged only
-beside its fault count.
+beside its fault count. Amended 2026-08-30 by #118: `/Robot/BrownedOut`
+is gated on the battery voltage probe, because the two are one MRC
+power interface and only the voltage has a value to probe by.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -126,7 +128,7 @@ habits below.
 |---|---|
 | `/Robot/LoopDelta` | wake-to-wake delta, ours to compute — ADR 0002 |
 | `/Robot/BatteryVoltage` † | `RobotController.getBatteryVoltage()` (`:117`) |
-| `/Robot/BrownedOut` | `RobotController.isBrownedOut()` (`:145`) |
+| `/Robot/BrownedOut` † | `RobotController.isBrownedOut()` (`:145`) |
 | `/Robot/CommsDisableCount` † | `RobotController.getCommsDisableCount()` (`:155`) |
 | `/Robot/CpuTemp` † | `RobotController.getCPUTemp()` (`:296`) |
 | `/Robot/Can/Bus0/{Utilization,ReceiveErrors,TransmitErrors,BusOff,TxFull}` † | `RobotController.getCANStatus(CANBus)` (`:315`), fields on `CANStatus` (`:10-22`) |
@@ -144,9 +146,9 @@ habits below.
 `wpilibj/src/main/java/org/wpilib/system/RobotController.java` and
 `hal/src/main/java/org/wpilib/hardware/hal/can/CANStatus.java`.
 
-**†** — present only where the platform implements the read. Every one
-of these is absent on the SystemCore image ADR 0002 records and present
-in simulation. See *A HAL read the platform does not implement is not
+**†** — present only where the platform's read answers. Every one of
+these is absent on the SystemCore image ADR 0002 records and present in
+simulation. See *A HAL read the platform does not implement is not
 logged*, below.
 
 `LoopDelta` is the one signal in that table nothing in the framework
@@ -273,17 +275,41 @@ rather than by an exception: a robot far enough along to run the probe
 is never at 0 V. Why the read fails is #108's, not this ADR's.
 **[decided]**
 
-**A boolean read cannot be probed at all, and one is outstanding.**
-`HAL_GetBrownedOut` fails the same way on this image, and returns
-`false` when it does (`systemcore/HAL.cpp:191-201`) **[source]** —
-which is also a valid reading. There is no value to probe by and no
-Java-side route to the status, because `DriverStationErrors` reports
-errors and never exposes them. So `/Robot/BrownedOut` still logs, and
-what it logs is `false` whether or not the robot browned out. #94
-recorded this as the one always-on read that worked; that was true of
-the console call and not of the loop, where the `-1098` throws in front
-of it were masking it. This rule names the case it cannot reach rather
-than implying it covers it. What to do about it is #118.
+**A boolean read cannot be probed at all, so one signal is gated on
+another.** `HAL_GetBrownedOut` fails the same way on this image and
+returns `false` when it does (`systemcore/HAL.cpp:191-201`)
+**[source]** — which is also a valid reading. There is no value to
+probe by: a boolean has no invalid one, and there is no Java-side route
+to the status. `DriverStationErrors` reports errors and never exposes
+them (`DriverStationErrors.java:19-59`) **[source]**, `HAL_GetLastError`
+has no Java binding at all, and `ControlWord` carries no brownout bit
+**[executed]**.
+
+So `/Robot/BrownedOut` is gated on the `/Robot/BatteryVoltage` probe
+rather than probed for itself, and named in the `hal-unimplemented`
+alert when that probe fails. The two are one interface —
+`MRC_Systemcore_GetBatteryVoltage` (`systemcore/Power.cpp:33`) and
+`MRC_Systemcore_GetBrownedOut` (`systemcore/HAL.cpp:194`) **[source]**
+— and on this image they fail together, in the same loop, where #94 saw
+both succeed on the console. Only the voltage has a value to probe by,
+so the voltage answers for both. **[decided]**
+
+This is the one signal in the list whose availability is *inferred*
+rather than measured, and calling it a coupling rather than a probe is
+the point: the field is `hasMrcPower`, not `hasBatteryVoltage`, because
+one flag now gates two signals and the narrower name would lie at the
+second use site. It keeps the property the probe rule is for — an image
+that fixes the MRC power reads restores both signals with no code
+change, and #108 owns why they fail. If one recovers without the other,
+this inference is what will be wrong, and the alert naming both is where
+that shows up.
+
+The alternative was to keep logging `false`. #94 recorded `BrownedOut`
+as the one always-on read that worked; that was true of the console call
+and not of the loop, where the `-1098` throws in front of it were
+masking it. A boolean safety signal reading *not browned out* when the
+truth is unknown is worse than the `Rail3V3/Voltage` constant above,
+which at least never claimed to be a fault indicator. **[decided]**
 
 ### Names are PascalCase, and units are never in the name
 
@@ -782,6 +808,22 @@ path to the same fact carrying less information.
 A tick count needs a conversion factor to mean anything, and the SHA
 already pins the conversion factor. We log the derived value in real
 units.
+
+### Deriving `BrownedOut` from the power distribution hub
+
+The PDH reaches the SystemCore over CAN and not through MRC —
+`HAL_GetPowerDistributionVoltage` dispatches to `HAL_GetREVPDHVoltage`
+(`systemcore/PowerDistribution.cpp:139-146`) **[source]** — so
+`/Robot/Pdh/Voltage` is a battery voltage that works on the image where
+`/Robot/BatteryVoltage` does not, and a brownout threshold over it would
+restore both. There is a PDH on the robot, so this was available.
+
+Rejected because the MRC power reads are a beta artifact, not a property
+of the platform. A probe restores the real signals for free the day the
+image is fixed; a derived brownout would still be there, on a different
+bus, with a threshold we chose, diverging from what every other team's
+log means by the same name. Routing around a temporary bug is not worth
+a permanent departure. **[decided]**
 
 ## Source
 

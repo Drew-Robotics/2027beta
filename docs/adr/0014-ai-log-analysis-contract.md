@@ -7,7 +7,10 @@ parser: `robotpy-wpilog` **does** exist for 2027 and works. The decision
 is unchanged and the reason is now coupling rather than absence — see
 *Rejected* and *Source*. Amended 2026-08-30 by #107: a class-1 anchor
 the platform could not source is reported as *unavailable*, never as
-*clear*.
+*clear*. Amended 2026-08-30 by #118: `/Robot/BrownedOut` joins that
+set, taking class 1 to three unavailable anchors of five on this image;
+the rule composes over three as it did over two, and there is no
+class-level verdict.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -294,8 +297,9 @@ it, and never opening pose error at all.
 **A missing anchor is reported as *unavailable*, never as *clear*.**
 ADR 0005 lets the platform decide whether a HAL-sourced signal exists
 at all, and class 1 is where that bites: on the SystemCore image ADR
-0002 records, `/Robot/Can/Bus0/*` and `/Robot/BatteryVoltage` are both
-absent, which is two of that class's five anchors. `list` is what makes
+0002 records, `/Robot/Can/Bus0/*`, `/Robot/BatteryVoltage` and
+`/Robot/BrownedOut` are all absent, which is three of that class's five
+anchors — leaving `/Robot/LoopDelta` and `/Robot/Alerts`. `list` is what makes
 this legible — step 2 of every run exists to stop the agent querying
 signals the log does not have — but a signal that was never recorded
 and a signal that recorded no problem are the same nothing at query
