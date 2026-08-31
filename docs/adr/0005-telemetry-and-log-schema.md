@@ -273,6 +273,18 @@ rather than by an exception: a robot far enough along to run the probe
 is never at 0 V. Why the read fails is #108's, not this ADR's.
 **[decided]**
 
+**A boolean read cannot be probed at all, and one is outstanding.**
+`HAL_GetBrownedOut` fails the same way on this image, and returns
+`false` when it does (`systemcore/HAL.cpp:191-201`) **[source]** —
+which is also a valid reading. There is no value to probe by and no
+Java-side route to the status, because `DriverStationErrors` reports
+errors and never exposes them. So `/Robot/BrownedOut` still logs, and
+what it logs is `false` whether or not the robot browned out. #94
+recorded this as the one always-on read that worked; that was true of
+the console call and not of the loop, where the `-1098` throws in front
+of it were masking it. This rule names the case it cannot reach rather
+than implying it covers it. What to do about it is #118.
+
 ### Names are PascalCase, and units are never in the name
 
 PascalCase segments, no spaces, no abbreviations that need expanding,
