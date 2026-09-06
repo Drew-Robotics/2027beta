@@ -400,7 +400,7 @@ public class Drive implements Mechanism {
 
   private void characteriseDrive(Voltage volts) {
     for (var module : modules) {
-      module.characteriseDrive(Rotation2d.kZero, volts);
+      module.characteriseDrive(Rotation2d.ZERO, volts);
     }
   }
 

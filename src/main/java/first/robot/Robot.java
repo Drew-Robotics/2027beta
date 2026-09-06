@@ -6,8 +6,8 @@ package first.robot;
 
 import static org.wpilib.units.Units.Celsius;
 import static org.wpilib.units.Units.Joules;
-import static org.wpilib.units.Units.Microseconds;
 import static org.wpilib.units.Units.Milliseconds;
+import static org.wpilib.units.Units.Nanoseconds;
 import static org.wpilib.units.Units.Seconds;
 
 import first.robot.mechanisms.Drive;
@@ -84,7 +84,7 @@ public class Robot extends OpModeRobot {
           .build();
   private CompletableFuture<HttpResponse<String>> radioStatus;
 
-  private long lastWakeUs;
+  private long lastWakeNanos;
 
   // The HAL exposes no capability query, so a read it does not implement is discoverable only by
   // making it. Whether it is implemented is fixed for the session, so these are probed once here
@@ -209,7 +209,7 @@ public class Robot extends OpModeRobot {
     // they have to know idle() would have defaulted to.
     drive.setDefaultCommand(drive.idle());
 
-    lastWakeUs = RobotController.getMonotonicTime();
+    lastWakeNanos = RobotController.getMonotonicTime();
     // The first sendAsync costs ~8 ms while the client starts its machinery, which is over the
     // whole loop period. Paid here, where nothing is timing anything.
     radioStatus = request();
@@ -255,8 +255,8 @@ public class Robot extends OpModeRobot {
   @Override
   public void robotPeriodic() {
     long wake = getLoopStartTime();
-    robotLog.log("LoopDelta", Microseconds.of(wake - lastWakeUs));
-    lastWakeUs = wake;
+    robotLog.log("LoopDelta", Nanoseconds.of(wake - lastWakeNanos));
+    lastWakeNanos = wake;
 
     if (hasMrcPower) {
       robotLog.log("BatteryVoltage", RobotController.getMeasureBatteryVoltage());
@@ -378,7 +378,7 @@ public class Robot extends OpModeRobot {
     alertLog.log("Levels", active.stream().map(Robot::levelName).toArray(String[]::new));
     alertLog.log(
         "StartTimes",
-        active.stream().mapToDouble(a -> Microseconds.of(a.activeStartTime).in(Seconds)).toArray());
+        active.stream().mapToDouble(a -> Nanoseconds.of(a.activeStartTime).in(Seconds)).toArray());
   }
 
   private static String levelName(AlertInfo alert) {

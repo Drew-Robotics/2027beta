@@ -34,7 +34,7 @@ public final class SwerveDriveSim {
   private final double[] driveAppliedVolts = new double[MODULES];
   private final double[] steerAppliedVolts = new double[MODULES];
 
-  private Pose2d pose = Pose2d.kZero;
+  private Pose2d pose = Pose2d.ZERO;
   private ChassisVelocities velocity = new ChassisVelocities();
   private double batteryVolts = BatterySim.calculateDefaultBatteryLoadedVoltage();
   private double appliedRailVolts = batteryVolts;

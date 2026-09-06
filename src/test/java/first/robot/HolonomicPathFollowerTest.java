@@ -38,7 +38,7 @@ class HolonomicPathFollowerTest {
 
   private MockTelemetryBackend backend;
   private TelemetryTable log;
-  private Pose2d pose = Pose2d.kZero;
+  private Pose2d pose = Pose2d.ZERO;
   private double now;
 
   @BeforeEach
@@ -82,9 +82,9 @@ class HolonomicPathFollowerTest {
 
   @Test
   void aRobotSittingOnThePathIsHandedTheSamplesOwnVelocity() {
-    pose = new Pose2d(0, 0, Rotation2d.kZero);
+    pose = new Pose2d(0, 0, Rotation2d.ZERO);
 
-    var velocities = follower(straightAlongX(Rotation2d.kZero)).nextFieldRelativeVelocities();
+    var velocities = follower(straightAlongX(Rotation2d.ZERO)).nextFieldRelativeVelocities();
 
     assertEquals(SPEED, velocities.vx, TOLERANCE);
     assertEquals(0, velocities.vy, TOLERANCE);
@@ -95,9 +95,9 @@ class HolonomicPathFollowerTest {
   // rather than in the robot's. A robot facing +y that is a metre to the field's left needs -y.
   @Test
   void theCorrectionIsInFieldTermsRatherThanTheRobots() {
-    pose = new Pose2d(0, 0.1, Rotation2d.kCCW_Pi_2);
+    pose = new Pose2d(0, 0.1, Rotation2d.CCW_PI_2);
 
-    var velocities = follower(straightAlongX(Rotation2d.kCCW_Pi_2)).nextFieldRelativeVelocities();
+    var velocities = follower(straightAlongX(Rotation2d.CCW_PI_2)).nextFieldRelativeVelocities();
 
     assertEquals(SPEED, velocities.vx, TOLERANCE);
     assertEquals(-0.5, velocities.vy, TOLERANCE);
@@ -107,9 +107,9 @@ class HolonomicPathFollowerTest {
   void poseErrorIsReportedAlongAndAcrossTheTrackRatherThanInXAndY() {
     // Behind the sample in field +x, with the robot facing field +y: that is a whole rotation
     // away from being a lag, and x/y error alone cannot say so.
-    pose = new Pose2d(-0.3, 0, Rotation2d.kCCW_Pi_2);
+    pose = new Pose2d(-0.3, 0, Rotation2d.CCW_PI_2);
 
-    follower(straightAlongX(Rotation2d.kCCW_Pi_2)).nextFieldRelativeVelocities();
+    follower(straightAlongX(Rotation2d.CCW_PI_2)).nextFieldRelativeVelocities();
 
     assertEquals(0, backend.getLastValue("/AlongTrackError", Double.class), TOLERANCE);
     assertEquals(-0.3, backend.getLastValue("/CrossTrackError", Double.class), TOLERANCE);
@@ -117,28 +117,28 @@ class HolonomicPathFollowerTest {
 
   @Test
   void aPathWhoseClockRanOutSomewhereElseIsNotDone() {
-    var follower = follower(straightAlongX(Rotation2d.kZero));
-    pose = new Pose2d(0.5, 0, Rotation2d.kZero);
+    var follower = follower(straightAlongX(Rotation2d.ZERO));
+    pose = new Pose2d(0.5, 0, Rotation2d.ZERO);
 
     now = LENGTH / SPEED + 1;
 
     assertFalse(follower.isFinished(), "a robot half a path short of the end reported done");
 
-    pose = new Pose2d(LENGTH, 0, Rotation2d.kZero);
+    pose = new Pose2d(LENGTH, 0, Rotation2d.ZERO);
     assertTrue(follower.isFinished(), "a robot at the end of a finished path did not report done");
   }
 
   @Test
   void aPathThatHasNotRunItsDurationIsNotDoneEvenSittingOnTheEndPose() {
-    var follower = follower(straightAlongX(Rotation2d.kZero));
-    pose = new Pose2d(LENGTH, 0, Rotation2d.kZero);
+    var follower = follower(straightAlongX(Rotation2d.ZERO));
+    pose = new Pose2d(LENGTH, 0, Rotation2d.ZERO);
 
     assertFalse(follower.isFinished(), "a path reported done before it had run");
   }
 
   @Test
   void theTimeoutIsAMarginOverTheTrajectoryDurationRatherThanAnAbsolute() {
-    var follower = follower(straightAlongX(Rotation2d.kZero));
+    var follower = follower(straightAlongX(Rotation2d.ZERO));
 
     assertEquals(
         LENGTH / SPEED + CONFIG.timeoutMargin().in(Seconds),
@@ -153,12 +153,12 @@ class HolonomicPathFollowerTest {
             List.of(
                 new HolonomicSample(
                     0,
-                    Pose2d.kZero,
+                    Pose2d.ZERO,
                     new ChassisVelocities(),
                     new ChassisAccelerations(2.5, 0, 0.75)),
                 new HolonomicSample(
                     1,
-                    new Pose2d(1.25, 0, Rotation2d.kZero),
+                    new Pose2d(1.25, 0, Rotation2d.ZERO),
                     new ChassisVelocities(2.5, 0, 0.75),
                     new ChassisAccelerations(2.5, 0, 0.75))));
     var follower = follower(accelerating);

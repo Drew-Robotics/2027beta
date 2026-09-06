@@ -141,7 +141,7 @@ class PoseEstimatorTest {
     advance(SETTLE);
 
     estimator.visionUpdate(
-        new Pose3d(new Pose2d(1, 0, Rotation2d.kZero)),
+        new Pose3d(new Pose2d(1, 0, Rotation2d.ZERO)),
         captured,
         VecBuilder.fill(0.1, 0.1, 0.1, 0.1));
 

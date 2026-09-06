@@ -63,7 +63,7 @@ public final class FieldConstants {
   }
 
   public static Pose2d flip(Pose2d pose) {
-    return new Pose2d(-pose.getX(), -pose.getY(), pose.getRotation().rotateBy(Rotation2d.kPi));
+    return new Pose2d(-pose.getX(), -pose.getY(), pose.getRotation().rotateBy(Rotation2d.PI));
   }
 
   // Reflect across the field's long axis (y = 0).
