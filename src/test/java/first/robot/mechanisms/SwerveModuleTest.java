@@ -53,16 +53,16 @@ class SwerveModuleTest {
   // way is braking and its share has to come back negative.
   @Test
   void aWheelDrivenAgainstTheAccelerationBrakesAgainstIt() {
-    var acceleration = new SwerveModuleAcceleration(4.0, Rotation2d.kZero);
+    var acceleration = new SwerveModuleAcceleration(4.0, Rotation2d.ZERO);
 
-    assertEquals(4.0, SwerveModule.accelerationAlong(acceleration, Rotation2d.kZero), TOLERANCE);
-    assertEquals(-4.0, SwerveModule.accelerationAlong(acceleration, Rotation2d.kPi), TOLERANCE);
+    assertEquals(4.0, SwerveModule.accelerationAlong(acceleration, Rotation2d.ZERO), TOLERANCE);
+    assertEquals(-4.0, SwerveModule.accelerationAlong(acceleration, Rotation2d.PI), TOLERANCE);
   }
 
   @Test
   void aWheelTurnedAcrossTheAccelerationTakesNoneOfIt() {
-    var acceleration = new SwerveModuleAcceleration(4.0, Rotation2d.kZero);
+    var acceleration = new SwerveModuleAcceleration(4.0, Rotation2d.ZERO);
 
-    assertEquals(0, SwerveModule.accelerationAlong(acceleration, Rotation2d.kCCW_Pi_2), TOLERANCE);
+    assertEquals(0, SwerveModule.accelerationAlong(acceleration, Rotation2d.CCW_PI_2), TOLERANCE);
   }
 }

@@ -1,16 +1,11 @@
 plugins {
     id "java"
-    id "org.wpilib.GradleRIO" version "2027.0.0-alpha-6"
-    id "com.gradleup.shadow" version "9.3.0"
+    id "application"
+    id "org.wpilib.GradleRIO" version "2027.0.0-alpha-7"
     // Departs from the template: the analyzers wired at the end of this file.
     id "com.diffplug.spotless" version "8.4.0"
     id "com.github.spotbugs" version "6.4.12"
 }
-
-// Departs from the template: 2027 has no stable release line yet, and a pinned development build
-// is evicted from that repository's rolling window within days.
-wpi.maven.useDevelopment = true
-wpi.versions.wpilibVersion = '2027.+'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_25
@@ -39,6 +34,9 @@ deploy {
                 // getTargetTypeClass is a shortcut to get the class type using a string
 
                 wpilibJava(getArtifactTypeClass('WPILibJavaArtifact')) {
+                    // Set to true to use debug including JNI, which will drastically impact performance.
+                    debugJni = false
+
                     // Departs from the template: see src/main/native/revshim. wpiutil comes
                     // first because the shim forwards a symbol into it and the JVM loads it
                     // RTLD_LOCAL, where a preloaded library cannot see it; this is the copy on
@@ -73,24 +71,14 @@ def revShimDesktop = file('src/main/native/revshim/linuxx86-64/librevshim.so').a
 
 def deployArtifact = deploy.targets.systemcore.artifacts.wpilibJava
 
-// Set to true to use debug for all targets including JNI, which will drastically impact
-// performance.
-wpi.java.debugJni = false
+// Set to true to use debug for simulation including JNI
+wpi.java.runSimWithDebugJni = false
 
 // Set this to true to enable desktop support.
 def includeDesktopSupport = true
 
 // Defining my dependencies. In this case, WPILib (+ friends), and vendor libraries.
 // Also defines JUnit 5.
-// Departs from the template: the two natives GradleRIO's JNI list omits, for the configuration
-// blocks below.
-def wpilibNatives = { String platform, boolean debug ->
-    def classifier = debug ? "${platform}debug" : platform
-    ['org.wpilib.telemetry:telemetry-cpp', 'org.wpilib.tunables:tunables-cpp'].collect {
-        "${it}:${wpi.versions.wpilibVersion.get()}:${classifier}@zip"
-    }
-}
-
 dependencies {
     annotationProcessor wpi.java.deps.wpilibAnnotations()
     implementation wpi.java.deps.wpilib()
@@ -110,21 +98,6 @@ dependencies {
     nativeRelease wpi.java.vendor.jniRelease(wpi.platforms.desktop)
     simulationRelease wpi.sim.enableRelease()
 
-    // Departs from the template: wpilibj's telemetry and tunable APIs live in their own artifacts,
-    // and GradleRIO's wpilib() list carries neither, so classes RobotBase itself uses are absent
-    // from the compile classpath. Delete when wpilib() includes them.
-    implementation "org.wpilib.telemetry:telemetry-java:${wpi.versions.wpilibVersion.get()}"
-    implementation "org.wpilib.tunables:tunables-java:${wpi.versions.wpilibVersion.get()}"
-
-    // Departs from the template for the same omission one layer down: libwpimath.so declares
-    // libtelemetry.so and libtunables.so as NEEDED, and GradleRIO's JNI list carries neither, so
-    // loading wpimathjni throws. Anything that discretizes a plant hits it. Delete when
-    // wpilibJniRelease includes them.
-    systemcoreDebug wpilibNatives(wpi.platforms.systemcore, true)
-    systemcoreRelease wpilibNatives(wpi.platforms.systemcore, false)
-    nativeDebug wpilibNatives(wpi.platforms.desktop, true)
-    nativeRelease wpilibNatives(wpi.platforms.desktop, false)
-
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
@@ -141,12 +114,6 @@ tasks.withType(Test).configureEach {
     // the JVM, and the next class to want its own gets the first one's.
     forkEvery = 1
     systemProperty 'junit.jupiter.extensions.autodetection.enabled', 'true'
-    // Departs from the template: GradleRIO adds these to the sim and deploy JVMs but not to test.
-    // Commands v3 privateLookupIn's jdk.internal.vm.Continuation(Scope) and java.lang.Thread, and
-    // scheduling loadLibrary's the HAL. Delete when configureTestTasks supplies the flags.
-    jvmArgs '--add-opens', 'java.base/jdk.internal.vm=ALL-UNNAMED',
-            '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
-            '--enable-native-access=ALL-UNNAMED'
 }
 
 // The characterisation harness, pointed at a file a human can drag into the SysId analyser rather
@@ -166,29 +133,27 @@ tasks.register('sysidLog', Test) {
 }
 
 // Simulation configuration (e.g. environment variables).
-tasks.withType(org.wpilib.gradlerio.simulation.JavaSimulationTask).configureEach {
-    environment 'LD_PRELOAD', revShimDesktop
-}
 wpi.sim.addGui().defaultEnabled = true
 wpi.sim.addDriverstation()
 
-// Setting up my Jar File. In this case, adding all libraries into the main jar ('fat/shaded jar')
-// in order to make them all available at runtime and merging service files to make JSON work.
-// Also adding the manifest so WPILib knows where to look for our Robot Class.
-shadowJar {
-    mergeServiceFiles()
+application.mainClass = ROBOT_MAIN_CLASS
+
+deployArtifact.configureApplication(application)
+wpi.java.configureApplication(application)
+wpi.java.configureTestTasks(test)
+wpi.java.configureTestTasks(tasks.named('sysidLog').get())
+
+// Departs from the template: simulation runs through the application plugin's JavaExec tasks now,
+// and they need the same preload as the tests.
+tasks.withType(JavaExec).configureEach {
+    environment 'LD_PRELOAD', revShimDesktop
+}
+
+jar {
     from('src') { into 'backup/src' }
     from('vendordeps') { into 'backup/vendordeps' }
     from('build.gradle') { into 'backup' }
-    manifest org.wpilib.gradlerio.GradleRIOPlugin.javaManifest(ROBOT_MAIN_CLASS)
-    duplicatesStrategy = DuplicatesStrategy.INCLUDE
 }
-
-// Configure jar and deploy tasks
-deployArtifact.jarTask = shadowJar
-wpi.java.configureExecutableTasks(shadowJar)
-wpi.java.configureTestTasks(test)
-wpi.java.configureTestTasks(tasks.named('sysidLog').get())
 
 // Configure string concat to always inline compile
 tasks.withType(JavaCompile) {

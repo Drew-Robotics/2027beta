@@ -28,7 +28,7 @@ public class DrivePathCheck implements OpMode {
   private static final LinearVelocity LEG_SPEED = MetersPerSecond.of(1);
   private static final Time LEG_DURATION = Seconds.of(1.5);
   private static final Time SETTLE = Seconds.of(0.5);
-  private static final Pose2d START = Pose2d.kZero;
+  private static final Pose2d START = Pose2d.ZERO;
 
   // The square closes, so whatever pose the estimator reports at the end is the whole of the
   // odometry error. Nothing here needs a ground truth, which is what makes it the same check on

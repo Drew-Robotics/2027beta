@@ -16,7 +16,7 @@ Read these before changing code:
 
 1. Install JDK 25 and the WPILib 2027 VSCode extension.
 2. Clone the repository and open it in VSCode.
-3. Run `./gradlew simulateJava` to start the simulation.
+3. Run `./gradlew run` to start the simulation.
 4. Run `./gradlew test` to run tests without hardware.
 5. Run `./gradlew sysidLog` when working on SysId. Its log describes the
    simulation, not the real robot.

@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
-import static org.wpilib.units.Units.Microseconds;
 import static org.wpilib.units.Units.Milliseconds;
+import static org.wpilib.units.Units.Nanoseconds;
 import static org.wpilib.units.Units.Radians;
 import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.RotationsPerSecond;
@@ -122,7 +122,7 @@ class CharacterisationTest {
   private SimModuleState[] state;
   private double azimuthRate;
   private double yawRadians;
-  private Rotation2d lastRotation = Rotation2d.kZero;
+  private Rotation2d lastRotation = Rotation2d.ZERO;
   private Time now = Seconds.zero();
   private Log log;
 
@@ -488,7 +488,7 @@ class CharacterisationTest {
   // A reader of only what the analyser reads: the entry names, the numbers under them, and the
   // test-state strings.
   private record Log(List<String> entryNames, List<Sample> samples) {
-    private record Sample(String name, long timestampMicros, double value, String text) {}
+    private record Sample(String name, long timestampNanos, double value, String text) {}
 
     static Log read(Path file) throws IOException {
       var names = new ArrayList<String>();
@@ -551,7 +551,7 @@ class CharacterisationTest {
           samples.stream()
               .filter(sample -> sample.name.equals("sysid-test-state-" + logName))
               .filter(sample -> test.equals(sample.text))
-              .mapToLong(Sample::timestampMicros)
+              .mapToLong(Sample::timestampNanos)
               .summaryStatistics();
       if (stamps.getCount() == 0) {
         throw new AssertionError(test + " never ran on " + logName);
@@ -564,8 +564,8 @@ class CharacterisationTest {
       var window = window(logName, test);
       return samples.stream()
           .filter(sample -> sample.name.equals(entry))
-          .filter(sample -> sample.timestampMicros >= window.getMin())
-          .filter(sample -> sample.timestampMicros <= window.getMax())
+          .filter(sample -> sample.timestampNanos >= window.getMin())
+          .filter(sample -> sample.timestampNanos <= window.getMax())
           .map(Sample::value)
           .toList();
     }
@@ -575,16 +575,16 @@ class CharacterisationTest {
       long start = window(logName, test).getMin();
       return samples.stream()
           .filter(sample -> sample.name.equals(entry))
-          .filter(sample -> sample.timestampMicros >= start)
+          .filter(sample -> sample.timestampNanos >= start)
           .mapToDouble(Sample::value)
           .findFirst()
           .orElseThrow(() -> new AssertionError("no " + entry + " after " + test));
     }
 
     Time span() {
-      var stamps = samples.stream().mapToLong(Sample::timestampMicros);
+      var stamps = samples.stream().mapToLong(Sample::timestampNanos);
       var summary = stamps.summaryStatistics();
-      return Microseconds.of(summary.getMax() - summary.getMin());
+      return Nanoseconds.of(summary.getMax() - summary.getMin());
     }
 
     Set<String> motorEntries() {

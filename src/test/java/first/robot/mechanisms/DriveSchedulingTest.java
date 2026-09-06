@@ -7,8 +7,8 @@ package first.robot.mechanisms;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.wpilib.units.Units.Microseconds;
 import static org.wpilib.units.Units.Milliseconds;
+import static org.wpilib.units.Units.Nanoseconds;
 
 import first.robot.Constants;
 import first.robot.DriveConstants;
@@ -40,7 +40,7 @@ import org.wpilib.units.measure.Time;
 // of what the injection buys: a mechanism is testable with no RobotBase around it.
 //
 // Standing a v3 command up is also what loads the HAL and what calls privateLookupIn on
-// jdk.internal.vm, so a JVM without the --add-opens block in build.gradle fails here.
+// jdk.internal.vm, so a JVM without the --add-opens flags configureTestTasks supplies fails here.
 class DriveSchedulingTest {
   private static final Time STEP = Constants.LOOP_PERIOD;
   private static final Time HOLD = Milliseconds.of(100);
@@ -95,7 +95,7 @@ class DriveSchedulingTest {
     now = Milliseconds.zero();
     // Coroutine.wait and every scheduler event timestamp read RobotController.getTime(), whose
     // default source is a JNI call to a clock this test cannot move.
-    RobotController.setTimeSource(() -> (long) now.in(Microseconds));
+    RobotController.setTimeSource(() -> (long) now.in(Nanoseconds));
     EVENTS.clear();
     // The scheduler outlives each test, so what a test scheduled or bound is dropped here. A
     // default command is the one thing this cannot drop — there is no call that unregisters one —

@@ -55,7 +55,7 @@ public final class PoseEstimator {
         kinematics,
         gyroHeading,
         modulePositions,
-        Pose3d.kZero,
+        Pose3d.ZERO,
         DriveConstants.STATE_STD_DEVS,
         UNSET_VISION_STD_DEVS);
   }

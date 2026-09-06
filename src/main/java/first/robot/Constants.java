@@ -8,7 +8,7 @@ import static org.wpilib.units.Units.Milliseconds;
 import static org.wpilib.units.Units.Seconds;
 
 import java.net.URI;
-import org.wpilib.hardware.bus.CANBus;
+import org.wpilib.hardware.bus.CANPort;
 import org.wpilib.units.measure.Time;
 
 public final class Constants {
@@ -19,7 +19,7 @@ public final class Constants {
   public static final Time ALERT_LOG_PERIOD = Milliseconds.of(250);
 
   // Every device is on this one bus. REVLib wants its .value, Phoenix wants CANBus.systemcore(n).
-  public static final CANBus CAN_BUS = CANBus.CAN_S0;
+  public static final CANPort CAN_BUS = CANPort.CAN_S0;
 
   public static final int DRIVER_PORT = 0;
 
