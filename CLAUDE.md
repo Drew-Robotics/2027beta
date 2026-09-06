@@ -24,10 +24,14 @@ examples.
 Field hazards that still compile:
 
 - The WPI clock is nanoseconds, not microseconds. `RobotController.getTime()`,
-  `getMonotonicTime()`, `getLoopStartTime()`, `wpi::Now()`, an alert's
-  `activeStartTime` and DataLog record stamps all changed base in alpha-7 with
-  no change of signature, so a stale `Microseconds.of(...)` is off by 1000 and
-  still compiles. `Timer` still answers seconds.
+  `getMonotonicTime()`, `getLoopStartTime()`, `wpi::Now()` and an alert's
+  `activeStartTime` all changed base in alpha-7 with no change of signature, so
+  a stale `Microseconds.of(...)` is off by 1000 and still compiles. `Timer`
+  still answers seconds.
+- The WPILOG *file* still stores microseconds. `DataLog` divides the
+  nanoseconds it is given, and `DataLogRecord.getTimestamp()` multiplies them
+  back, so the Java API is nanoseconds in both directions and only a
+  hand-rolled parser sees the microseconds on disk.
 - `Rotation2d` uses `[-0.5, 0.5]` rotations; the steer sensor uses `[0, 1)`.
 - Use the two-argument `ChassisAccelerations.toWheelAccelerations()` so it keeps
   the centripetal term.
