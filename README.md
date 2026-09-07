@@ -44,10 +44,16 @@ else uses the reviewer. Anthropic requires users to be at least 18; team plans,
 school use, and mentor supervision do not change that. Details and sources are
 in [issue #24](https://github.com/Drew-Robotics/2027beta/issues/24).
 
-The reviewer is specified in [ADR 0013](docs/adr/0013-ci-and-test-strategy.md)
-and [issue #18](https://github.com/Drew-Robotics/2027beta/issues/18), but is not
-built yet. It reviews successful pull requests for field-only risks that CI
-cannot detect. It is not a replacement for student review.
+The reviewer is a Claude Code session with a different opening prompt, reading
+`CLAUDE.md` and the ADRs like any other session. It runs once a pull request's CI
+run is green, and comments only on the field-only risks CI cannot detect. It is
+not a replacement for student review. See
+[ADR 0013](docs/adr/0013-ci-and-test-strategy.md) and
+[issue #18](https://github.com/Drew-Robotics/2027beta/issues/18).
+
+Each run waits for a person. Its API key lives in the `pr-review` GitHub
+Environment, and the job pauses on the run's page under Actions until the map
+owner approves it — nothing is posted, and no key is injected, before that.
 
 `.claude/settings.json` is checked in. It is a permission allowlist, so an agent
 runs `./gradlew`, read-only `git`, read-only `gh issue`, `ssh systemcore@...` and

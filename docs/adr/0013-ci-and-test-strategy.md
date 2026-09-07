@@ -29,7 +29,12 @@ Xvfb does run the Driver Station, and opmode selection needs no click
 targets. One opens, and it is the reason the loop assertion moved: the
 Driver Station will not attach to a simulation on another machine, so
 the loop measured is the disabled one. The sections below say so where
-they said otherwise.
+they said otherwise. Amended 2026-09-07 by #102: the reviewer
+is built, and *The reviewer keys off this workflow* records it. Two
+things this ADR did not say are decided there — the session's tool set,
+which is what makes it safe to point a key-holding session at a branch's
+own files, and the fact that a review is posted by hand because a
+`workflow_run` job has no pull request.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -581,6 +586,42 @@ second knowledge store that drifts.
 
 Explicitly not its job: formatting (spotless owns it), anything a test
 covers, or general code-quality opinion.
+
+It exists: `.github/workflows/review.yml`, on the `CI` workflow's
+`workflow_run`, gated on `event == 'pull_request'` and `conclusion ==
+'success'`, with the key in a `pr-review` Environment that has the map
+owner as a required reviewer. **[executed]** It is not a required check
+and cannot become one — it posts a `COMMENT` review, so it neither
+approves nor blocks.
+
+**The tool set is the second half of the security argument, and #18
+wrote only the first.** `workflow_run` stops a pull request editing the
+reviewer's workflow to print the key. It does nothing about the branch's
+own files, which the reviewer has to read in order to review them and
+which a student can fill with instructions addressed to the reviewer. So
+the session runs `--restricted` with `--tools Read,Grep,Glob`: no shell,
+no network, and project settings files ignored, which is what stops a
+`.claude/` directory in a pull request from handing the tools back. A
+branch can still argue with the reviewer's judgement; it cannot reach
+the key. **[decided]**
+
+The prompt and the scripts are read from `main`'s checkout and the
+branch is a worktree beside it, for the same reason the workflow is
+`main`'s. The session's working directory is the branch, so the
+`CLAUDE.md` it reads is that branch's — a pull request that changes the
+rules is reviewed against the rules it proposes, which is what is
+wanted, and is why the tool set rather than the file set carries the
+security.
+
+**#18's honest cost came due, one step larger than it said.** A
+`workflow_run` job does not know its pull request, so the number is
+resolved from the head SHA and the review is posted through the API by
+hand; that much was written down. What was not: GitHub rejects the
+*entire* review if a single comment names a line outside the diff, so
+findings are anchored against the patch before they are sent, and one
+that anchors nowhere is carried into the summary rather than dropped.
+That mapping is the only part of this with unit tests, because it is the
+only part that can be wrong without anyone noticing.
 
 ## Consequences
 

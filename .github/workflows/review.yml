@@ -1,0 +1,93 @@
+name: Review
+
+# #18's PR review agent. `workflow_run` rather than `pull_request` for one reason: this file is
+# executed as it exists on `main`, so a pull request that edits it cannot run its own version and
+# print the key. The Environment holds the key behind a required reviewer, so nothing is injected
+# until a human has looked at the branch.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+concurrency:
+  group: review-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Review the pull request
+    # A push run has no pull request to comment on, and a red run is a defect CI already named.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: pr-review
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      # Pinned: an unattended session holding a key should not change behaviour because upstream
+      # released on a Tuesday.
+      CLAUDE_CODE_VERSION: 2.1.263
+
+    steps:
+      # `main`'s checkout, and it stays `main`'s. The prompt and the scripts have to be the
+      # versions this workflow was approved with; the branch under review is a worktree beside it.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the pull request
+        id: pr
+        run: |
+          number=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/pulls" \
+            --jq '[.[] | select(.state == "open") | .number] | first // empty')
+          if [ -z "$number" ]; then
+            echo "No open pull request has $HEAD_SHA at its head." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=$number" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v5
+        if: steps.pr.outputs.skip != 'true'
+        with:
+          node-version: '22'
+
+      - name: Install Claude Code
+        if: steps.pr.outputs.skip != 'true'
+        run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+
+      - name: Review
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: .github/review/review.sh "${{ steps.pr.outputs.number }}"
+
+      - name: Post the review
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          python3 .github/review/post_review.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --pr "${{ steps.pr.outputs.number }}" \
+            --commit "$HEAD_SHA" \
+            --diff build/review/diff.patch \
+            --findings build/review/findings.json
+          {
+            echo "### Reviewed [#${{ steps.pr.outputs.number }}]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/${{ steps.pr.outputs.number }})"
+            echo
+            python3 -c "import json,sys; print(json.load(open('build/review/findings.json'))['summary'])"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the session
+        if: failure() && steps.pr.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-${{ github.run_id }}
+          path: build/review/
+          if-no-files-found: ignore
