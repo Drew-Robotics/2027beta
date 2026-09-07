@@ -435,10 +435,15 @@ The index of the ADRs themselves is
 - **The gated workflow** — the one CI workflow that is a required
   check: lint, compile and test, on pull requests targeting `main` and
   on pushes to any branch.
-- **The bench workflow** — the hardware jobs on the bench Pi. It is
-  never required and blocks nothing; an unreachable bench is a skip,
-  not a red.
+- **The bench workflow** — the hardware jobs on the bench Pi,
+  `.github/workflows/bench.yml`. It is never required and blocks
+  nothing; an unreachable bench is a skip, not a red. The box it runs on
+  is [`docs/bench-runner.md`](docs/bench-runner.md)
+  ([ADR 0013](docs/adr/0013-ci-and-test-strategy.md)).
 - **`sim-hitl`** — the bench job that runs a `linuxarm64` sim build on
-  the Pi, so the robot drives around in simulation on real hardware.
-  `real-hal-boot` is its sibling, which deploys the actual robot
-  artifact against an empty CAN bus.
+  the Pi, so the robot runs in simulation on real hardware, and watches
+  the loop for a regression against a stored baseline. The Driver
+  Station attaches to no simulation but its own, so the loop it measures
+  is the disabled one. `real-hal-boot` is its sibling, which deploys the
+  actual robot artifact against an empty CAN bus and asserts four things
+  about the running program.

@@ -21,6 +21,15 @@ Amended 2026-09-06 by #100: *A pre-flight ABI probe* stays rejected as a
 CI assertion and has been built on the deploy path, where the audience
 is different. The entry says which is which, and names the one thing it
 moves — the nightly's designed red now lands on the deploy step.
+Amended 2026-09-07 by #101: the bench workflow exists, and both its
+jobs are executed rather than designed. `real-hal-boot` is green on the
+bench. `sim-hitl` runs a `linuxarm64` build there, which closes the
+first open item — the Pi does run the sim HAL. Two more close with it:
+Xvfb does run the Driver Station, and opmode selection needs no click
+targets. One opens, and it is the reason the loop assertion moved: the
+Driver Station will not attach to a simulation on another machine, so
+the loop measured is the disabled one. The sections below say so where
+they said otherwise.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -490,13 +499,56 @@ links **no `libMrcLib`, no real HAL and no vendor CAN natives** — none of
 what Job 1 exists for. And Job 1 can never enable anything. Neither
 subsumes the other.
 
-What Job 2 gets that Job 1 cannot have: a DS is attached, so
-`DataLogManager` never pauses and the full WPILOG survives; and the
-enabled loop can be measured. **The loop-time regression assertion
-belongs here**, against #10's baseline, and as **deltas against a stored
-baseline, never absolute milliseconds** — a regression detector, not a
-budget check, which stays correct if real SystemCore silicon replaces
-the Pi later. **[decided]**
+What Job 2 gets that Job 1 cannot have is a run that is not over in ten
+seconds. **The loop-time regression assertion belongs here**, as
+**deltas against a stored baseline, never absolute milliseconds** — a
+regression detector, not a budget check, which stays correct if real
+SystemCore silicon replaces the Pi later. **[decided]**
+
+It runs. The build stages from `simHitlStage`, ships as a tarball, and
+runs in the foreground of an open ssh; `halsim_ds_socket` loads, the
+program reaches `Robot program startup complete`, and 45 s of
+`/Telemetry/Robot/LoopDelta` comes back at 200 Hz — p50 5.000 ms, p95
+5.026 ms, p99 5.059 ms across two runs, which is what
+`.github/bench/sim-hitl-baseline.env` now carries. **[executed, via
+#101]**
+
+Two halves of the paragraph above were wrong, and running it is what
+said so. The WPILOG does **not** need a DS to survive: those 44 s were
+recorded with none attached. And the **enabled** loop is not measurable
+at all today, because the Driver Station will not attach to a simulation
+on another machine — the next section. So the assertion is against the
+**disabled** loop, through the same baseline mechanism, and `sim-hitl`
+switches to the enabled numbers on its own the day a DS can attach.
+
+### The Driver Station only drives a local simulation
+
+The Driver Station finds a *simulated* robot only on the box it is
+running on. **[executed, via #101]** Against the real robot it discovers
+the Pi and connects over TCP 1740, having first touched 6810 and 5810;
+against a simulation on its own machine it reports `robotIp 127.0.0.1`
+and drives it; against the bench simulation it reports `robotIp 0.0.0.0`
+and opens nothing at all — with the sim owning 6810 and 5810 on the LAN,
+1740/1741 proxied onto it, the sim's loopback UDP doorbell bridged in
+both directions, and all four ports tunnelled onto the runner's own
+loopback.
+
+Two facts about that path are read rather than guessed at.
+`halsim_ds_socket` no longer implements the DS protocol itself: it calls
+`MRC_SimSystemServer_Initialize` and `ForceDsInstance(GetMrcLibDs())`
+(`simulation/halsim_ds_socket/src/main/native/cpp/main.cpp:195-216`) and
+hands the link to mrclib, which binds loopback. And nothing on that path
+gives the simulation an identity: `MRC_SimSystemServer_SetTeam` exists
+in `mrclib/SimSystemServer.h` and the extension never calls it, while
+the DS holds `TeamNumberRequired`. **[source]** Which of the two the
+Driver Station is actually refusing on is **[unverified]** — what is
+measured is that it refuses.
+
+So `sim-hitl` asserts on the disabled loop and the harness sits behind
+`DS=on`, built and unused. What is missing is upstream's: either a
+Driver Station that can be pointed at an address, or an X server on the
+Pi so the arm64 Driver Station runs beside the sim. Neither is ours to
+add, and neither is worth a workaround that pretends the DS is there.
 
 ### Two jobs, one physical Pi, and they cannot run concurrently
 
@@ -690,6 +742,29 @@ covers, or general code-quality opinion.
   ADR 0005's own signals. That is why the loop-time assertion is Job 2's
   and not Job 1's.
 
+- **`busybox` is setuid on the SystemCore image, so `nohup` and
+  `setsid` silently drop `LD_PRELOAD`.** `/bin/busybox` is
+  `-rwsr-xr-x root root` and both are applets of it, so the loader
+  strips `LD_PRELOAD` and `LD_LIBRARY_PATH` from their environment and
+  from everything they exec. **[executed, via #101]** Backgrounding a
+  robot program that way takes ADR 0015's REVLib shim with it, and the
+  failure is a symbol-lookup abort a long way from the cause. `sim-hitl`
+  runs the program in the foreground of an ssh that stays open instead.
+
+- **The sim wants three of the image's own services out of the way.**
+  `mrccomm.service` holds UDP 1110, and `limelight_diagnosticsprocess`
+  holds the system NetworkTables server on 6810 that
+  `MRC_SimSystemServer_Initialize` wants to be. **[executed, via #101]**
+  Leaving them up costs more than a warning: a program still registered
+  on 6810 makes the next one abort with `Multiple user programs
+  detected` and `terminate called without an active exception`. Stop all
+  three, and start all three again however the job ends — **one at a
+  time, and not before the last program is gone**. Starting them
+  together puts `robot.service` into exactly that abort, at
+  `RestartSec=3`, which is a bench left worse than the job found it.
+  **[executed, via #101]** `sim-hitl` reads `systemctl is-active robot`
+  after its own cleanup for that reason, and says so in the summary.
+
 - **Writing to the DS's NetworkTables server corrupts every other reader
   on it.** Port `6767` is a one-way mirror: writes are accepted, stored,
   shown to other clients, and never propagate to the DS or the robot —
@@ -730,22 +805,25 @@ covers, or general code-quality opinion.
 
 ## Open
 
-- **Nobody has run a `linuxarm64` sim build on the SystemCore image.**
-  That `hal-cpp` and `halsim_ds_socket` publish `linuxarm64`, and that
-  the guard makes it a genuine sim artifact, is verified by reading and
-  by artifact listings — not by execution. That the resulting program
-  runs on the image, and that the real DS drives it from a second box,
-  is **[unverified]**. *Unblocked by* running it: it is the first thing
-  the second map should prove, before any YAML is written. If it fails,
-  Job 2 does not exist and Job 1 is the whole hardware story.
+- **The `linuxarm64` sim build runs on the image; the Driver Station
+  will not drive it.** Both halves are executed now rather than read:
+  `linuxarm64`'s `libwpiHal.so` exports 460 `HALSIM_` symbols and links
+  no `libMrcLib`, the program reaches its loop on the bench and logs at
+  200 Hz, and the Driver Station attaches to no simulation but the one
+  on its own machine. Job 2 exists; its enabled half does not.
+  **[executed, via #101]** What is still open is upstream's: a Driver
+  Station that can be pointed at an address, or an X server on the Pi so
+  the arm64 build runs beside the sim. *Unblocked by* neither of ours,
+  and not worth faking in the meantime.
 
-- **Xvfb has never been run against the Driver Station.** The DS is
-  Avalonia/X11 and fails with `XOpenDisplay failed` when `DISPLAY` is
-  unset; Xvfb is the expected answer and software rendering is known to
-  work, but Xvfb is not installed on the WSL box and the step was never
-  executed. **[unverified — `docs/research/ds-headless-control.md:174-179`]**
-  *Unblocked by* one hour on that box. It is #22's one unproven step and
-  it lands squarely on Job 2.
+- **Xvfb runs the Driver Station, and the click-target question is
+  gone.** The DS comes up headless under `Xvfb :99` with software
+  rendering — window, HTTP server and all — and reads a uinput keyboard
+  the harness creates for it. Selecting an opmode needs no clicking:
+  the id is `(mode << 56) | (name.hashCode() & 0x00FFFFFFFFFFFFFF)`,
+  which `.github/bench/ds-harness.py` computes and writes into the DS's
+  settings file, checked against a value the DS itself had stored.
+  **[executed, via #101]** Both were open here and in #22; neither is.
 
 - **The analyzer set has never been run against our Java, because there
   is none.** Inheriting 647 lines of rules is a bet that WPILib's

@@ -70,5 +70,6 @@ needs a removal condition.
 
 - `docs/adr/` — architecture decisions.
 - `CONTEXT.md` — project glossary.
+- `docs/bench-runner.md` — the box the bench workflow runs on.
 - `docs/commands-v3-house-style.md` — command style.
 - `docs/research/` — sources and measurements.

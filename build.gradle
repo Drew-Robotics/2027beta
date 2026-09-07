@@ -242,6 +242,60 @@ jar {
     from('build.gradle') { into 'backup' }
 }
 
+// Departs from the template: GradleRIO's simulation tasks only ever build for the desktop
+// platform, and sim-hitl is a simulation that runs on the bench Pi. `linuxarm64` is the sim HAL
+// for that architecture and `linuxsystemcore` is the real one, so this is a second set of natives
+// rather than a flag on the deployed build.
+configurations {
+    simHitlNative
+    simHitlHalsim
+}
+
+dependencies {
+    simHitlNative wpi.java.deps.wpilibJniRelease(wpi.platforms.linuxarm64)
+    simHitlNative wpi.java.vendor.jniRelease(wpi.platforms.linuxarm64)
+    // wpi.sim's own dependency set is fixed to the desktop platform, so the plugin is named here.
+    simHitlHalsim "org.wpilib.halsim:halsim_ds_socket:${wpi.versions.wpilibVersion.get()}:linuxarm64@zip"
+}
+
+tasks.register('simHitlStage', Sync) {
+    group = 'wpilib'
+    description = 'Stages a linuxarm64 simulation build for the bench Pi under build/simhitl'
+    into layout.buildDirectory.dir('simhitl')
+
+    into('classpath') {
+        from jar
+        from configurations.runtimeClasspath
+    }
+
+    into('lib') {
+        from { configurations.simHitlNative.collect { zipTree(it) } }
+        from { configurations.simHitlHalsim.collect { zipTree(it) } }
+        // The zips carry a static/ tree beside the shared one and a .debug beside every library;
+        // the launch line wants one flat directory of the shared ones to be both java.library.path
+        // and LD_LIBRARY_PATH.
+        include '**/shared/**'
+        exclude '**/*.debug'
+        // A relativePath set in eachFile is relative to the task's destination rather than to
+        // this block's, so lib/ is named again here or the files land beside it.
+        eachFile { it.relativePath = new RelativePath(true, 'lib', it.name) }
+        includeEmptyDirs = false
+    }
+
+    // The SystemCore shim is aarch64 and the sim natives are the same architecture, so the sim
+    // build needs it for the same reason the deployed one does. See src/main/native/revshim.
+    into('lib') {
+        from 'src/main/native/revshim/linuxsystemcore'
+    }
+
+    // A simulation reads its deploy directory from the source tree rather than from
+    // /home/systemcore/deploy, so the trajectories land where Filesystem.getDeployDirectory()
+    // will look: <run directory>/src/main/deploy.
+    into('src/main/deploy') {
+        from 'src/main/deploy'
+    }
+}
+
 // Configure string concat to always inline compile
 tasks.withType(JavaCompile) {
     options.compilerArgs.add '-XDstringConcat=inline'
