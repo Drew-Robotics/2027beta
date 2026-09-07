@@ -191,3 +191,7 @@ compile_commands.json
 # Eclipse generated file for annotation processors
 .factorypath
 __pycache__/
+
+# Claude Code writes each developer's own permission approvals here. The team's are in
+# .claude/settings.json, which is checked in.
+.claude/settings.local.json
