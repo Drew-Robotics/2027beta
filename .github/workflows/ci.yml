@@ -33,7 +33,7 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
 
       # --continue, so a formatting failure cannot hide a test failure.
       - name: Lint, compile and test
@@ -42,7 +42,7 @@ jobs:
 
       - name: Annotate test failures on the diff
         if: always()
-        uses: mikepenz/action-junit-report@v5
+        uses: mikepenz/action-junit-report@v6
         with:
           report_paths: build/test-results/test/TEST-*.xml
           require_tests: false
