@@ -20,7 +20,13 @@ reported against the rail it was clamped against. A regenerating motor is
 credited as no load rather than as a full one.
 
 The *Open* item asking whether CI runs a headless robot program is
-answered by ADR 0013 and now sits under *Consequences*.
+answered by ADR 0013 and now sits under *Consequences*. Amended
+2026-09-06 by #121: the sim task is `./gradlew run`, and the deploy
+artifact is no longer a fat jar — see ADR 0003. Neither changes what is
+simulated or where the seam is. Those two GradleRIO `[source]` claims
+were read in `GradleRIO-2027.0.0-alpha-7`, the version `build.gradle:4`
+pins, from the plugin jar by `javap`:
+`org.wpilib.gradlerio.wpi.java.WPIJavaExtension`.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -320,11 +326,13 @@ is five sub-steps to a 5 ms period — four times as many sub-steps per
 second — so call it **~6.4 µs per 20 ms of wall clock**, which is three
 hundredths of a percent of a desktop's budget.
 
-### Sim ships in the fat jar, behind `isSimulation()`
+### Sim ships in the deploy artifact, behind `isSimulation()`
 
 Same source set, `RobotBase.isSimulation()` (`RobotBase.java:316`)
-**[source]** guarding construction, shipped in the shadow jar the
-template already builds (`build.gradle:94, 104`). **[source]**
+**[source]** guarding construction, shipped in whatever jar the template
+builds — the shadow jar through GradleRIO alpha-6, the plain `jar` on the
+deployed classpath since alpha-7 (`build.gradle:152-156`, ADR 0003).
+**[source]**
 
 **No `src/sim/java`.** A separate source set means editing the stock
 template's `build.gradle`, which ADR 0003 ruled against, and it buys
@@ -413,11 +421,14 @@ actually needs to sweep them. **[decided]**
 
 ### Running it
 
-`./gradlew simulateJava` brings up the WPILib sim GUI, which the
-template already enables (`build.gradle:88-89`) **[source]**, alongside
-AdvantageScope. A scripted `@Utility` opmode that drives a path and
-reports odometry error is the repeatable version of the same thing. The
-numbered recipe belongs in the README, not here.
+`./gradlew run` brings up the WPILib sim GUI, which the template already
+enables (`build.gradle:136-137`) **[source]**, alongside AdvantageScope.
+GradleRIO alpha-7 registers no `simulateJava`: simulation is the
+`application` plugin's `run` task, which `wpi.java.configureApplication`
+configures with the desktop natives. **[source]** A scripted `@Utility`
+opmode that drives a path and reports odometry error is the repeatable
+version of the same thing. The numbered recipe belongs in the README,
+not here.
 
 ## Consequences
 
@@ -714,8 +725,8 @@ third, at a different bar.
 It would need an edit to the stock template's `build.gradle`, which ADR
 0003 ruled against, and it buys nothing over an `isSimulation()` guard:
 the sim classes are already inert on the robot, because nothing
-constructs them. The fat jar carrying a few unreferenced classes is not
-a cost anybody can measure.
+constructs them. A deploy artifact carrying a few unreferenced classes
+is not a cost anybody can measure.
 
 ### A first-order slew for the steer azimuth
 

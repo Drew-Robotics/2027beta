@@ -17,6 +17,13 @@ argument is on
 [#87](https://github.com/Drew-Robotics/2027beta/issues/87) and
 [#92](https://github.com/Drew-Robotics/2027beta/issues/92).
 
+**Amended — 2026-09-06** by #121: GradleRIO alpha-7 registers no
+`simulateJava` task, so the second of the three preload sites is
+`tasks.withType(JavaExec)`. Still three JVMs, still the same shim. That
+claim was read in `GradleRIO-2027.0.0-alpha-7`, the version
+`build.gradle:4` pins, from the plugin jar by `javap`:
+`org.wpilib.gradlerio.wpi.java.WPIJavaExtension`.
+
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
 `v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7. Native
@@ -46,7 +53,7 @@ two platforms are identical: same names, same count.
 
 This is a dynamic-linker abort, not an exception, so nothing catches or
 contains it. `Robot`'s constructor builds eight SPARKs, so **nothing
-that stands up `Robot` ran anywhere** — not `simulateJava`, not ADR
+that stands up `Robot` ran anywhere** — not the sim `run` task, not ADR
 0013's Tier 2, not a deploy, and not a student selecting an opmode,
 since the framework only constructs opmodes after that constructor
 returns. Tier 1 was unaffected, because ADR 0010 keeps vendor types out
@@ -241,9 +248,11 @@ from Java is invisible to libraries loaded after it. Preloading from
 fix therefore cannot live in Java.
 
 `build.gradle` sets `LD_PRELOAD` in the three places a JVM meets
-REVLib: `tasks.withType(Test)`, `JavaSimulationTask`, and the robot's
-own start command, through `WPILibJavaArtifact.setJavaCommand` — a
-public, supported hook whose value is echoed into
+REVLib: `tasks.withType(Test)`, `tasks.withType(JavaExec)` — which is
+the `run` task GradleRIO alpha-7 simulates through, in place of the
+`simulateJava` alpha-6 registered — and the robot's own start
+command, through `WPILibJavaArtifact.setJavaCommand`, a public,
+supported hook whose value is echoed into
 `/home/systemcore/robotCommand`. **[source]**
 
 **On the Pi, `libwpiutil.so` is preloaded ahead of the shim.** The shim
@@ -298,7 +307,7 @@ enforces running both, and nothing should. **[decided]**
 
 ## Consequences
 
-`simulateJava` runs. A student picks an opmode and drives. `first.Main`
+Simulation runs. A student picks an opmode and drives. `first.Main`
 was run headless for twenty seconds with the shim preloaded: full
 startup, Phoenix CAN bus up, telemetry logging, zero crashes, and
 `simulationPeriodic(): 0.009247s` — which is `Drive.updateSim()`,
@@ -473,7 +482,8 @@ argument descriptor — a second ABI dependency on a library WPILib has
 already stopped using, bought for fidelity in a string nothing reads.
 
 **Waiting for REVLib to publish against a current WPILib.** The honest
-estimate is weeks-to-never; there is no alpha-7 and no announced date.
+estimate is weeks-to-never; there is no alpha-7 REVLib and no announced
+date.
 Meanwhile the simulation, Tier 2 and the deploy are all down. The console
 gap did not change this: a month after that one published version,
 `maven-metadata.xml` is unmoved. **[executed]**

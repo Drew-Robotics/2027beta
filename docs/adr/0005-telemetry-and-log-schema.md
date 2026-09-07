@@ -14,11 +14,17 @@ implement is probed once and then not logged, `/Robot/InputVoltage` is
 deleted as a duplicate, and `/Robot/Rail3V3/Voltage` is logged only
 beside its fault count. Amended 2026-08-30 by #118: `/Robot/BrownedOut`
 is gated on the battery voltage probe, because the two are one MRC
-power interface and only the voltage has a value to probe by.
+power interface and only the voltage has a value to probe by. Amended
+2026-09-06 by #121: alpha-7's clock is nanoseconds, so `SchedulerEvent`
+carries `timestampNanos` and `/Robot/LoopDelta` is computed from a
+nanosecond `getLoopStartTime()`. The signal is unchanged — see *The
+clock moved under `LoopDelta`; the file did not*.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
-`v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7. `[measured]`
+`v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7 — except the
+three files #121 re-read on 2026-09-06 at `d44da0dfb`, listed under
+*Source*. `[measured]`
 claims are the Pi runs recorded in `docs/research/loop-rate.md` and
 `docs/research/jvm-tuning.md`. An unqualified path is a file in this
 repo.
@@ -131,7 +137,7 @@ habits below.
 | `/Robot/BrownedOut` † | `RobotController.isBrownedOut()` (`:145`) |
 | `/Robot/CommsDisableCount` † | `RobotController.getCommsDisableCount()` (`:155`) |
 | `/Robot/CpuTemp` † | `RobotController.getCPUTemp()` (`:296`) |
-| `/Robot/Can/Bus0/{Utilization,ReceiveErrors,TransmitErrors,BusOff,TxFull}` † | `RobotController.getCANStatus(CANBus)` (`:315`), fields on `CANStatus` (`:10-22`) |
+| `/Robot/Can/Bus0/{Utilization,ReceiveErrors,TransmitErrors,BusOff,TxFull}` † | `RobotController.getCANStatus(CANPort)` (`:315`), fields on `CANStatus` (`:10-22`) |
 | `/Robot/SysActive` † | `RobotController.isSysActive()` (`:136`) |
 | `/Robot/Rail3V3/{Voltage,Current,FaultCount}` † | `RobotController.getVoltage3V3()` (`:200`), `getCurrent3V3()` (`:218`), `getFaultCount3V3()` (`:255`) |
 | `/Robot/Pdh/{Current,Voltage,TotalCurrent,SwitchableChannel}` | `PowerDistribution.logTo` (`PowerDistribution.java:248-254`) |
@@ -207,6 +213,33 @@ in real units, and a tick count is only interpretable with a conversion
 factor the git SHA already pins. A per-loop echo of config values —
 ADR 0004 rules that fixed config is recoverable from the SHA and only
 tunables are logged. Vision internals — ADR 0012.
+
+### The clock moved under `LoopDelta`; the file did not
+
+alpha-7 changed `RobotController.getLoopStartTime()` and its neighbours
+from microseconds to nanoseconds **without changing a signature**
+**[source — `c65465b00`]**, so a `Microseconds.of(...)` written against
+alpha-6 still compiles and is wrong by a factor of a thousand. `Robot`
+computes the delta and wraps it as
+`Nanoseconds.of(wake - lastWakeNanos)` (`Robot.java:257-258`), and
+the same base applies to `activeStartTime` and to `SchedulerEvent`'s
+`timestampNanos`.
+
+**The signal in the log is unchanged**, and that is the point worth
+recording. `UnitTelemetry.log` writes `value.baseUnitMagnitude()` and
+stamps the *base* unit's symbol (`UnitTelemetry.java:74-78`)
+**[source]**, and `Time`'s base unit is the second either way — so
+`/Robot/LoopDelta` was seconds under `Microseconds.of(...)` and is
+seconds under `Nanoseconds.of(...)`. ADR 0014 reads exactly what it read
+before. What the base change could have done is make the *number* wrong
+by a thousand while the unit metadata went on saying `s`, which is
+precisely the failure that does not announce itself.
+
+**The WPILOG file itself did not move either.** It still stores
+microseconds; `DataLog` divides the nanoseconds it is handed and
+`DataLogReader` multiplies them back (`DataLogReader.java:129`)
+**[source]**, so the Java API is nanoseconds in both directions and only
+a hand-rolled parser ever sees the microseconds on disk.
 
 ### A HAL read the platform does not implement is not logged
 
@@ -458,7 +491,7 @@ the ids. It is **blind to one-shots** — see Traps.
 **`/Commands/Events`** — a listener registered with
 `Scheduler.addEventListener`. `SchedulerEvent` is a sealed interface over
 `Scheduled`, `Mounted`, `Yielded`, `Completed`, `CompletedWithError`,
-`Canceled` and `Interrupted`, each carrying `timestampMicros`
+`Canceled` and `Interrupted`, each carrying `timestampNanos`
 (`SchedulerEvent.java:33-88`) **[source]**. It sees every lifecycle
 event including one-shots, and carries no tree.
 
@@ -866,3 +899,8 @@ Source read for this ADR, in `~/dev/allwpilib` at `cafb0cc79` (alpha-7):
 `commandsv3/src/main/java/org/wpilib/command3/Scheduler.java`,
 `commandsv3/src/main/java/org/wpilib/command3/SchedulerEvent.java`,
 `commandsv3/src/main/java/org/wpilib/command3/proto/CommandProto.java`.
+
+Re-read for #121 at `d44da0dfb`:
+`wpilibj/src/main/java/org/wpilib/internal/UnitTelemetry.java`,
+`commandsv3/src/main/java/org/wpilib/command3/SchedulerEvent.java` and
+`datalog/src/main/java/org/wpilib/datalog/DataLogReader.java`.

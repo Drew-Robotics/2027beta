@@ -4,11 +4,16 @@
 
 Accepted — 2026-08-26. Amended 2026-08-29: the characterisation raise
 ADR 0009 decided is now budgeted here, beside the tuning one it is
-smaller than.
+smaller than. Amended 2026-09-06 by #121: WPILib's bus enum is `CANPort`
+as of alpha-7. Every claim below survives the rename — same five
+S-buses, same values — but CTRE's `CANBus` did *not* rename, so the
+two-types trap under *Traps* got sharper rather than going away.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
-`v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7. REVLib
+`v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7 — except
+`CANPort.java`, re-read on 2026-09-06 at `d44da0dfb` because the rename
+below landed after `cafb0cc79`. REVLib
 `[source]` claims were read in `REVLib-java 2027.0.0-alpha-6`, the
 version `vendordeps/REVLib.json` pins, from its sources jar; paths are
 given as `com/revrobotics/...`. Phoenix 6 `[source]` claims were read in
@@ -34,7 +39,7 @@ was wrong, is in Rejected under *#28's frame table as written*.
 
 Eight SPARK Flexes and one Pigeon2 have to reach SystemCore. SystemCore
 offers five native CAN buses, `can_s0` through `can_s4`
-(`wpilibj/src/main/java/org/wpilib/hardware/bus/CANBus.java:12-62`)
+(`wpilibj/src/main/java/org/wpilib/hardware/bus/CANPort.java:12-22`)
 **[source]**, so the wiring is a choice rather than a constraint.
 
 A CAN bus is not a pipe you pour bytes into. It carries discrete
@@ -239,7 +244,7 @@ new Pigeon2(deviceId, CANBus.systemcore(0))            // a CTRE CANBus object
 **[source, via #5]**
 
 So `Constants` holds **one constant per physical bus**, typed as
-WPILib's `org.wpilib.hardware.bus.CANBus`, and each call site converts:
+WPILib's `org.wpilib.hardware.bus.CANPort`, and each call site converts:
 `.value` for REVLib, `CANBus.systemcore(n)` for Phoenix. **[decided]**
 The numbering agrees exactly across the two vendors — `CAN_S0(0)`
 through `CAN_S4(4)`, and CTRE's `systemcore(int)` validates 0–4
@@ -250,9 +255,9 @@ and our gyro.
 The constant exists so that *"which bus is the drive base on"* has one
 answer in the repository rather than nine literals. It is deliberately
 not a wrapper type over the two vendor types, because the thing most
-worth seeing at a call site is that CTRE's `CANBus` and WPILib's
-`CANBus` are different types that share a simple name — and a wrapper
-is exactly what would let somebody stop noticing that.
+worth seeing at a call site is that WPILib's `CANPort` and CTRE's
+`CANBus` are two unrelated types for the same physical thing — and a
+wrapper is exactly what would let somebody stop noticing that.
 
 ## Consequences
 
@@ -344,13 +349,20 @@ is exactly what would let somebody stop noticing that.
   that is wrong. Always pass the bus. The failure mode is a device that
   constructs cleanly and never answers, on a bus with nothing on it.
 
-- **`CANBus` is two different types with the same simple name.**
-  `org.wpilib.hardware.bus.CANBus` is an enum carrying an `int value`;
-  `com.ctre.phoenix6.CANBus` is a class with `systemcore(int)` and
-  `motioncore(int)` factories. **[source]** A file cannot import both,
-  and the one that compiles is not necessarily the one that was meant —
-  `CANBus.CAN_S0.value` and `CANBus.systemcore(0)` are both valid
-  expressions in their own file.
+- **The two bus types no longer even share a name, and that is worse
+  than it sounds.** `org.wpilib.hardware.bus.CANPort` is an enum
+  carrying an `int value`; `com.ctre.phoenix6.CANBus` is a class with
+  `systemcore(int)` and `motioncore(int)` factories. **[source]**
+  Through alpha-6 both were called `CANBus`, a file could not import
+  both, and the collision was its own warning: `CANBus.CAN_S0.value`
+  and `CANBus.systemcore(0)` were each valid in their own file and
+  neither was valid in the other's. alpha-7 renamed the WPILib half to
+  `CANPort` **[source — `c9c73f34a`]**, so both now import cleanly into
+  one file and nothing objects. Every 2026-era sample and every model
+  completion still writes WPILib's half as `CANBus`, and in a file that
+  imports Phoenix that name now resolves — to CTRE's class, silently.
+  What used to be a compile error the collision forced is now a working
+  `new CANBus()` on the wrong bus.
 
 - **`CANBus.motioncore(n)` compiles, validates and does not work.**
   CTRE's known-issue list: *"Motioncore CAN buses are not supported.
@@ -566,7 +578,10 @@ naming, the SPI-pairing measurements, Phoenix's diagnostic server and
 the CAN timestamp defect.
 
 Source read for this ADR, in `~/dev/allwpilib` at `cafb0cc79`
-(alpha-7): `wpilibj/src/main/java/org/wpilib/hardware/bus/CANBus.java`.
+(alpha-7): `wpilibj/src/main/java/org/wpilib/hardware/bus/CANBus.java`,
+re-read for #121 at `d44da0dfb` as
+`wpilibj/src/main/java/org/wpilib/hardware/bus/CANPort.java` — the same
+five S-buses, the same values and the same `public final int value`.
 
 In REVLib `2027.0.0-alpha-6` (sources jar):
 `com/revrobotics/spark/config/SignalsConfig.java`,

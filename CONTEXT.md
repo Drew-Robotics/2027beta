@@ -73,13 +73,13 @@ The index of the ADRs themselves is
 - **Vendordep** — the JSON file in `vendordeps/` that pulls in a
   vendor library. Committing it *is* the version pin.
 - **The year gate** — GradleRIO's check that every vendordep's
-  `wpilibYear` matches one project-wide string. It is why
-  `vendordeps/CommandsV3.json` carries an edited year, and the edit
-  inverts when GradleRIO ships alpha-7
-  ([ADR 0013](docs/adr/0013-ci-and-test-strategy.md)).
-- **alpha-7** — the local allwpilib checkout at commit `cafb0cc79`,
-  366 commits past `v2027.0.0-alpha-6`. No alpha-7 has been tagged; it
-  is called that because its vendordeps say `2027_alpha7`
+  `wpilibYear` matches one project-wide string. GradleRIO alpha-7 moved
+  that string to `2027_alpha7`, so the edit inverted: `CommandsV3.json`
+  is upstream's again and the three third-party JSONs carry the edited
+  year ([ADR 0013](docs/adr/0013-ci-and-test-strategy.md)).
+- **alpha-7** — `v2027.0.0-alpha-7`, a real tag, dated 2026-08-25. The
+  ADRs' `[source]` reads were taken at commit `cafb0cc79`, ten commits
+  before it, which is why they name a commit rather than the tag
   ([ADR 0003](docs/adr/0003-project-and-package-structure.md)).
 
 ## Writing robot code
@@ -401,8 +401,11 @@ The index of the ADRs themselves is
 - **Brownout** — the battery sagging far enough that devices reset.
   A SPARK that browns out comes back configured but at default frame
   rates, silently.
-- **Fat jar** — the single deployed jar with every dependency inside
-  it, which is what the stock template already builds.
+- **Classpath deploy** — what the stock template builds and what we
+  ship: our own jar plus WPILib's on a `-cp` line, rather than the
+  single **fat jar** with every dependency inside it that the template
+  built through GradleRIO alpha-6
+  ([ADR 0003](docs/adr/0003-project-and-package-structure.md)).
 
 ## Testing and CI
 
@@ -432,5 +435,5 @@ The index of the ADRs themselves is
   not a red.
 - **`sim-hitl`** — the bench job that runs a `linuxarm64` sim build on
   the Pi, so the robot drives around in simulation on real hardware.
-  `real-hal-boot` is its sibling, which deploys the actual fat jar
-  against an empty CAN bus.
+  `real-hal-boot` is its sibling, which deploys the actual robot
+  artifact against an empty CAN bus.

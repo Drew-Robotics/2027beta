@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted — 2026-08-26.
+Accepted — 2026-08-26. Amended 2026-09-06 by #121: WPILib's CAN bus
+enum is `CANPort`, not `CANBus`. Same five S-buses, same values, and
+CTRE's `CANBus` did not rename; ADR 0007 carries what that did to the
+two-types trap.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -272,10 +275,12 @@ disk-pressure handling **[source — `docs/research/vendordeps.md`
 ### One project constant per CAN bus
 
 `Constants` holds one constant per physical bus, converted at each call
-site: `CANBus.CAN_S0.value` for REVLib's `int busId`,
+site: `CANPort.CAN_S0.value` for REVLib's `int busId`,
 `CANBus.systemcore(0)` for CTRE's object. The two vendors' numbering
 agrees for the same index **[source — `docs/research/vendordeps.md`
-§3.3]**. **Never `new CANBus()`** — see Traps.
+§3.3]**. `CANPort` is WPILib's enum and `CANBus` is CTRE's class; alpha-7
+renamed the WPILib half, and §3.3 predates that. **Never `new CANBus()`**
+— see Traps.
 
 ### `Robot` logs the active alert set at ~4 Hz
 

@@ -3,13 +3,23 @@
 ## Status
 
 Accepted — 2026-08-26. The `SparkSim` breakage that stood under *Open*
-is resolved by ADR 0010 and now sits under *Consequences*.
+is resolved by ADR 0010 and now sits under *Consequences*. Corrects
+2026-09-06 by #121: *Build, deploy and console* chose the fat jar on
+the ground that the stock template built one. GradleRIO alpha-7 dropped
+the shadow plugin for `application`, so the template now produces the
+classpath deploy this ADR listed under *Rejected*, and the two sections
+swap. The reasoning is untouched — the deploy artifact is whatever the
+generator produces, and opmode discovery has to work inside it.
 
 Claim tags are defined in the index. `[source]` claims here were read
 at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
-`v2027.0.0-alpha-6`. No alpha-7 has been tagged; the checkout is called
-alpha-7 because its vendordeps say `2027_alpha7`. An unqualified path is
-a file in this repo.
+`v2027.0.0-alpha-6` — except the build claims, re-read on 2026-09-06 in
+`GradleRIO-2027.0.0-alpha-7` and against this repo's own `build.gradle`.
+**That checkout is what this project calls alpha-7**, and the other ADRs
+name it by pointing here. This ADR added that no alpha-7 had been
+tagged, which was wrong: `v2027.0.0-alpha-7` is a real tag, dated
+2026-08-25, ten commits after `cafb0cc79`. An unqualified path is a file
+in this repo.
 
 ## Context
 
@@ -189,15 +199,22 @@ harder to follow.
 
 ### Build, deploy and console
 
-**Fat jar**, which is what the stock template already does: it applies
-`com.gradleup.shadow` and points the deploy artifact at it
-(`build.gradle:104`). Choosing the ordinary VSCode or Gradle deploy *is*
-choosing the fat jar. The shadow config also stashes `src/`,
-`vendordeps/` and `build.gradle` inside the jar under `backup/`
-(`build.gradle:96-98`). **[source]**
+**Whatever the stock template builds**, which since GradleRIO alpha-7
+is a **classpath deploy**: the template applies the `application` plugin
+and hands it to both the deploy artifact and GradleRIO
+(`deployArtifact.configureApplication(application)`,
+`wpi.java.configureApplication(application)`, `build.gradle:141-142`).
+`WPILibJavaArtifact.generateArgFile` writes a `-cp` line over
+`/home/systemcore/wpilib/classpath` plus our own jar into
+`robotCommand.args`, and the plain `jar` task still stashes `src/`,
+`vendordeps/` and `build.gradle` under `backup/` (`build.gradle:152-156`).
+**[source]** Choosing the ordinary VSCode or Gradle deploy *is* choosing
+that, exactly as it used to mean choosing the fat jar the shadow plugin
+built.
 
-Opmode discovery survives the fat jar: the scanner handles `jar:` URLs
-as well as `file:` ones (`OpModeRobot.java:438-459` for `jar:`, `:460-466` for `file:`).
+Opmode discovery survives it either way, because our classes still ship
+in a jar: the scanner handles `jar:` URLs as well as `file:` ones
+(`OpModeRobot.java:438-459` for `jar:`, `:460-466` for `file:`).
 **[source]**
 
 `vendordeps/` JSONs are committed, and committing them *is* the pin.
@@ -258,7 +275,7 @@ in GradleRIO's deploy plugin — so output is `journalctl -u robot -f`.
   maintain.
 - **The compile-time safety net is one line in `build.gradle`.**
   `annotationProcessor wpi.java.deps.wpilibAnnotations()`
-  (`build.gradle:60`) is what supplies the Commands v3 checks. See Traps.
+  (`build.gradle:83`) is what supplies the Commands v3 checks. See Traps.
 
 - **`SparkSim` does not run against the pinned checkout, and the
   no-seam decision does not depend on it.** `SparkSim` reaches
@@ -292,12 +309,16 @@ in GradleRIO's deploy plugin — so output is `journalctl -u robot -f`.
   **[source]**
 
 - **Renaming `Main`'s package silently breaks the deploy.**
-  `build.gradle:12` names the launcher as the *string* `"first.Main"`,
-  and that string is what goes into the jar manifest
-  (`build.gradle:99`). **[source]** Nothing checks it, so the build is
-  clean and the robot fails to start. Renaming `Robot`'s package is
-  safe by comparison — `Main.java` names it as a class literal, which
-  the compiler does check.
+  `build.gradle:15` names the launcher as the *string* `"first.Main"`,
+  and that string is what `application.mainClass` carries
+  (`build.gradle:139`) into the `-cp` line the deploy writes into
+  `robotCommand.args`. **[source]** The jar manifest
+  names nothing — under the `application` plugin it is empty of
+  `Main-Class` **[executed]** — so there is no second place the name is
+  checked either. Nothing checks it at all: the build is clean and the
+  robot fails to start. Renaming `Robot`'s package is safe by
+  comparison — `Main.java` names it as a class literal, which the
+  compiler does check.
 
 - **A test that builds a mechanism without a `RobotBase` logs every
   `Measure` as its `toString()`.** The `Measure` type handler is
@@ -422,10 +443,16 @@ A mentor convenience with a different deploy layout
 (`wpilib/allwpilibclasspath/`) and a different GC default. Not our
 deploy path.
 
-### Classpath (non-fat) deploy
+### Fat jar
 
-Never on the table — the stock template's shadow jar is the deploy
-artifact, and opmode discovery is verified to work inside it.
+**Was the decision; is now the rejected option**, and only because the
+template moved. Through GradleRIO alpha-6 it applied
+`com.gradleup.shadow` and pointed the deploy artifact at the shadow jar,
+so the fat jar was what *"stock template, unmodified"* meant and the
+classpath deploy sat in this slot. alpha-7 removed the shadow plugin.
+Keeping the fat jar would now mean re-adding it to a `build.gradle` this
+ADR commits to leaving stock — which is the same test that chose it
+before, returning the opposite answer.
 
 ### `m_` field prefix
 
@@ -460,11 +487,15 @@ Source read for this ADR, in `~/dev/allwpilib` at `cafb0cc79` (alpha-7):
 the generated
 `wpilibjExamples/build/generated/sources/annotationProcessor/java/main/org/wpilib/examples/rebuiltcmdv3/mechanisms/SwerveDriveLogger.java`.
 
+Re-read for #121, in `GradleRIO-2027.0.0-alpha-7` by `javap`:
+`org.wpilib.gradlerio.wpi.java.WPIJavaExtension` and
+`org.wpilib.gradlerio.deploy.systemcore.WPILibJavaArtifact`.
+
 ### Departure from #12
 
 #12 names the root package `frc.robot` and the opmode package
 `opmodes/`. The generator writes `first.robot` and `opmode/`
-(`src/main/java/first/robot/opmode/`; `build.gradle:12`). **[source]**
+(`src/main/java/first/robot/opmode/`; `build.gradle:15`). **[source]**
 This ADR follows the generator, on #12's own stronger commitment to the
 stock template unmodified. Nothing else in #12 is affected: the root
 package is the scan root whatever it is called, and opmodes are flat by
