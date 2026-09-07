@@ -1,3 +1,6 @@
+import org.wpilib.deployutils.deploy.artifact.ArtifactDeployTask
+import org.wpilib.deployutils.deploy.target.discovery.TargetDiscoveryTask
+
 plugins {
     id "java"
     id "application"
@@ -61,6 +64,90 @@ deploy {
             }
         }
     }
+}
+
+// Departs from the template: the SystemCore image ships /usr/lib/libMrcLib.so and the HAL calls
+// MRC_CHECK_API_VERSION() before it prints anything, so an image older than the WPILib being
+// deployed aborts into a three-second crash loop that nothing warns about at build time. The image
+// and the WPILib are a version pair, and this is the only place the two numbers meet.
+def mrcLibVersion = wpi.versions.mrcLibVersion.get()
+
+// MRC_API_VERSION is in the mrclib headers, so the requested number is whatever the WPILib on the
+// build classpath was compiled against rather than a table this file would have to keep current.
+def mrcHeaders = configurations.detachedConfiguration(
+    dependencies.create("org.wpilib.mrclib:mrclib-cpp:${mrcLibVersion}:headers@zip"))
+
+def discoverSystemcore = tasks.named('discoversystemcore', TargetDiscoveryTask)
+
+tasks.register('mrcApiPreflight') {
+    group = 'wpilib'
+    description = 'Checks the SystemCore image accepts the MRC API version this build requires'
+    dependsOn discoverSystemcore
+
+    doLast {
+        def requested = null
+        try {
+            new java.util.zip.ZipFile(mrcHeaders.singleFile).withCloseable { zip ->
+                def header = zip.getInputStream(zip.getEntry('mrclib/ApiVersion.h')).getText('UTF-8')
+                def define = header =~ /(?m)^#define\s+MRC_API_VERSION\s+(\d+)/
+                if (define) {
+                    requested = define[0][1] as int
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("MRC preflight skipped: mrclib ${mrcLibVersion} headers unreadable (${e.message}).")
+            return
+        }
+        if (requested == null) {
+            logger.warn("MRC preflight skipped: mrclib ${mrcLibVersion} declares no MRC_API_VERSION.")
+            return
+        }
+
+        // isAvailable(), not the getter: getActiveContext() throws rather than answering null,
+        // which would fail a deploy the check could not run against.
+        def discovery = discoverSystemcore.get()
+        if (!discovery.available) {
+            logger.warn('MRC preflight skipped: the SystemCore was not discovered.')
+            return
+        }
+
+        // `accepts` is exactly the HAL's own check, MRC_CheckApiVersion(MRC_API_VERSION), so this
+        // asks no more than the robot program will. `ceiling` is only there to name a number in
+        // the failure, which is why it need not look above what we asked for. MRC_Bool is uint8_t.
+        // stderr is folded in because a box that cannot answer says why only on stderr.
+        def probe = 'python3 -c \'import ctypes; ' +
+            'f = ctypes.CDLL("/usr/lib/libMrcLib.so").MRC_CheckApiVersion; ' +
+            'f.argtypes = [ctypes.c_uint32]; f.restype = ctypes.c_uint8; ' +
+            "print(\"mrc-api accepts=%d ceiling=%d\" % (f(${requested}), " +
+            "max([v for v in range(${requested}) if f(v)], default=-1)))' 2>&1"
+        def answer = discovery.activeContext.execute(probe)?.result ?: ''
+        def reply = answer =~ /mrc-api accepts=(\d) ceiling=(-?\d+)/
+        if (!reply) {
+            // A check that could not run must not block a deploy that would otherwise work.
+            logger.warn("MRC preflight skipped: ${discovery.activeContext.friendlyString()} did not " +
+                "answer the probe. It said: ${answer.trim()}")
+            return
+        }
+
+        if (reply[0][1] == '1') {
+            logger.lifecycle("MRC API ${requested} requested, and the image accepts it.")
+            return
+        }
+        def ceiling = reply[0][2] as int
+        throw new GradleException(
+            "MRC API mismatch: this build needs ${requested} (mrclib ${mrcLibVersion}) and the " +
+            (ceiling < 0 ? 'image accepts no version at all' : "image accepts up to ${ceiling}") +
+            '. Nothing was deployed. The OS image and WPILib are a pair — reflash the SystemCore ' +
+            'from LimelightVision/systemcore-os-public, or move the WPILib pin back to an alpha ' +
+            'the image accepts.')
+    }
+}
+
+// Every file copy and every remote command on the deploy path is an ArtifactDeployTask, the program
+// kill included, so gating the type is what puts the failure before anything on the device is
+// touched. An unreachable bench never gets this far: discovery fails first, as it already did.
+tasks.withType(ArtifactDeployTask).configureEach {
+    dependsOn 'mrcApiPreflight'
 }
 
 // Departs from the template: REVLib alpha-6's native imports two symbols no WPILib this project

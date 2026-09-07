@@ -382,6 +382,11 @@ The index of the ADRs themselves is
   build must agree on. A mismatch is a crash loop, not a message, so the
   bench stays on the image the checkout expects
   ([ADR 0013](docs/adr/0013-ci-and-test-strategy.md)).
+- **The preflight** — `mrcApiPreflight`, the Gradle task every deploy
+  depends on. It reads the image's MRC API ceiling over the deploy's own
+  ssh session and fails with both numbers rather than letting the pair
+  disagree on the device
+  ([ADR 0003](docs/adr/0003-project-and-package-structure.md)).
 - **The bench Pi** — the single SystemCore-image Raspberry Pi at
   `192.168.1.202` that measurements and hardware CI run on. There is
   one of it, which is why it can never gate anything

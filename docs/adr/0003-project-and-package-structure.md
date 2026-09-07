@@ -9,7 +9,10 @@ the ground that the stock template built one. GradleRIO alpha-7 dropped
 the shadow plugin for `application`, so the template now produces the
 classpath deploy this ADR listed under *Rejected*, and the two sections
 swap. The reasoning is untouched — the deploy artifact is whatever the
-generator produces, and opmode discovery has to work inside it.
+generator produces, and opmode discovery has to work inside it. Amended
+2026-09-06 by #100: *Which WPILib we build against* called the image ↔
+allwpilib ↔ MRC API pairing a habit rather than a tool, and #100 built
+the tool. The passage names it; nothing about the decision changed.
 
 Claim tags are defined in the index. `[source]` claims here were read
 at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -234,9 +237,13 @@ release. Only the artifact source changes — the GradleRIO deploy path is
 identical either way. **[decided]**
 
 Three things move together: OS image build ↔ allwpilib version and
-commit ↔ MRC API number. The discipline is a habit, not a tool: **read
-the device's `MRC_CheckApiVersion` before bumping anything**, and keep
-the bench on the image the checkout expects. A mismatch is not a build
+commit ↔ MRC API number. **Amended 2026-09-06 by #100: the discipline
+is a tool now.** `mrcApiPreflight` in `build.gradle` asks the device
+the same `MRC_CheckApiVersion` question the HAL asks, for the
+`MRC_API_VERSION` declared by the mrclib headers GradleRIO pins. Every
+`ArtifactDeployTask` depends on it, so a mismatched pair fails the
+deploy with both numbers in the message before anything is copied.
+Keep the bench on the image the checkout expects. A mismatch is not a build
 error — the HAL calls `std::terminate()` at startup, and
 `robot.service` is `Restart=always` with `RestartSec=3`
 **[source — `docs/research/systemcore-deploy.md`]**, so it becomes a

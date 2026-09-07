@@ -17,6 +17,10 @@ alpha-7 moved the project-wide year to `2027_alpha7`, so
 `CommandsV3.json` is back to upstream's value and the three third-party
 JSONs are the edited side. The section and its table are rewritten to
 the state that actually holds; nothing about the decision changed.
+Amended 2026-09-06 by #100: *A pre-flight ABI probe* stays rejected as a
+CI assertion and has been built on the deploy path, where the audience
+is different. The entry says which is which, and names the one thing it
+moves — the nightly's designed red now lands on the deploy step.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -804,12 +808,26 @@ cannot already write, and the natives it avoids are already on the test
 JVM's path. *Re-raise only* if the HAL being up makes a Tier 1 test slow
 or flaky — which is a measurement, not an opinion.
 
-### A pre-flight ABI probe
+### A pre-flight ABI probe *in CI*
 
 Reading the image's ceiling over ssh with `ctypes` on
 `MRC_CheckApiVersion` was offered and declined — *"don't over engineer a
 system that is going stable shortly."* Observation plus the literal
-`grep` in assertion (4) gets the same sentence in front of a student.
+`grep` in assertion (4) gets the same sentence in front of a student,
+and assertion (1) already catches the abort without parsing anything.
+
+**Still rejected here, and built elsewhere.** #100 put the probe on the
+*deploy* path instead, as `mrcApiPreflight` in `build.gradle`: CI is not
+where this hazard is met, because a student clicking the VSCode deploy
+button never sees a workflow. The decision above is unchanged, but one
+consequence of it is. Job 1 deploys through the same `deploy` task, so
+**the nightly's designed red now lands on the Gradle step rather than on
+assertion (1)**. That is the better failure of the two — the exception
+names both version numbers and the remedy, where `NRestarts=1` named
+neither, and the Step Summary rule is satisfied by the exception text
+itself. Assertion (1) keeps its other half, every startup exception that
+is not an ABI mismatch, and assertion (4) keeps being the cheap literal
+`grep` for the case where an image somehow gets past the preflight.
 
 ### Putting a SPARK and a Pigeon2 on the bench to make ADR 0004's config path assertable
 
