@@ -708,7 +708,7 @@ older spellings appears anywhere.
   identity for ever in simulation.** The evidence is under *Decision*.
   What it looks like is a robot whose odometry translates and never
   turns, and whose field-relative driving never rotates its frame —
-  under `simulateJava`, which is the only place most of this project is
+  under `./gradlew run`, which is the only place most of this project is
   ever run. Nothing throws, and every quaternion signal reports `OK`
   while reading `0.0`. Read the heading off yaw, pitch and roll.
   *Re-raise* when a Phoenix release drives the quaternion in

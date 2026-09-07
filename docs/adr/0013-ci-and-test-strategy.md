@@ -11,13 +11,18 @@ It was dormant in fact if not in principle until ADR 0015's shim let a
 SPARK be constructed; `WiringTest` is green, and the test task forks a
 JVM per class because the HAL, the alert table and the data log are all
 process-wide and a Tier 2 class claims the data log for the rest of the
-JVM.
+JVM. Corrects 2026-09-06 by #121: *The year-gate edit, and what inverts
+it* named its own revert condition and the condition fired. GradleRIO
+alpha-7 moved the project-wide year to `2027_alpha7`, so
+`CommandsV3.json` is back to upstream's value and the three third-party
+JSONs are the edited side. The section and its table are rewritten to
+the state that actually holds; nothing about the decision changed.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
 `v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7. GradleRIO
-`[source]` claims were read in `GradleRIO-2027.0.0-alpha-6`, the version
-`build.gradle:3` pins, from the plugin jar by `javap`; paths are given
+`[source]` claims were read in `GradleRIO-2027.0.0-alpha-7`, the version
+`build.gradle:4` pins, from the plugin jar by `javap`; paths are given
 as class names. An unqualified path is a file in this repo.
 
 ## Context
@@ -42,9 +47,13 @@ Three constraints shape the answer and none of them are ours to choose:
   module, no `tunables` module and no `mrclib`/SystemCore HAL — so it
   cannot compile ADR 0005's logging and cannot deploy to the Pi.
   **[source, via #19]**
-- **The vendordep year gate is out of step with itself.** GradleRIO's
-  project-wide requirement is `2027_alpha5` while allwpilib's own
-  first-party JSONs already declare `2027_alpha7`. **[source]**
+- **The vendordep year gate is out of step with somebody, always.**
+  GradleRIO's project-wide requirement is `2027_alpha7` and allwpilib's
+  own first-party JSONs match it, but no third-party vendor has
+  published against alpha-7, so every one of theirs still declares
+  `2027_alpha5`. It was the other way round when this ADR was written.
+  Whichever way it sits, some JSON in `vendordeps/` is wrong for the
+  plugin that reads it. **[source]**
 - **There is exactly one bench Pi.** Anything that runs on hardware
   queues on a single physical box that may be unplugged.
 
@@ -150,7 +159,7 @@ carries `setOpMode(long)` (`DriverStationSim.java:288`),
 (`wpilibj/src/test/java/org/wpilib/framework/OpModeRobotTest.java:20-21,
 97-105, 144, 244-278`). **[source]** The JUnit extension that wires it
 is auto-detected by `junit.jupiter.extensions.autodetection.enabled`,
-which the template already sets (`build.gradle:84`). **[source]** All of
+which the template already sets (`build.gradle:116`). **[source]** All of
 #22's uinput, Xvfb and spacebar apparatus exists to drive the *real* DS,
 which this tier does not have and does not want.
 
@@ -159,7 +168,7 @@ It needs no extra build configuration either.
 which sets `LD_LIBRARY_PATH` and `java.library.path` from the extracted
 desktop natives **[source]**, fed by the template's unconditional
 `nativeRelease wpi.java.deps.wpilibJniRelease(wpi.platforms.desktop)`
-(`build.gradle:74`). **[source]**
+(`build.gradle:97`). **[source]**
 
 It drives **ADR 0010's scripted `@Utility` drive-a-path opmode** — one
 artifact, two audiences. A test-only opmode would be a second thing to
@@ -306,8 +315,9 @@ dependency-resolution error with no earlier version to fall back to.
 caused by upstream — which is a cost we accept, because the alternative
 is a red we cannot fix at all.
 
-**Pin to alpha-7 the moment it is tagged.** It is visibly imminent: six
-vendordep JSONs on allwpilib `main` already declare `2027_alpha7`.
+**Pinned to alpha-7 since 2026-09-06**, which is what `build.gradle:4`
+names. The prediction that made this a decision — six vendordep JSONs
+on allwpilib `main` already declaring `2027_alpha7` — is spent.
 **[source]**
 
 A daily scheduled run of `main` on the gated workflow was considered —
@@ -318,33 +328,46 @@ hardware nightly, which exists for a different reason, stays.
 ### The year-gate edit, and what inverts it
 
 The gate is `WPIVendorDepsExtension.validateDependencies()` in
-`wpilibsuite/native-utils`, and it compares each `vendordeps/*.json`'s
+`org.wpilib:native-utils`, and it compares each `vendordeps/*.json`'s
 `wpilibYear` against one project-wide value whose convention GradleRIO
-sets to the string `2027_alpha5`
+sets, as of alpha-7, to the string `2027_alpha7`
 (`org.wpilib.gradlerio.wpi.WPIExtension`). **[source]**
 
-| vendordep | declares | vs `2027_alpha5` |
+| vendordep | declares | vs `2027_alpha7` |
 |---|---|---|
-| REVLib `2027.0.0-alpha-6` | `2027_alpha5` | passes |
-| Phoenix 6 `26.50.0-alpha-1` | `2027_alpha5` | passes |
-| photonlib `v2027.0.0-alpha-2` | `2027_alpha5` | passes |
-| `CommandsV3.json` from allwpilib `main` | `2027_alpha7` | **rejected** |
+| REVLib `2027.0.0-alpha-6` | `2027_alpha5` upstream | **rejected**, so edited |
+| Phoenix 6 `26.50.0-alpha-1` | `2027_alpha5` upstream | **rejected**, so edited |
+| photonlib `v2027.0.0-alpha-2` | `2027_alpha5` upstream | **rejected**, so edited |
+| `CommandsV3.json` from allwpilib `main` | `2027_alpha7` | passes |
 
 **[source — `vendordeps/*.json`, `~/dev/allwpilib/commandsv3/CommandsV3.json`]**
 
-So the gate never blocked REVLib. It blocks Commands v3, and the fix is
-one word: **`vendordeps/CommandsV3.json` carries `2027_alpha5`**, edited
-down from upstream's `2027_alpha7`. It is checked in, `git diff` shows
-it, and `shadowJar` already copies `vendordeps/` into the deployed jar
-under `backup/vendordeps` (`build.gradle:97`). **[source]**
+So the gate no longer blocks Commands v3 — every field in that file is
+upstream's again, the importer's indentation aside. It blocks all three
+third-party vendordeps instead, and the fix is one word in each:
+**`REVLib.json`, `Phoenix6-26.50.0-alpha-1.json` and `photonlib.json`
+carry `2027_alpha7`**, edited up from the `2027_alpha5` their vendors
+publish. The edits are checked in, `git diff` shows them, and the `jar`
+task already copies `vendordeps/` into the deployed jar under
+`backup/vendordeps` (`build.gradle:154`). **[source]**
 
-**The revert condition is the string itself.** When GradleRIO publishes
-an alpha-7 its convention flips to `2027_alpha7`, and the edit inverts:
-`CommandsV3.json` goes back untouched and REVLib becomes the file we
-edit, until REV republishes. No separate note anywhere — the gate throws
-at configuration time with a message naming the year, so CI catches an
-overwritten JSON loudly and immediately, and a second copy of a fact
-`git diff` already shows is a second copy that can drift.
+Note what the edit now asserts. Editing `CommandsV3.json` down claimed
+nothing: the artifact it names is built from the same checkout GradleRIO
+was, so the year was the only thing out of step. Editing a third-party
+JSON up claims that a binary compiled against alpha-5 links against
+alpha-7, and that is a compatibility the tests have to carry rather than
+a formality — ADR 0015 exists because one of those three did not.
+
+**The revert condition is still the string itself, and it fires in both
+directions.** Each vendor that republishes against alpha-7 takes its own
+file back to untouched; the next GradleRIO bump puts every file that has
+not moved back out of step. No separate note anywhere — the gate throws
+at plugin-apply time with a message naming the year, from
+`WPIExtension`'s own constructor, before any build script line can reach
+`wpi.wpilibYear` and before any task runs **[source]**, so there is
+nothing to bypass and CI catches an overwritten JSON loudly and
+immediately. A second copy of a fact `git diff` already shows is a
+second copy that can drift.
 
 ### The bench Pi is a second workflow, and it is never a required check
 
@@ -373,7 +396,7 @@ block anything has not earned a second delivery mechanism.
 
 ### Job 1 — `real-hal-boot`, and it is four assertions
 
-Deploys the **real fat jar** (`linuxsystemcore`) against an **empty CAN
+Deploys the **real artifact** (`linuxsystemcore`) against an **empty CAN
 bus**, waits 30 s, and asserts:
 
 1. **`systemctl show robot -p NRestarts` unchanged.** Since the MRC ABI
@@ -452,8 +475,8 @@ what makes `linuxarm64` the *sim* artifact rather than a cross-compiled
 real one. **[source, via #23 — artifact listing at
 `2027.0.0-alpha-6-370-gb448d64f3`; the guard read locally]**
 
-So the Pi runs the real fat jar as a simulation: real aarch64, real
-PREEMPT_RT kernel, real JDK 25, real Notifier scheduling under real
+So the Pi runs the real deploy artifact as a simulation: real aarch64,
+real PREEMPT_RT kernel, real JDK 25, real Notifier scheduling under real
 contention, physics loop closed, nothing plugged in — driven by the real
 Driver Station from a second box, with #22's Xvfb, uinput keyboard,
 spacebar gate and `xwininfo`-derived click targets.
@@ -684,17 +707,19 @@ covers, or general code-quality opinion.
   **[executed — `docs/research/ds-headless-control.md:34, 188`]** Any
   `sim-hitl` harness sends Space first, before anything else.
 
-- **Re-importing `CommandsV3.json` from allwpilib breaks the build
-  twice.** Upstream's copy declares `2027_alpha7`, which the year gate
-  rejects, *and* names the artifact `commandsv3-java` where the artifact
-  that actually resolves is `commands3-java`. **[source — diff against
+- **Re-importing a *third-party* vendordep from its vendor URL breaks
+  the build.** It reverts `wpilibYear` to `2027_alpha5` and the gate
+  refuses to configure the project. `CommandsV3.json` is the one file
+  this is now safe on: upstream's copy declares `2027_alpha7` and names
+  the artifact `commandsv3-java`, which is what resolves. Both halves of
+  this trap used to point at that file and both are spent — the artifact
+  was `commands3-java` through alpha-6. **[source — diff against
   `~/dev/allwpilib/commandsv3/CommandsV3.json`; the resolved artifact in
-  the Gradle cache]** The gate failure is loud and names the year. The
-  artifact-id failure is a resolution error that names neither. Take the
-  checked-in file as the source of truth.
+  the Gradle cache]** The gate failure is loud and names the year. Take
+  the checked-in files as the source of truth.
 
 - **`def includeDesktopSupport` gates nothing.** It is declared at
-  `build.gradle:55` and referenced exactly nowhere in the file.
+  `build.gradle:78` and referenced exactly nowhere in the file.
   **[source]** Flipping it to fix a desktop-natives problem changes no
   behaviour at all; the natives come from the unconditional
   `nativeRelease` lines.
@@ -826,7 +851,7 @@ mechanism. Step Summary, plus a journal artifact on failure.
 The option #25 was written around, and it is strictly worse than it
 looks. It does skip the year gate, which lives in the vendordep loader
 rather than in maven. But the template wires vendor natives through
-`wpi.java.vendor.jniRelease(...)` (`build.gradle:68, 75`) **[source]**, and
+`wpi.java.vendor.jniRelease(...)` (`build.gradle:91, 98`) **[source]**, and
 REVLib ships **three** — `REVLib-driver`, `RevLibBackendDriver`,
 `RevLibWpiBackendDriver`, each valid for `linuxsystemcore` as well as
 the desktop platforms (`vendordeps/REVLib.json`, `jniDependencies`).
@@ -837,11 +862,18 @@ says as much — *"Attempting to modify an existing dependency will break
 at runtime, and will result in loss of support from the WPILib team."*
 *Do not re-raise* without new evidence about the natives.
 
-### Setting `wpi { wpilibYear = "2027_alpha7" }` and editing the vendordeps up
+### Setting `wpi { wpilibYear = ... }` to move the gate
 
-Two edits — REVLib and Phoenix — instead of one, and `wpilibYear` also
-feeds `wpilibHome`, repointing the install-folder path at a directory
-that does not exist. **[source, via #25]**
+Half of this option — editing the third-party vendordeps up — is the
+decision now, and it arrived by upstream's hand rather than ours. The
+half still rejected is overriding the project-wide year from
+`build.gradle`, and it is rejected harder than #25 rejected it.
+`wpilibYear` feeds `wpilibHome`, so an override repoints the
+install-folder path at a directory that does not exist **[source, via
+#25]** — and, on alpha-7, it does not reach the gate at all:
+`WPIExtension`'s constructor sets the year, loads the vendordeps and
+validates them before any line of `build.gradle` can assign to it.
+**[source]**
 
 ### Pinning an exact `frcmaven/development` build
 
@@ -852,9 +884,9 @@ to. **[source, via #19]**
 ### A daily scheduled run of `main` on the gated workflow
 
 It would cheaply separate *WPILib broke us* from *your PR broke us*, and
-it is machinery for a condition that ends when alpha-7 is tagged. The
-bench nightly stays, because it detects something a push trigger
-structurally cannot.
+it was machinery for a condition that ended when alpha-7 was tagged and
+pinned. The bench nightly stays, because it detects something a push
+trigger structurally cannot.
 
 ### A build matrix
 

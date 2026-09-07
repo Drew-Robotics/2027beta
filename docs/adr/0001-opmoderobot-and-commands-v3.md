@@ -314,7 +314,7 @@ should start a thread near a command either.
   `javacPlugin/.../WPILibJavacPlugin.java` declares `autoStart()`
   (`:33-34`), so no `-Xplugin` flag is needed — but only
   if the plugin jar is on the annotation processor path, and the single
-  thing that puts it there is `build.gradle:60`:
+  thing that puts it there is `build.gradle:83`:
 
   ```groovy
   annotationProcessor wpi.java.deps.wpilibAnnotations()
