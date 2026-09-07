@@ -108,9 +108,14 @@ person*: **during an event we push to a per-event branch with no
 restrictions and merge afterwards.** An admin override is a habit that
 gets used on a Tuesday; a branch is a thing you have to mean.
 
-This is new. Today `main` has no protection at all and all six
-collaborators hold `admin`, so CI could inform but not gate, and anyone
-can push straight to `main`. **[executed — GitHub API, 2026-08-26]**
+It is in place, as a **ruleset** rather than classic branch protection:
+active on `main`, one required check — `Lint, compile and test` — and an
+empty `bypass_actors`, which is what *including administrators* means
+here. Neither bench job is listed, and neither may be.
+**[executed — GitHub API, 2026-09-07, via #101]** The classic
+`/branches/main/protection` endpoint answers `404 Branch not protected`
+against a repository protected this way, so that 404 is not evidence of
+anything.
 
 ### Tier 1 owns every number
 

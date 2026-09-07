@@ -62,7 +62,7 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
 
       # Deploys the real artifact against an empty CAN bus and asserts four things about it.
       - name: Deploy and assert
@@ -93,7 +93,7 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
 
       # A linuxarm64 sim build on the Pi, enabled by the real Driver Station on this runner.
       - name: Simulate on the bench
