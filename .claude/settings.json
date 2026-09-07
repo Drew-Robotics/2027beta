@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git blame *)",
+      "Bash(git grep *)",
+      "Bash(git rev-parse *)",
+      "Bash(git merge-base *)",
+      "Bash(git ls-files *)",
+      "Bash(git branch)",
+      "Bash(git branch --list *)",
+      "Bash(git remote -v)",
+      "Bash(git remote get-url *)",
+      "Bash(git config --get *)",
+      "Bash(gh issue list *)",
+      "Bash(gh issue view *)",
+      "Bash(gh issue status *)",
+      "Bash(ssh systemcore@*)",
+      "Bash(uv run *)"
+    ]
+  }
+}

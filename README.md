@@ -49,6 +49,12 @@ and [issue #18](https://github.com/Drew-Robotics/2027beta/issues/18), but is not
 built yet. It reviews successful pull requests for field-only risks that CI
 cannot detect. It is not a replacement for student review.
 
+`.claude/settings.json` is checked in. It is a permission allowlist, so an agent
+runs `./gradlew`, read-only `git`, read-only `gh issue`, `ssh systemcore@...` and
+`uv run` without asking. Claude Code ignores it until you accept the trust dialog
+once, on the first run in a fresh clone. Your own approvals go in
+`.claude/settings.local.json`, which is not checked in.
+
 ## Deploying
 
 Use the VSCode deploy button or `./gradlew deploy`. Deployment stops
