@@ -1,0 +1,110 @@
+name: Bench
+
+# The hardware jobs, and they are never a required check. There is one bench Pi: it can gate
+# nothing, and an unreachable bench is a skip rather than a red. Public repo plus a self-hosted
+# runner is why the triggers are trusted branches only and never `pull_request`.
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Nightly, and it is expected to go red on its own: the build floats against a moving WPILib
+    # while the bench stays on the image last flashed to it, so an mrclib bump lands here first.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+# Two jobs and one Pi. Job 1 deploys a real-HAL jar and Job 2 a sim jar to the same box, so the
+# group is the runner rather than the branch, and a superseded run queues instead of cancelling.
+concurrency:
+  group: bench
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  BENCH: systemcore@192.168.1.202
+
+jobs:
+  reachable:
+    name: Is the bench up
+    runs-on: [self-hosted, linux, bench]
+    timeout-minutes: 5
+    outputs:
+      up: ${{ steps.probe.outputs.up }}
+    steps:
+      - name: Probe the bench
+        id: probe
+        shell: bash
+        run: |
+          if ssh -o BatchMode=yes -o ConnectTimeout=10 "$BENCH" true 2>/dev/null; then
+            echo "up=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### The bench is unreachable"
+              echo
+              echo "\`$BENCH\` did not answer, so both hardware jobs are skipped. This is not a"
+              echo "failure: there is one bench Pi and it is allowed to be unplugged."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  real-hal-boot:
+    name: real-hal-boot
+    needs: reachable
+    if: needs.reachable.outputs.up == 'true'
+    runs-on: [self-hosted, linux, bench]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Deploys the real artifact against an empty CAN bus and asserts four things about it.
+      - name: Deploy and assert
+        shell: bash
+        run: .github/bench/real-hal-boot.sh | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the journal
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-hal-boot-${{ github.run_id }}
+          path: build/bench/real-hal-boot-*
+          if-no-files-found: ignore
+
+  sim-hitl:
+    name: sim-hitl
+    needs: [reachable, real-hal-boot]
+    # Serialised behind Job 1 rather than gated on it: they assert different things and one Pi
+    # cannot hold both jars at once.
+    if: ${{ !cancelled() && needs.reachable.outputs.up == 'true' }}
+    runs-on: [self-hosted, linux, bench]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # A linuxarm64 sim build on the Pi, enabled by the real Driver Station on this runner.
+      - name: Simulate on the bench
+        shell: bash
+        run: .github/bench/sim-hitl.sh | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the console log and the WPILOG
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-hitl-${{ github.run_id }}
+          path: |
+            build/bench/sim-hitl-*
+          if-no-files-found: ignore
