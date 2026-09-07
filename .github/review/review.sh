@@ -12,6 +12,10 @@ set -euo pipefail
 PR=${1:?usage: review.sh <pr-number> [out-dir]}
 OUT=${2:-build/review}
 MODEL=${REVIEW_MODEL:-opus}
+# The commit CI went green on. The Environment gate can park this job for hours, and the branch
+# may move while it waits, so the caller pins the commit rather than the script re-resolving a
+# head that no longer matches the run that admitted it.
+HEAD_SHA=${REVIEW_HEAD_SHA:-}
 # 400 KB of patch is already more than a reviewer can hold. Past that the tail is dropped and the
 # session is told so, rather than the run failing on a green-but-enormous branch.
 MAX_DIFF_BYTES=${MAX_DIFF_BYTES:-400000}
@@ -22,13 +26,17 @@ PROMPT="$REPO_ROOT/.github/review/prompt.md"
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 
-read -r BASE_SHA HEAD_SHA < <(gh pr view "$PR" --json baseRefOid,headRefOid \
+read -r BASE_SHA RESOLVED_HEAD < <(gh pr view "$PR" --json baseRefOid,headRefOid \
   --jq '[.baseRefOid, .headRefOid] | @tsv')
+HEAD_SHA=${HEAD_SHA:-$RESOLVED_HEAD}
+echo "$HEAD_SHA" > "$OUT/head.sha"
 
 # `pull/N/head` rather than the branch name: it exists for forks too, and it cannot be a ref the
 # pull request author chose.
 git fetch --no-tags --quiet origin "pull/$PR/head"
-git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null || git fetch --no-tags --quiet origin "$BASE_SHA"
+for sha in "$BASE_SHA" "$HEAD_SHA"; do
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --no-tags --quiet origin "$sha"
+done
 git diff --merge-base "$BASE_SHA" "$HEAD_SHA" > "$OUT/diff.patch"
 
 if [ ! -s "$OUT/diff.patch" ]; then
@@ -59,12 +67,14 @@ git worktree add --quiet --detach "$TREE" "$HEAD_SHA"
 } > "$OUT/prompt.txt"
 
 echo "Reviewing #$PR ($BASE_SHA..$HEAD_SHA) with $MODEL ..." >&2
-(cd "$TREE" && claude -p "$(cat "$OUT/prompt.txt")" \
+# On stdin, not in argv: Linux caps a single argument at 128 KiB whatever ARG_MAX says, and the
+# prompt carries the patch.
+(cd "$TREE" && claude -p \
   --model "$MODEL" \
   --restricted \
   --strict-mcp-config \
   --tools Read,Grep,Glob \
-  --output-format json) > "$OUT/raw.json"
+  --output-format json < "$OUT/prompt.txt") > "$OUT/raw.json"
 
 python3 "$REPO_ROOT/.github/review/extract_findings.py" "$OUT/raw.json" > "$OUT/findings.json"
 echo "Findings in $OUT/findings.json" >&2

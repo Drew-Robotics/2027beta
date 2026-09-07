@@ -11,9 +11,13 @@ on:
 
 # CI runs on `push` and on `pull_request`, so one push to a branch with an open pull request
 # raises two `workflow_run` events. The event is in the group because otherwise the push one —
-# which this job skips — cancels the review and nothing is ever posted.
+# which this job skips — cancels the review and nothing is ever posted. The head repository is in
+# it because two forks both offering a branch called `main` are two pull requests, not one.
 concurrency:
-  group: review-${{ github.event.workflow_run.event }}-${{ github.event.workflow_run.head_branch }}
+  group: >-
+    review-${{ github.event.workflow_run.event }}-${{
+    github.event.workflow_run.head_repository.full_name }}-${{
+    github.event.workflow_run.head_branch }}
   cancel-in-progress: true
 
 permissions:
@@ -66,10 +70,13 @@ jobs:
         if: steps.pr.outputs.skip != 'true'
         run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
 
+      # The commit CI went green on, not whatever the branch has become while the Environment
+      # waited for a person: the review is stamped with it and the comments anchor to it.
       - name: Review
         if: steps.pr.outputs.skip != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REVIEW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: .github/review/review.sh "${{ steps.pr.outputs.number }}"
 
       - name: Post the review

@@ -106,6 +106,22 @@ class Partition(unittest.TestCase):
         inline, _ = partition([{"path": "b/a.txt", "line": 1, "body": "b"}], self.anchors)
         self.assertEqual(inline[0]["path"], "a.txt")
 
+    def test_a_line_that_arrived_as_a_string_or_a_float_still_anchors(self):
+        for line in ("2", 2.0):
+            with self.subTest(line=line):
+                inline, orphans = partition(
+                    [{"path": "a.txt", "line": line, "body": "b"}], self.anchors
+                )
+                self.assertEqual(orphans, [])
+                self.assertEqual(inline[0]["line"], 2)
+
+    def test_a_line_that_is_not_a_number_is_an_orphan_not_a_crash(self):
+        inline, orphans = partition(
+            [{"path": "a.txt", "line": "somewhere", "body": "b"}], self.anchors
+        )
+        self.assertEqual(inline, [])
+        self.assertEqual(len(orphans), 1)
+
     def test_a_finding_with_no_line_is_an_orphan_not_a_crash(self):
         inline, orphans = partition([{"path": "a.txt", "body": "b"}], self.anchors)
         self.assertEqual(inline, [])

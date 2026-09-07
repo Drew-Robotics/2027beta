@@ -11,8 +11,13 @@ import json
 import sys
 
 
-def _first_object(text):
-    """The first complete brace-balanced JSON object in `text`, ignoring braces inside strings."""
+def _objects(text):
+    """Every brace-balanced span in `text`, in order, ignoring braces inside strings.
+
+    Prose either side of the object is expected, and prose contains braces — `if (x) { y; }` in a
+    sentence is a balanced span that is not JSON — so candidates are yielded rather than the first
+    one being taken on faith.
+    """
     depth = 0
     start = None
     in_string = False
@@ -33,10 +38,13 @@ def _first_object(text):
                 start = index
             depth += 1
         elif char == "}":
+            # A stray closing brace would otherwise drive the depth negative, after which no
+            # opening brace can ever balance and the real object is never seen.
+            if depth == 0:
+                continue
             depth -= 1
             if depth == 0 and start is not None:
-                return text[start : index + 1]
-    return None
+                yield text[start : index + 1]
 
 
 def extract(envelope_text):
@@ -50,13 +58,15 @@ def extract(envelope_text):
     if not isinstance(result, str):
         raise ValueError("The review session printed no result.")
 
-    candidate = _first_object(result)
-    if candidate is None:
-        raise ValueError(f"No findings object in the session's answer: {result[:500]!r}")
-    report = json.loads(candidate)
-    report.setdefault("summary", "")
-    report.setdefault("findings", [])
-    return report
+    for candidate in _objects(result):
+        try:
+            report = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        report.setdefault("summary", "")
+        report.setdefault("findings", [])
+        return report
+    raise ValueError(f"No findings object in the session's answer: {result[:500]!r}")
 
 
 if __name__ == "__main__":

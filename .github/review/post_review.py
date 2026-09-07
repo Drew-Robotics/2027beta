@@ -58,12 +58,17 @@ def partition(findings, anchors):
         path = str(finding.get("path", "")).lstrip("/")
         if path[:2] in ("a/", "b/"):
             path = path[2:]
-        line = finding.get("line")
+        # A model that writes "42" or 42.0 has still named line 42, and losing every anchor over
+        # that would degrade the whole review to a summary with nothing to say where.
+        try:
+            line = int(finding["line"])
+        except (KeyError, TypeError, ValueError):
+            line = None
         body = str(finding.get("body", "")).strip()
         if not path or not body:
             continue
         entry = {"path": path, "line": line, "body": body}
-        if isinstance(line, int) and line in anchors.get(path, ()):
+        if line is not None and line in anchors.get(path, ()):
             inline.append({"path": path, "line": line, "side": "RIGHT", "body": body})
         else:
             orphans.append(entry)
