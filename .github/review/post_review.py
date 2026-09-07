@@ -26,22 +26,26 @@ def anchorable_lines(diff):
     anchors = {}
     path = None
     line_no = 0
+    # The hunk's own new-side length, counted down. Inside a hunk an added line reading "+++ b/x"
+    # is content; outside one it is a file header, and the two are otherwise identical.
+    remaining = 0
     for line in diff.splitlines():
-        if line.startswith("+++ "):
-            name = line[4:].split("\t")[0]
-            path = None if name == "/dev/null" else name[2:] if name[1:2] == "/" else name
+        if remaining <= 0:
+            if line.startswith("+++ "):
+                name = line[4:].split("\t")[0]
+                path = None if name == "/dev/null" else name[2:] if name[1:2] == "/" else name
+            hunk = HUNK.match(line)
+            if hunk:
+                line_no = int(hunk.group(1))
+                remaining = int(hunk.group(2) or 1)
             continue
-        if line.startswith("--- ") or line.startswith("diff --git "):
-            continue
-        hunk = HUNK.match(line)
-        if hunk:
-            line_no = int(hunk.group(1))
-            continue
-        if path is None or not line:
+        if not line:
             continue
         if line[0] in " +":
-            anchors.setdefault(path, set()).add(line_no)
+            if path is not None:
+                anchors.setdefault(path, set()).add(line_no)
             line_no += 1
+            remaining -= 1
     return anchors
 
 

@@ -27,7 +27,8 @@ read -r BASE_SHA HEAD_SHA < <(gh pr view "$PR" --json baseRefOid,headRefOid \
 
 # `pull/N/head` rather than the branch name: it exists for forks too, and it cannot be a ref the
 # pull request author chose.
-git fetch --no-tags --quiet origin "$BASE_SHA" "pull/$PR/head"
+git fetch --no-tags --quiet origin "pull/$PR/head"
+git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null || git fetch --no-tags --quiet origin "$BASE_SHA"
 git diff --merge-base "$BASE_SHA" "$HEAD_SHA" > "$OUT/diff.patch"
 
 if [ ! -s "$OUT/diff.patch" ]; then

@@ -6,7 +6,7 @@ TWO_HUNKS = """diff --git a/src/first/robot/Drive.java b/src/first/robot/Drive.j
 index 1111111..2222222 100644
 --- a/src/first/robot/Drive.java
 +++ b/src/first/robot/Drive.java
-@@ -10,6 +10,7 @@ class Drive {
+@@ -10,5 +10,6 @@ class Drive {
  context ten
  context eleven
 -removed twelve
@@ -14,7 +14,7 @@ index 1111111..2222222 100644
 +added thirteen
  context fourteen
  context fifteen
-@@ -40,3 +41,4 @@ class Drive {
+@@ -40,2 +41,3 @@ class Drive {
  context forty one
 +added forty two
  context forty three
@@ -58,6 +58,20 @@ class AnchorableLines(unittest.TestCase):
     def test_a_no_newline_marker_does_not_advance_the_counter(self):
         diff = NEW_FILE + "\\ No newline at end of file\n"
         self.assertEqual(anchorable_lines(diff), {"a.txt": {1, 2}})
+
+    def test_an_added_line_that_looks_like_a_file_header(self):
+        # `git diff` writes an added line "++ x" as "+++ x", which is a file header everywhere
+        # except inside a hunk.
+        diff = (
+            "diff --git a/m.md b/m.md\n"
+            "--- a/m.md\n"
+            "+++ b/m.md\n"
+            "@@ -1,1 +1,3 @@\n"
+            " one\n"
+            "+++ b/not-a-header\n"
+            "+--- a/not-a-header\n"
+        )
+        self.assertEqual(anchorable_lines(diff), {"m.md": {1, 2, 3}})
 
     def test_several_files_in_one_diff(self):
         anchors = anchorable_lines(TWO_HUNKS + NEW_FILE)
