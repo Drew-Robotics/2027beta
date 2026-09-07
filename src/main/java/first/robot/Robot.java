@@ -379,6 +379,7 @@ public class Robot extends OpModeRobot {
     alertLog.log(
         "StartTimes",
         active.stream().mapToDouble(a -> Nanoseconds.of(a.activeStartTime).in(Seconds)).toArray());
+    alertLog.log("Uptime", Nanoseconds.of(RobotController.getTime()));
   }
 
   private static String levelName(AlertInfo alert) {
