@@ -40,6 +40,11 @@ jobs:
         id: gradle
         run: ${{ env.BUILD_COMMAND }}
 
+      # The reviewer's own scripts. They run unattended holding a key, and nothing else covers them.
+      - name: Test the review scripts
+        if: always()
+        run: python3 -m unittest discover -s .github/review -t .github/review
+
       - name: Annotate test failures on the diff
         if: always()
         uses: mikepenz/action-junit-report@v6
