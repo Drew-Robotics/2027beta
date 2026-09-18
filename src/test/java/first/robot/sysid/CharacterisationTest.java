@@ -14,6 +14,7 @@ import static org.wpilib.units.Units.Milliseconds;
 import static org.wpilib.units.Units.Nanoseconds;
 import static org.wpilib.units.Units.Radians;
 import static org.wpilib.units.Units.RadiansPerSecond;
+import static org.wpilib.units.Units.Rotations;
 import static org.wpilib.units.Units.RotationsPerSecond;
 import static org.wpilib.units.Units.Seconds;
 import static org.wpilib.units.Units.Volts;
@@ -54,7 +55,6 @@ import org.wpilib.hardware.hal.HAL;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
-import org.wpilib.math.util.MathUtil;
 import org.wpilib.simulation.SimHooks;
 import org.wpilib.sysid.SysIdRoutineLog;
 import org.wpilib.system.DataLogManager;
@@ -120,7 +120,6 @@ class CharacterisationTest {
   private double lastDriveCommand;
   private double lastSteerCommand;
   private SimModuleState[] state;
-  private double azimuthRate;
   private double yawRadians;
   private Rotation2d lastRotation = Rotation2d.ZERO;
   private Time now = Seconds.zero();
@@ -138,14 +137,13 @@ class CharacterisationTest {
 
     var scheduler = Scheduler.createIndependentScheduler();
     var wheels = new Wheels(scheduler);
-    var gains = DriveConstants.SIM_GAINS;
+    var gains = DriveConstants.onboardGains(DriveConstants.SIM_GAINS);
     state = physics.moduleStates();
     lastRotation = physics.truePose().getRotation();
     var spin = kinematics.toSwerveModuleVelocities(new ChassisVelocities(0, 0, 1));
     for (int i = 0; i < MODULES; i++) {
       steerLoops[i] =
-          OnboardLoopSim.position(
-              gains.steer().kP(), gains.steer().kD(), gains.steer().dFilter(), 0, 1);
+          OnboardLoopSim.position(gains.steer().kP(), gains.steer().kD(), gains.steer().dFilter());
       spinAzimuths[i] = spin[i].angle;
     }
 
@@ -398,33 +396,32 @@ class CharacterisationTest {
     now = now.plus(STEP);
     scheduler.run();
 
-    var previousAzimuth = state[0].azimuth();
     for (int substep = 0; substep < SUB_STEPS; substep++) {
       double rail = physics.batteryVoltage().in(Volts);
       if (!steerOpenLoop) {
         for (int i = 0; i < MODULES; i++) {
           steerLoops[i].setSetpoint(steerSetpoints[i]);
           steerVolts[i] =
-              steerLoops[i].calculate(sensorRotations(state[i].azimuth()), SUB_STEP, rail);
+              steerLoops[i].calculate(
+                  DriveConstants.steerMotorRotations(state[i].azimuthRotations()), SUB_STEP, rail);
         }
       }
       state = physics.update(driveVolts, steerVolts, SUB_STEP);
     }
 
-    azimuthRate = state[0].azimuth().minus(previousAzimuth).getRotations() / STEP.in(Seconds);
     var rotation = physics.truePose().getRotation();
     yawRadians += rotation.minus(lastRotation).getRadians();
     lastRotation = rotation;
   }
 
-  private static double sensorRotations(Rotation2d azimuth) {
-    return MathUtil.inputModulus(azimuth.getRotations(), 0, 1);
-  }
-
   private void commandDrive(Voltage volts) {
     lastDriveCommand = volts.in(Volts);
     Arrays.fill(driveVolts, lastDriveCommand);
-    Arrays.fill(steerSetpoints, 0);
+    for (int i = 0; i < MODULES; i++) {
+      steerSetpoints[i] =
+          DriveConstants.steerSetpoint(
+              DriveConstants.steerMotorRotations(state[i].azimuthRotations()), Rotation2d.ZERO);
+    }
     steerOpenLoop = false;
   }
 
@@ -432,7 +429,9 @@ class CharacterisationTest {
     lastDriveCommand = volts.in(Volts);
     Arrays.fill(driveVolts, lastDriveCommand);
     for (int i = 0; i < MODULES; i++) {
-      steerSetpoints[i] = sensorRotations(spinAzimuths[i]);
+      steerSetpoints[i] =
+          DriveConstants.steerSetpoint(
+              DriveConstants.steerMotorRotations(state[i].azimuthRotations()), spinAzimuths[i]);
     }
     steerOpenLoop = false;
   }
@@ -460,8 +459,8 @@ class CharacterisationTest {
     motors
         .motor(MOTOR)
         .voltage(Volts.of(state[0].steerAppliedVolts()))
-        .angularPosition(state[0].azimuth().getMeasure())
-        .angularVelocity(RotationsPerSecond.of(azimuthRate));
+        .angularPosition(Rotations.of(state[0].azimuthRad() / (2 * Math.PI)))
+        .angularVelocity(RotationsPerSecond.of(state[0].azimuthRadPerSec() / (2 * Math.PI)));
   }
 
   private void logRotation(SysIdRoutineLog motors) {

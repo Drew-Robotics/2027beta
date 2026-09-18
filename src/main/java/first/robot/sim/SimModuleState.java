@@ -10,7 +10,21 @@ import org.wpilib.math.geometry.Rotation2d;
 public record SimModuleState(
     double wheelPositionRad,
     double wheelVelocityRadPerSec,
-    Rotation2d azimuth,
+    // Unwrapped. The steer loop closes on the motor's own encoder, which accumulates, so a model
+    // of it needs the azimuth the module has actually turned through rather than where it points.
+    double azimuthRad,
+    double azimuthRadPerSec,
     boolean slipping,
     double driveAppliedVolts,
-    double steerAppliedVolts) {}
+    double steerAppliedVolts) {
+
+  public Rotation2d azimuth() {
+    return new Rotation2d(azimuthRad);
+  }
+
+  // Still unwrapped: this is the turns the module has made, which is what a model of an
+  // accumulating encoder is driven from.
+  public double azimuthRotations() {
+    return azimuthRad / (2 * Math.PI);
+  }
+}

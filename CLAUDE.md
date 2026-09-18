@@ -47,17 +47,42 @@ Field hazards that still compile:
 - Use `spark.setThrottle(...)`, not `set(...)`.
 - Getters return `Signal<T>`, not plain doubles.
 - `configure()` can throw or return an error. Check for both.
-- Analog sensors have no zero offset. Apply the module offset to the setpoint.
+- Analog sensors have no zero offset. The module offset is applied in the seed.
+- The SPARK constructors take an `org.wpilib.hardware.bus.CANPort`, not an int.
+- `SparkBase.getBusId()` is now `SparkLowLevel.getCanPort()`.
+- Conversion factors are gone outright, with no replacement: `EncoderConfig` and
+  `AnalogSensorConfig` have no `positionConversionFactor`/
+  `velocityConversionFactor`. Sensors report native units — motor rotations and
+  RPM for the encoder, volts for the analog — so every conversion lives in
+  Java. `DriveConstants.onboardGains` is the one place a gain is rescaled;
+  everything in `DriveConstants` itself is per metre per second and per module
+  rotation.
+- `ClosedLoopConfig.positionWrappingInputRange` is gone, and
+  `positionWrappingEnabled` now folds an error over **exactly one native unit**
+  — one volt on the analog, one *motor* rotation on the encoder. Nothing here
+  uses it: steer closes on the motor's own encoder and takes the short way by
+  writing an offset (`DriveConstants.steerSetpoint`). See ADR 0008 and
+  `docs/research/revlib-alpha7-units.md`.
 
 ## Vendor deps
 
 GradleRIO refuses to configure if a vendordep's `wpilibYear` is not the exact
-year string of the WPILib being built against, and no third-party vendor has
-published an alpha-7 build yet. `wpilibYear` is edited to `2027_alpha7` by hand
-in `REVLib.json`, `Phoenix6-*.json` and `photonlib.json`; the pinned artifact
-versions are untouched, so this asserts a compatibility the tests have to carry.
-Re-importing any of them from its vendor URL reverts the field and the next
-build fails on the year rather than on anything real.
+year string of the WPILib being built against.
+
+The WPILib vendordep marketplace now carries a `2027_alpha7` set, and both
+`REVLib.json` and `Phoenix6-26.70.0-alpha-2.json` are that set's files
+unedited — they declare `wpilibYear: 2027_alpha7` themselves, so re-importing
+either is safe:
+<https://github.com/wpilibsuite/vendor-json-repo/tree/main/2027_alpha7>
+
+CTRE's own `jsonUrl` inside the Phoenix file still 404s; the marketplace is the
+working source for it.
+
+`photonlib.json` is the one file that still carries a hand-edited `wpilibYear`.
+PhotonVision has published nothing since `v2027.0.0-alpha-2`, whose upstream
+`wpilibYear` is `2027_alpha5`, and the marketplace has no photonlib in the
+alpha-7 set, so re-importing it reverts the field and the next build fails on
+the year rather than on anything real. Nothing in `src` imports it yet.
 
 ## Comments
 

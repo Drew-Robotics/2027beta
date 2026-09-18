@@ -52,7 +52,7 @@ support claims differently.
 | [0012](0012-pose-estimation-and-vision.md) | Pose estimation and the vision seam | **Accepted** — 2026-08-26 |
 | [0013](0013-ci-and-test-strategy.md) | CI and test strategy | **Accepted** — 2026-08-27 |
 | [0014](0014-ai-log-analysis-contract.md) | AI log-analysis contract | **Accepted** — 2026-08-27 |
-| [0015](0015-binding-revlibs-native.md) | Binding REVLib's native | **Accepted** — 2026-08-30 |
+| [0015](0015-binding-revlibs-native.md) | Binding REVLib's native | **Resolved** — 2026-09-18 |
 
 Numbers follow decision area, not document date. Every row has a document.
 

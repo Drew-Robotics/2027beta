@@ -24,7 +24,8 @@ final class SparkOutputSim {
 
   SparkOutputSim(SparkFlex motor) {
     var device =
-        new SimDeviceSim(DEVICE + " [" + motor.getBusId() + "," + motor.getDeviceId() + "]");
+        new SimDeviceSim(
+            DEVICE + " [" + motor.getCanPort().value + "," + motor.getDeviceId() + "]");
     appliedOutput = device.getDouble(APPLIED_OUTPUT);
     busVoltage = device.getDouble(BUS_VOLTAGE);
   }

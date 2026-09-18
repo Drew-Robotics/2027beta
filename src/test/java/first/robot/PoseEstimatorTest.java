@@ -29,7 +29,6 @@ import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.linalg.VecBuilder;
-import org.wpilib.math.util.MathUtil;
 import org.wpilib.system.Timer;
 import org.wpilib.telemetry.MockTelemetryBackend;
 import org.wpilib.telemetry.TelemetryRegistry;
@@ -73,10 +72,9 @@ class PoseEstimatorTest {
         Measure.class, (table, name, value) -> UnitTelemetry.log(table, name, value));
     backend = new MockTelemetryBackend();
 
-    var gains = DriveConstants.SIM_GAINS.steer();
+    var gains = DriveConstants.onboardGains(DriveConstants.SIM_GAINS).steer();
     for (int i = 0; i < MODULES; i++) {
-      // The wrap range is the converted analog sensor's, which is not Rotation2d's.
-      steerLoops[i] = OnboardLoopSim.position(gains.kP(), gains.kD(), gains.dFilter(), 0, 1);
+      steerLoops[i] = OnboardLoopSim.position(gains.kP(), gains.kD(), gains.dFilter());
     }
     state = sim.moduleStates();
 
@@ -108,7 +106,9 @@ class PoseEstimatorTest {
   void theOdometryOnlyPoseTracksTheSimulationsTruePoseThroughASpin() {
     var targets = kinematics.toSwerveModuleVelocities(new ChassisVelocities(0, 0, 1));
     for (int i = 0; i < MODULES; i++) {
-      steerLoops[i].setSetpoint(MathUtil.inputModulus(targets[i].angle.getRotations(), 0, 1));
+      steerLoops[i].setSetpoint(
+          DriveConstants.steerSetpoint(
+              DriveConstants.steerMotorRotations(state[i].azimuthRotations()), targets[i].angle));
     }
     advance(SETTLE);
     Arrays.fill(driveVolts, DRIVE_VOLTS);
@@ -172,9 +172,9 @@ class PoseEstimatorTest {
         message + ", in heading");
   }
 
-  private void steerTo(double sensorRotations) {
+  private void steerTo(double moduleRotations) {
     for (var loop : steerLoops) {
-      loop.setSetpoint(sensorRotations);
+      loop.setSetpoint(DriveConstants.steerMotorRotations(moduleRotations));
     }
   }
 
@@ -190,9 +190,9 @@ class PoseEstimatorTest {
     for (int step = 0; step < SUB_STEPS; step++) {
       double rail = sim.batteryVoltage().in(Volts);
       for (int i = 0; i < MODULES; i++) {
-        // Rotation2d reads back over [-0.5, 0.5) and the analog sensor over [0, 1).
-        double azimuth = MathUtil.inputModulus(state[i].azimuth().getRotations(), 0, 1);
-        steerVolts[i] = steerLoops[i].calculate(azimuth, SUB_STEP, rail);
+        steerVolts[i] =
+            steerLoops[i].calculate(
+                DriveConstants.steerMotorRotations(state[i].azimuthRotations()), SUB_STEP, rail);
       }
       state = sim.update(driveVolts, steerVolts, SUB_STEP);
     }

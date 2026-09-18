@@ -24,6 +24,7 @@ import static org.wpilib.units.Units.Volts;
 
 import first.robot.sim.SwerveSimConfig;
 import org.wpilib.framework.RobotBase;
+import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.linalg.Matrix;
 import org.wpilib.math.linalg.VecBuilder;
@@ -67,6 +68,13 @@ public final class DriveConstants {
   // What the applied-output frame runs at while a characterisation is reading a column off it.
   public static final Time CHARACTERISATION_FRAME_PERIOD = Constants.LOOP_PERIOD;
 
+  // The steer encoder is seeded from the absolute sensor, and the analog has nothing to report in
+  // the first milliseconds after a SPARK boots, so the seed is repeated while disabled rather than
+  // taken once. Only while the module is still: a seed written mid-slew records an angle the
+  // module has already left. The rate is 2026's, which is the last chassis this ran on.
+  public static final Time STEER_SEED_PERIOD = Seconds.of(1);
+  public static final AngularVelocity STEER_SEED_MAX_RATE = RadiansPerSecond.of(0.1);
+
   // === SDS Mk5i, off the manufacturer's layout drawing =========================================
 
   // The three ratios are the manufacturer's; which of them this robot runs is not confirmed, and
@@ -95,8 +103,11 @@ public final class DriveConstants {
   // Everything the steer motor turns, about the module's steering axis. Nobody has weighed it.
   public static final MomentOfInertia STEER_INERTIA = KilogramSquareMeters.of(0.004);
 
-  // The drive encoder counts motor rotations; conversion puts every drive quantity in metres, so
-  // kV is Volts per metre per second and a setpoint is a wheel speed.
+  // alpha-7 removed conversion factors from the SPARK outright, so every factor below is applied
+  // in Java: the device reports motor rotations, RPM and volts, and nothing else.
+
+  // The drive encoder counts motor rotations; these put every drive quantity in metres, so kV is
+  // Volts per metre per second and a setpoint written here is a wheel speed.
   public static final double DRIVE_POSITION_FACTOR =
       2 * Math.PI * WHEEL_RADIUS.in(Meters) / DRIVE_REDUCTION;
   // The primary encoder reports velocity in RPM, not rotations per second.
@@ -105,9 +116,32 @@ public final class DriveConstants {
   // The Thrifty analog is ratiometric and swings the full supply rail over one turn of the
   // module, and the Flex's analog input reads to that same rail, so the two cancel.
   public static final Voltage STEER_SENSOR_SPAN = Volts.of(5);
-  // Volts to module rotations, which puts the sensor in [0, 1) and fixes the wrap range with it.
-  public static final double STEER_POSITION_FACTOR = 1 / STEER_SENSOR_SPAN.in(Volts);
-  public static final double STEER_VELOCITY_FACTOR = STEER_POSITION_FACTOR;
+  // Volts to module rotations. The analog seeds the steer encoder rather than closing a loop, so
+  // this converts a reading and never a setpoint, and there is no velocity factor beside it:
+  // nothing reads the analog's rate now that the loop and the characterisation take the encoder's.
+  public static final double STEER_SENSOR_POSITION_FACTOR = 1 / STEER_SENSOR_SPAN.in(Volts);
+
+  // The steer loop closes on the motor's own encoder, which counts motor rotations and reports
+  // RPM. It accumulates rather than wrapping, which is what carries the shortest path.
+  public static final double STEER_MOTOR_POSITION_FACTOR = 1 / STEER_REDUCTION;
+  public static final double STEER_MOTOR_VELOCITY_FACTOR = STEER_MOTOR_POSITION_FACTOR / 60;
+
+  // A module angle as the steer encoder counts it: the motor turns STEER_REDUCTION times for one
+  // turn of the module, and the count is never folded back.
+  public static double steerMotorRotations(double azimuthRotations) {
+    return azimuthRotations / STEER_MOTOR_POSITION_FACTOR;
+  }
+
+  // Where the steer loop is told to go. The shortest path is carried as an offset on the encoder's
+  // own count rather than as an angle, because Rotation2d.minus already folds a difference into
+  // [-0.5, 0.5] rotations and the count has no boundary for that offset to run off the end of.
+  //
+  // The device cannot do this itself any more: since alpha-7 positionWrappingEnabled wraps a
+  // position error over exactly one native unit, and a module turn is STEER_REDUCTION of them.
+  public static double steerSetpoint(double encoderMotorRotations, Rotation2d azimuth) {
+    var angle = Rotation2d.fromRotations(encoderMotorRotations * STEER_MOTOR_POSITION_FACTOR);
+    return encoderMotorRotations + steerMotorRotations(azimuth.minus(angle).getRotations());
+  }
 
   // The nameplate free speed at this reduction, not a measurement of a chassis.
   public static final LinearVelocity MAX_VELOCITY =
@@ -225,6 +259,25 @@ public final class DriveConstants {
   public record SteerMotorGains(double kP, double kD, double kS, double dFilter) {}
 
   public record ModuleGains(DriveMotorGains drive, SteerMotorGains steer) {}
+
+  // The same gains in the units the SPARK closes its loops in, which since alpha-7 are the
+  // sensors' native ones: RPM for the drive encoder and motor rotations for the steer encoder.
+  // Every gain above is written against a wheel speed or a module angle, because that is what a
+  // characterisation measures and what a human tunes, so the rescale happens once, here.
+  //
+  // kS is output volts either way, and dFilter is a filter coefficient; neither moves.
+  public static ModuleGains onboardGains(ModuleGains gains) {
+    return new ModuleGains(
+        new DriveMotorGains(
+            gains.drive().kP() * DRIVE_VELOCITY_FACTOR,
+            gains.drive().kS(),
+            gains.drive().kV() * DRIVE_VELOCITY_FACTOR),
+        new SteerMotorGains(
+            gains.steer().kP() * STEER_MOTOR_POSITION_FACTOR,
+            gains.steer().kD() * STEER_MOTOR_POSITION_FACTOR,
+            gains.steer().kS(),
+            gains.steer().dFilter()));
+  }
 
   // No characterisation has run. kV is 12 V over the free speed at this reduction and kS is a
   // guess; both are the nameplate rather than a measurement.

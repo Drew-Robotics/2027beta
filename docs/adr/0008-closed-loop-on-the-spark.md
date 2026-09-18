@@ -11,6 +11,24 @@ drives the wheels open loop, on a voltage**. Steer is untouched, and so
 is every path-following and autonomous velocity. See *Teleop drives open
 loop*.
 
+Amended 2026-09-18 by #130, on migrating to REVLib alpha-7. The Open
+item below asked whether `positionWrappingEnabled` works against
+`kAnalogSensor`, and named closing steer on the primary encoder as the
+fallback if it did not. Alpha-7 answers it: **wrapping now folds a
+position error over exactly one native unit**, which on the analog is
+one volt and a fifth of a module turn. So **steer closes on the SPARK's
+primary encoder, seeded from the analog**, and the module zero offset is
+folded into the seed rather than into the setpoint. Both loops still
+close on the SPARK, at the same rate, against the same firmware. See
+*Steer closes on the primary encoder, seeded from the analog*.
+
+Amended 2026-09-18 by #130, second. Alpha-7 removed conversion factors
+from the SPARK outright, so **the device reports motor rotations, RPM and
+volts and nothing else**, and every conversion is applied in Java. The
+gains here are still written per metre per second and per module
+rotation, because that is what a characterisation measures; the rescale
+into the device's units is `DriveConstants.onboardGains`.
+
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
 `v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7. REVLib
@@ -55,10 +73,10 @@ turns on has never been put on a scope. **[unverified]** See Open.
 
 ### Both loops close on the SPARK
 
-**Steer position** closes on the SPARK against the **analog absolute
-encoder**, with position wrapping enabled. **Drive velocity** closes on
-the SPARK against the **primary encoder**, with `kS` + `kV` + `kP`.
-**[decided]**
+**Steer position** closes on the SPARK against the **primary encoder**,
+seeded from the analog absolute encoder, with the shortest path carried
+in the setpoint. **Drive velocity** closes on the SPARK against the
+**primary encoder**, with `kS` + `kV` + `kP`. **[decided]**
 
 Robot-side code **writes a setpoint, never a voltage** — with one
 exception, the driver's own wheel speed, which the next section owns.
@@ -125,15 +143,77 @@ Both constants are **provisional and are meant to stay put once set**.
 Consistency across seasons is the whole argument; rewriting the drive
 curve every year is what the argument is against.
 
-### Steer closes on the analog absolute encoder
+### Steer closes on the primary encoder, seeded from the analog
+
+*Superseding, 2026-09-18 by #130. The original decision closed steer on
+the analog itself; it is kept below, because the reason it was right has
+not changed and only the device has.*
 
 The modules carry Thrifty absolute magnetic encoders, and the Thrifty
 is an **analog** sensor — not duty cycle. Six independent team wrappers
 read it as `getAverageVoltage() / getVoltage5V()` **[field — #29]**. It
-lands on data-port **pin 3**, and the feedback sensor is
-`FeedbackSensor.kAnalogSensor`
-(`com/revrobotics/spark/FeedbackSensor.java:34`) **[source]**, not
-`kAbsoluteEncoder`, which is the pin-6 duty-cycle path.
+lands on data-port **pin 3**. None of that changes.
+
+What changed is what the SPARK can do with it. A steer loop has to take
+the short way round, and the only wrap the device offers is
+`positionWrappingEnabled`, which since alpha-7 folds a position error
+over **exactly one native unit** — `error -= truncf(error ± 0.5)`, twice,
+with both constants immediate in `_c_SIM_Spark_CalculatePID`. **[source —
+`REVLib-driver 2027.0.0-alpha-7`, osxuniversal x86_64]** That function is
+REVLib's *simulation* of the loop, so the firmware behaving the same way
+is **[unverified]**; it agrees with the driver's own parameter
+description and with the removal of `kPositionPIDMinInput` and
+`kPositionPIDMaxInput`, and a bench SPARK would settle it. See
+`docs/research/revlib-alpha7-units.md`, which also records why neither
+that step nor the analog's units is load-bearing here. The
+analog's native unit is the volt **[source — alpha-7 javadoc,
+`SparkAnalogSensor.getPosition()`]** and `STEER_SENSOR_SPAN` is 5 V, so
+that wrap covers a fifth of a module turn: enabling it is worse than
+leaving it off, and no scaling of the setpoint repairs it, because the
+wrap has to happen where the error is formed.
+
+So the feedback sensor is `FeedbackSensor.kPrimaryEncoder`, and the
+analog **seeds** it. The encoder accumulates rather than wrapping, which
+is the property the loop needs: a setpoint written as an offset on its
+own count is the short way round by construction, and there is no
+boundary for that offset to run off the end of. Wrapping is left
+disabled, because one motor rotation is `1/STEER_REDUCTION` of a module
+turn and the device's wrap is no more use here than it was on the analog.
+
+This is the fallback the Open item named, taken for the reason it named
+and not on a bench result, and it carries the cost that item accepted:
+**backlash**. The analog sits on the module's output shaft and reads the
+true module angle, while the encoder reads motor position and differs
+from it by the reduction's backlash, so the module can settle anywhere
+inside that band. At 12 bits the analog resolves about 0.09° **[source,
+via #29 — Thrifty datasheet; not re-read here]**, finer than the band it
+is now hiding. Nobody has measured the band on an Mk5i **[unverified]**;
+`SteerAbsolute` is logged beside `SteerAngle` so that it can be. The
+same trade is what the 2026 robot ran — *"less noise + lag than the
+analog"* (`~/dev/drewbot-offseason-2026`,
+`src/main/java/frc/robot/subsystems/drive/TurnMotor.java`) **[field]** —
+which is the only chassis either design has run on. **[decided]**
+
+The seed is repeated rather than taken once. At construction, whenever
+the SPARK reports a sticky `hasReset` — it lost its count — and, while
+the robot is **disabled**, every `STEER_SEED_PERIOD` with the module
+turning slower than `STEER_SEED_MAX_RATE`. The stillness gate is not
+optional: a seed written mid-slew records an angle the module has
+already left. The disabled gate is what covers a boot, because the
+analog has nothing to report in the first milliseconds after a SPARK
+comes up, and a single seed there would latch that nothing. All three
+triggers are 2026's. **[decided]**
+
+A seed moves the reported module angle discontinuously, which odometry
+sees. It is safe because a `SwerveModulePosition` contributes through
+its *distance* delta, and a seed changes only the angle: the wheel has
+not moved, so nothing is integrated along the jump.
+
+#### Superseded: steer closes on the analog absolute encoder
+
+*Held until 2026-09-18. It closed the loop on
+`FeedbackSensor.kAnalogSensor` (`com/revrobotics/spark/FeedbackSensor.java:34`)
+**[source]**, not `kAbsoluteEncoder`, which is the pin-6 duty-cycle path.*
 
 The alternative was closing steer on the SPARK's integrated primary
 encoder, seeded from the analog at boot. It was rejected on
@@ -141,11 +221,10 @@ encoder, seeded from the analog at boot. It was rejected on
 reads the true module angle, while the integrated encoder reads motor
 position and differs from it by the reduction's backlash. Closing on
 the motor lets the module settle anywhere inside that band. At 12 bits
-the analog resolves about 0.09° **[source, via #29 — Thrifty datasheet;
-not re-read here]**, finer than the band it would be hiding.
-Resolution and filtering favour the relative encoder; the quantity
-being controlled favours the absolute, and that is the trade we take.
-**[decided]**
+the analog resolves about 0.09°, finer than the band it would be
+hiding. Resolution and filtering favour the relative encoder; the
+quantity being controlled favours the absolute, and that was the trade
+taken. It stopped being available when alpha-7 pinned the wrap range.
 
 ### The wiring is the plain one, and there is no jumper
 
@@ -167,35 +246,44 @@ ground and signal, so the encoder's own 3-wire cable mates directly
 **[source, via #33]**. No adapter, no amplifier, no hardware change.
 **Do not solder the encoder's 3.3 V jumper** — see Traps.
 
-### The module zero offset is folded into the setpoint, here
+### The module zero offset is folded into the seed, and the setpoint is an offset
 
-`AnalogSensorConfig` has exactly three setters — `inverted`,
-`positionConversionFactor`, `velocityConversionFactor`
-(`com/revrobotics/spark/config/AnalogSensorConfig.java:59, 71, 83`)
-**[source]**. There is no `zeroOffset`, no `zeroCentered` and no
-`averageDepth`. The device cannot hold a zero, so we hold it.
+*Amended 2026-09-18 by #130. The offset used to ride in the setpoint,
+because the setpoint was written in the analog's frame. It now rides in
+the seed, which is the only place the analog is read.*
 
-The steer setpoint is therefore
-
-```java
-double setpoint = MathUtil.inputModulus(target.getRotations() + offset, 0, 1);
-```
-
-with the wrap range configured to match the converted sensor's, `[0,
-1)`:
+`AnalogSensorConfig` has exactly one setter left in alpha-7 —
+`inverted` **[source]**; `positionConversionFactor` and
+`velocityConversionFactor` went with every other conversion factor.
+There is no `zeroOffset`, no `zeroCentered` and no `averageDepth`. The
+device cannot hold a zero, so we hold it, and we apply it exactly once:
 
 ```java
-config.closedLoop
-    .feedbackSensor(FeedbackSensor.kAnalogSensor)
-    .positionWrappingEnabled(true)
-    .positionWrappingInputRange(0, 1);
+Rotation2d absolute =
+    Rotation2d.fromRotations(
+        steerSensor.getPosition().get() * STEER_SENSOR_POSITION_FACTOR - offset);
+steerEncoder.setPosition(steerMotorRotations(absolute.getRotations()));
 ```
 
-`inputModulus` is `MathUtil.inputModulus`
-(`wpimath/src/main/java/org/wpilib/math/util/MathUtil.java:233`)
-**[source]**. The `+ offset` is not optional and neither is the
-`inputModulus` around it — `getRotations()` and the sensor do not share
-a range. See Traps.
+After that the encoder reads the module angle directly and the setpoint
+never mentions the offset. What it does mention is the encoder's own
+count:
+
+```java
+double setpoint = encoderMotorRotations + steerMotorRotations(azimuth.minus(angle).getRotations());
+```
+
+`Rotation2d.minus` already folds a difference into `[-0.5, 0.5]`
+rotations **[source]**, so the offset it carries is the short way round,
+and the encoder — which accumulates — has no boundary for that offset to
+run off the end of. This is `DriveConstants.steerSetpoint`, and it is
+the piece the device used to do.
+
+⚠️ **The same arithmetic on the analog would be wrong**, and the Open
+item below says why: with no accumulator, a boundary crossing between
+robot loops leaves a ≤5 ms window where the stale setpoint reads as a
+~1-rotation error. The encoder has no boundary to cross, which is the
+whole reason the frame moved rather than just the formula.
 
 Holding the offset in the repo is strictly better than holding it on
 the device, and not only for config-as-code's sake: it is the one place
@@ -337,16 +425,22 @@ budget is ADR 0007's.
   :300`) **[source]**, so the two ranges agree on the first half turn
   and differ by **exactly one rotation** on the second: a target the
   sensor would read as `0.75` arrives from `getRotations()` as `-0.25`.
-  That value is not merely wrong, it is **outside the configured
-  `positionWrappingInputRange(0, 1)` entirely**, so wrapping does not
-  rescue it.
+
+  *Amended 2026-09-18 by #130: this no longer touches the setpoint,
+  because the setpoint is written in the encoder's frame and carries a
+  difference rather than an angle.* It still touches the **seed** and the
+  simulation's sensor feed, which are the two places the analog's range
+  is spoken, and `SwerveModule.toSensorRotations` is still the fix for
+  both. The same half-turn difference is why the setpoint arithmetic uses
+  `Rotation2d.minus` rather than subtracting two `getRotations()` — the
+  folding is the point of it, not an accident of it.
 
   `AbsoluteEncoderConfig.zeroCentered(true)` reports position *"in the
   range (-0.5, 0.5], instead of the default range [0, 1)"*
-  (`AbsoluteEncoderConfig.java:210-217`) **[source]** and would have
-  deleted the conversion outright — **it does not exist for
-  an analog sensor.** The `inputModulus` in the Decision is the whole
-  fix and it is necessary.
+  (`AbsoluteEncoderConfig.java:210-217`) **[source]**, is deprecated in
+  alpha-7 in favour of `rangeOffset()` **[source — alpha-7 release
+  notes]**, and would have deleted the conversion outright — **it does
+  not exist for an analog sensor.**
 
 - **A `kV` in `FeedForwardConfig` and a `kV·v` term in
   `arbFeedforward` double the feedforward, and nothing throws.** They
@@ -431,8 +525,22 @@ budget is ADR 0007's.
 
 ## Open
 
-- **`positionWrappingEnabled` has never been run against
-  `kAnalogSensor` on this hardware.** It is settled by deployment
+- ~~**`positionWrappingEnabled` has never been run against
+  `kAnalogSensor` on this hardware.**~~ **Closed 2026-09-18 by #130 —
+  against us, and by reading rather than by the deployment it expected.**
+  Alpha-7 folds a position error over exactly one native unit, which on
+  a 5 V analog is a fifth of a module turn, so the combination below is
+  not merely unproven — it is unusable. The fallback this item names is
+  the one taken, and the objection it raises to the *other* option is
+  what keeps that option rejected on the analog and allows it on the
+  encoder: the encoder accumulates, so there is no boundary for a stale
+  setpoint to be stale across. See
+  `docs/research/revlib-alpha7-units.md` and *Steer closes on the
+  primary encoder, seeded from the analog*. The item is kept whole
+  below, because the field evidence in it is what made the combination
+  look safe and is worth not re-deriving.
+
+  It was settled by deployment
   rather than by our bench: YAGSL configures `kAnalogSensor` and calls
   `configurePIDWrapping` unconditionally for every angle motor, with no
   primary-encoder seeding on that path, and five other repositories run
@@ -507,14 +615,15 @@ enable, when nothing is moving.
 **Do not cite the 32.9 ms figure for this decision.** It is withdrawn
 on #31, and this decision stands on latency instead.
 
-### Steer on a boot-seeded primary encoder
+### ~~Steer on a boot-seeded primary encoder~~ — adopted 2026-09-18 by #130
 
-Covered at the Decision: it closes the loop on motor position, and
+It was rejected on backlash: it closes the loop on motor position, and
 motor position differs from module angle by the reduction's backlash.
-Resolution and filtering favour the relative encoder; the quantity
-being controlled favours the absolute, and that wins. It survives as
-the named fallback under Open if wrapping fails on the Flex, and only
-there.
+That cost has not gone away and is now paid. What changed is that the
+alternative stopped existing — alpha-7 pinned the wrap range to one
+native unit — so the trade is no longer resolution against the quantity
+being controlled, but backlash against no shortest path at all. The seed
+is also no longer only at boot; see the Decision.
 
 ### A duty-cycle absolute encoder into pin 6
 

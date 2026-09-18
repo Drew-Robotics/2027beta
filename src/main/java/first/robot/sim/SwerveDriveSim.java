@@ -10,7 +10,6 @@ import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Volts;
 
 import org.wpilib.math.geometry.Pose2d;
-import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
@@ -80,7 +79,8 @@ public final class SwerveDriveSim {
           new SimModuleState(
               drive[i].getAngularPosition(),
               drive[i].getAngularVelocity(),
-              new Rotation2d(steer[i].getAngularPosition()),
+              steer[i].getAngularPosition(),
+              steer[i].getAngularVelocity(),
               // Always false: free space has no ground contact to break.
               false,
               driveAppliedVolts[i],

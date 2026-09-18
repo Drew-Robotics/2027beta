@@ -304,6 +304,7 @@ public class Robot extends OpModeRobot {
     // An attached Driver Station without an alliance would make alliance logic guess.
     allianceUnknown.set(RobotState.isDSAttached() && alliance.isEmpty());
 
+    drive.updateSteerSeeds();
     drive.updateYawRateHistory();
     drive.log();
 

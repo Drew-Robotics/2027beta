@@ -174,7 +174,7 @@ second path to the same fact, carrying less. **[decided]**
 ```
 /Drive/Chassis/{DesiredVelocities,MeasuredVelocities}
 /Drive/Modules/{DesiredStates,MeasuredStates}
-/Drive/Modules/FrontLeft/{DriveOutput,DriveCurrent,SteerSetpoint,SteerAngle,SteerCurrent,Temp,Faults}
+/Drive/Modules/FrontLeft/{DriveOutput,DriveCurrent,SteerSetpoint,SteerAngle,SteerAbsolute,SteerSeeds,SteerStickyWarnings,SteerCurrent,Temp,Faults}
 /Drive/Odometry/{EstimatedPose,OdometryOnlyPose,GyroHeading,GyroRate}
 /Drive/Following/{Setpoint,AlongTrackError,CrossTrackError,HeadingError,TimedOut}
 /Auto/{RoutineName,PlannedPath,TimeElapsed,ZoneEntry,Complete}
@@ -185,6 +185,17 @@ second path to the same fact, carrying less. **[decided]**
 present, vision divergence is visible as the gap between two lines on
 one plot. With only the estimate, a vision update that dragged the pose
 across the field and a wheel that slipped look identical.
+
+The three steer signals added 2026-09-18 by #130 are the same shape of
+pairing. `SteerAbsolute` sits beside `SteerAngle` because ADR 0008
+closes the steer loop on the motor's own encoder and seeds it from the
+absolute sensor: the gap between the two is the reduction's backlash,
+which is the cost that decision pays and which nothing else measures.
+`SteerSeeds` is a counter and is **not** the `LoopOverruns` shape
+rejected above, because there is no first path to the fact it carries —
+reseeding clears the sticky warning that asked for it, so without the
+counter a reset mid-match leaves no trace at all. `SteerStickyWarnings`
+is what that clear erases, written down before it happens.
 
 The `Following` and `Auto` subtrees are ADR 0011's, including why the
 error is decomposed rather than logged as x and y, and why `Setpoint`

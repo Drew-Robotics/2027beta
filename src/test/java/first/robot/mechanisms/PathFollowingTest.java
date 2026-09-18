@@ -18,6 +18,7 @@ import first.robot.FieldConstants;
 import first.robot.HolonomicPathFollower;
 import first.robot.TrajectoryLoader;
 import first.robot.sim.OnboardLoopSim;
+import first.robot.sim.SimModuleState;
 import first.robot.sim.SwerveDriveSim;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +27,6 @@ import org.wpilib.internal.UnitTelemetry;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.math.trajectory.HolonomicTrajectory;
-import org.wpilib.math.util.MathUtil;
 import org.wpilib.system.Filesystem;
 import org.wpilib.telemetry.MockTelemetryBackend;
 import org.wpilib.telemetry.TelemetryRegistry;
@@ -58,13 +58,12 @@ class PathFollowingTest {
 
   @BeforeEach
   void setUp() {
-    var gains = DriveConstants.SIM_GAINS;
+    var gains = DriveConstants.onboardGains(DriveConstants.SIM_GAINS);
     for (int i = 0; i < MODULES; i++) {
       driveLoops[i] =
           OnboardLoopSim.velocity(gains.drive().kP(), gains.drive().kS(), gains.drive().kV());
       steerLoops[i] =
-          OnboardLoopSim.position(
-              gains.steer().kP(), gains.steer().kD(), gains.steer().dFilter(), 0, 1);
+          OnboardLoopSim.position(gains.steer().kP(), gains.steer().kD(), gains.steer().dFilter());
     }
 
     TelemetryRegistry.registerTypeHandler(
@@ -181,8 +180,10 @@ class PathFollowingTest {
       feedforward[i] =
           DriveConstants.DRIVE_KA
               * SwerveModule.accelerationAlong(moduleAccelerations[i], desired[i].angle);
-      driveLoops[i].setSetpoint(desired[i].velocity);
-      steerLoops[i].setSetpoint(MathUtil.inputModulus(desired[i].angle.getRotations(), 0, 1));
+      driveLoops[i].setSetpoint(desired[i].velocity / DriveConstants.DRIVE_VELOCITY_FACTOR);
+      steerLoops[i].setSetpoint(
+          DriveConstants.steerSetpoint(
+              DriveConstants.steerMotorRotations(state[i].azimuthRotations()), desired[i].angle));
     }
 
     var driveVolts = new double[MODULES];
@@ -190,11 +191,11 @@ class PathFollowingTest {
     for (int substep = 0; substep < SUB_STEPS; substep++) {
       double rail = physics.batteryVoltage().in(Volts);
       for (int i = 0; i < MODULES; i++) {
-        double wheelSpeed =
-            state[i].wheelVelocityRadPerSec() * DriveConstants.WHEEL_RADIUS.in(Meters);
-        double sensor = MathUtil.inputModulus(state[i].azimuth().getRotations(), 0, 1);
-        driveVolts[i] = driveLoops[i].calculate(wheelSpeed, SUB_STEP, rail) + feedforward[i];
-        steerVolts[i] = steerLoops[i].calculate(sensor, SUB_STEP, rail);
+        driveVolts[i] =
+            driveLoops[i].calculate(driveRpm(state[i]), SUB_STEP, rail) + feedforward[i];
+        steerVolts[i] =
+            steerLoops[i].calculate(
+                DriveConstants.steerMotorRotations(state[i].azimuthRotations()), SUB_STEP, rail);
       }
       state = physics.update(driveVolts, steerVolts, SUB_STEP);
     }
@@ -202,5 +203,13 @@ class PathFollowingTest {
 
   private static HolonomicTrajectory load(String pathName) {
     return new TrajectoryLoader(Filesystem.getDeployDirectory().toPath()).get(pathName);
+  }
+
+  // The drive loop closes in the units the device does, which is what makes the native gains
+  // above the right ones to use.
+  private static double driveRpm(SimModuleState state) {
+    return state.wheelVelocityRadPerSec()
+        * DriveConstants.WHEEL_RADIUS.in(Meters)
+        / DriveConstants.DRIVE_VELOCITY_FACTOR;
   }
 }

@@ -12,13 +12,15 @@ class OnboardLoopSimTest {
   private static final double SUB_STEP = 0.001;
   private static final double RAIL = 12.0;
 
+  // The model folds nothing, because the device as configured does not: taking the short way is
+  // the setpoint's job. A measurement that has wound past a turn is not the same measurement as
+  // one that has not, and this loop is the thing that has to say so.
   @Test
-  void aWrappedPositionLoopTakesTheShortWayRound() {
-    var loop = OnboardLoopSim.position(8, 0, 0, 0, 1);
+  void aPositionLoopTakesTheErrorItIsGiven() {
+    var loop = OnboardLoopSim.position(8, 0, 0);
     loop.setSetpoint(0.05);
 
-    // 0.95 to 0.05 is a tenth of a turn forwards, not nine tenths of one backwards.
-    assertEquals(RAIL * 8 * 0.1, loop.calculate(0.95, SUB_STEP, RAIL), 1e-9);
+    assertEquals(RAIL * 8 * -0.9, loop.calculate(0.95, SUB_STEP, RAIL), 1e-9);
   }
 
   @Test
@@ -31,7 +33,7 @@ class OnboardLoopSimTest {
 
   @Test
   void theFirstCalculateHasNoDerivativeKick() {
-    var loop = OnboardLoopSim.position(0, 1, 0, 0, 1);
+    var loop = OnboardLoopSim.position(0, 1, 0);
     loop.setSetpoint(0.25);
 
     assertEquals(0, loop.calculate(0, SUB_STEP, RAIL), 1e-9);
@@ -39,7 +41,7 @@ class OnboardLoopSimTest {
 
   @Test
   void theDerivativeFilterCarriesTheFractionItIsGiven() {
-    var loop = OnboardLoopSim.position(0, 1, 0.5, 0, 1);
+    var loop = OnboardLoopSim.position(0, 1, 0.5);
     loop.setSetpoint(0.25);
     loop.calculate(0.25, SUB_STEP, RAIL);
 

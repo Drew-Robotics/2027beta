@@ -44,6 +44,27 @@ public final class Hardware {
     raise(name, "timed out after " + MAX_ATTEMPTS + " attempts");
   }
 
+  // A runtime write rather than a config, so it carries neither of configureSpark's two boot
+  // behaviours: no retry, because the caller repeats, and the alert clears when the next one
+  // succeeds. An operation that runs again reports where it stands, not the worst it ever did.
+  public static void write(String name, Supplier<REVLibError> apply) {
+    REVLibError status;
+    try {
+      status = apply.get();
+    } catch (RuntimeException e) {
+      raise(name, e.getMessage());
+      return;
+    }
+    if (status == REVLibError.kOk) {
+      var alert = ALERTS.get(name);
+      if (alert != null) {
+        alert.set(false);
+      }
+    } else {
+      raise(name, status.name());
+    }
+  }
+
   public static void configurePhoenix(String name, Supplier<StatusCode> apply) {
     StatusCode status;
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {

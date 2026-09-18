@@ -82,13 +82,11 @@ tar -C build/simhitl -czf - . |
 scp -q -o BatchMode=yes .github/bench/ds-relay.py "$BENCH:$REMOTE/"
 
 # The sim runs in the foreground of an ssh that stays open: busybox nohup and setsid are applets
-# of a setuid binary, and the loader strips LD_PRELOAD from anything it execs, which would take
-# the REVLib shim with it.
+# of a setuid binary, so the job is held by this script rather than detached on the bench.
 : >"$RUNLOG"
 rm -f "$WPILOG"
 on_bench "cd $REMOTE && rm -rf logs && echo \$\$ > sim.pid \
-  && LD_PRELOAD=\$PWD/lib/libwpiutil.so:\$PWD/lib/librevshim.so \
-  LD_LIBRARY_PATH=\$PWD/lib HALSIM_EXTENSIONS=\$PWD/lib/libhalsim_ds_socket.so \
+  && LD_LIBRARY_PATH=\$PWD/lib HALSIM_EXTENSIONS=\$PWD/lib/libhalsim_ds_socket.so \
   exec /usr/bin/java -Djava.library.path=\$PWD/lib \
     --add-opens java.base/jdk.internal.vm=ALL-UNNAMED \
     --add-opens java.base/java.lang=ALL-UNNAMED --enable-native-access=ALL-UNNAMED \

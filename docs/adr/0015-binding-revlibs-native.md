@@ -2,7 +2,14 @@
 
 ## Status
 
-Accepted — 2026-08-30. Resolves the blocker ADR 0013 records against
+Resolved — 2026-09-18. The shim is deleted: REVLib `2027.0.0-alpha-7`
+closes all three gaps it bridged, and `src/main/native/revshim`, the
+three `LD_PRELOAD` sites, the `revShim` deploy artifact and the
+`-PnoRevShim` property are gone with it. The evidence is in *Open*;
+everything below it describes a shim this repository no longer carries
+and is kept because ADRs 0006, 0010 and 0013 refer to it.
+
+Accepted — 2026-08-30. Resolved the blocker ADR 0013 records against
 Tier 2 and ADR 0010 records against running the simulation at all: both
 were written while constructing a SPARK terminated the JVM, and on the
 desktop it no longer does.
@@ -23,6 +30,15 @@ argument is on
 claim was read in `GradleRIO-2027.0.0-alpha-7`, the version
 `build.gradle:4` pins, from the plugin jar by `javap`:
 `org.wpilib.gradlerio.wpi.java.WPIJavaExtension`.
+
+**Amended — 2026-09-18**: REVLib published `2027.0.0-alpha-7`, which
+closes all three gaps this ADR bridges, and the shim was removed on the
+strength of that. The trigger this ADR defined was not run: alpha-7's
+Java API changes leave `src` uncompilable, so `-PnoRevShim` could not be
+evaluated, and the deploy confirmation was not performed either. What
+stands in for both is static: the shipped alpha-7 binaries no longer
+import the two missing symbols and call the console pair with the
+current ABI, on both platforms. See *Open*.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -436,11 +452,39 @@ _ZN3wpi4util13WaitForObjectEi` at JVM start — on a machine where
 
 ## Open
 
-**When this can be deleted.** `maven.revrobotics.com` still lists exactly
-one 2027 version, `2027.0.0-alpha-6`, last published 2026-07-28.
-**[executed — 2026-08-30]** Nothing here waits on a decision; it waits on
-REV. No defect has been filed with them, because a beta run against a
-WPILib it was not built for is not a supportable report. **[decided]**
+**When this can be deleted.** REV published `2027.0.0-alpha-7` with
+`wpilibYear` already `2027_alpha7`, and every gap this ADR bridges is
+closed in it. **[executed — 2026-09-18]**
+
+*The two-symbol gap is gone.* `libREVLibWpi.so` no longer imports
+`fmt::v12::vformat` at all, so the stub has nothing to stand in for, and
+it imports `_ZN3wpi4util13WaitForObjectEi` — the `int` overload wpiutil
+exports — where alpha-6 imported the `unsigned` one the alias existed to
+forward. Both platforms agree. **[executed]**
+
+*The console ABI gap is gone, on both platforms.* Disassembling
+`RevLibWpiDriver::sendConsoleLine` and `RevLibWpiDriver::sendError`
+shows the current signatures: each string is measured with `strlen`,
+written as a `{ptr, len}` pair, and passed by address, and `sendError`
+passes six register arguments with three `WPI_String*` and no
+`isLVCode`. This is the half of the shim that *Consequences* records as
+covered by nothing automated on any machine; it is settled here by
+reading the shipped binary rather than by a deploy. **[executed]**
+
+*The discriminator's trap does not fire.* The four `libName`s in
+`vendordeps/REVLib.json` — `REVLib`, `REVLibDriver`, `BackendDriver`,
+`REVLibWpi` — are unchanged across the bump, so no REVLib native moved
+to the pass-through branch. **[executed]**
+
+**The deletion was taken on this evidence, not on the trigger.**
+Alpha-7 removed the SPARK conversion factors and changed the
+constructors, so `src` did not compile when the shim was removed and
+`-PnoRevShim` could not be run; the deploy half was not run either. Both
+were waived deliberately. **[decided]** The residual risk is the one
+this ADR has always named: the console translators were the half nothing
+automated exercises, so the first real check is a deploy that reaches
+*"Robot program startup complete"* with REVLib reporting a CAN fault
+legibly. That is now an ordinary deploy, with nothing to drop from it.
 
 The question this section used to hold — why `new SparkFlex(...)` threw
 `std::bad_alloc` on the SystemCore — is answered in *Context*, and the

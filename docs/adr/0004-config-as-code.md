@@ -274,13 +274,13 @@ disk-pressure handling **[source — `docs/research/vendordeps.md`
 
 ### One project constant per CAN bus
 
-`Constants` holds one constant per physical bus, converted at each call
-site: `CANPort.CAN_S0.value` for REVLib's `int busId`,
-`CANBus.systemcore(0)` for CTRE's object. The two vendors' numbering
-agrees for the same index **[source — `docs/research/vendordeps.md`
-§3.3]**. `CANPort` is WPILib's enum and `CANBus` is CTRE's class; alpha-7
-renamed the WPILib half, and §3.3 predates that. **Never `new CANBus()`**
-— see Traps.
+`Constants` holds one constant per physical bus, and every call site
+takes it: `new SparkFlex(CANPort, …)` for REVLib, `new CANBus(CANPort)`
+for CTRE's object. *Amended 2026-09-18 by #130 — both vendors converged
+on WPILib's `CANPort` in their current releases, so neither call site
+converts. §3.3 of `docs/research/vendordeps.md` predates that, as does
+the `.value`/`systemcore(n)` split it describes.* **Never the no-argument
+`new CANBus()`** — see Traps.
 
 ### `Robot` logs the active alert set at ~4 Hz
 
