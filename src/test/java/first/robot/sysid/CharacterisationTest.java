@@ -401,7 +401,9 @@ class CharacterisationTest {
       if (!steerOpenLoop) {
         for (int i = 0; i < MODULES; i++) {
           steerLoops[i].setSetpoint(steerSetpoints[i]);
-          steerVolts[i] = steerLoops[i].calculate(steerMotorRotations(state[i]), SUB_STEP, rail);
+          steerVolts[i] =
+              steerLoops[i].calculate(
+                  DriveConstants.steerMotorRotations(state[i].azimuthRotations()), SUB_STEP, rail);
         }
       }
       state = physics.update(driveVolts, steerVolts, SUB_STEP);
@@ -412,18 +414,13 @@ class CharacterisationTest {
     lastRotation = rotation;
   }
 
-  // The steer loop closes on the motor's own encoder, which counts motor rotations and never
-  // folds them back, so the ramp that carries a module past zero reads as continuous travel.
-  private static double steerMotorRotations(SimModuleState state) {
-    return DriveConstants.steerMotorRotations(state.azimuthRad() / (2 * Math.PI));
-  }
-
   private void commandDrive(Voltage volts) {
     lastDriveCommand = volts.in(Volts);
     Arrays.fill(driveVolts, lastDriveCommand);
     for (int i = 0; i < MODULES; i++) {
       steerSetpoints[i] =
-          DriveConstants.steerSetpoint(steerMotorRotations(state[i]), Rotation2d.ZERO);
+          DriveConstants.steerSetpoint(
+              DriveConstants.steerMotorRotations(state[i].azimuthRotations()), Rotation2d.ZERO);
     }
     steerOpenLoop = false;
   }
@@ -433,7 +430,8 @@ class CharacterisationTest {
     Arrays.fill(driveVolts, lastDriveCommand);
     for (int i = 0; i < MODULES; i++) {
       steerSetpoints[i] =
-          DriveConstants.steerSetpoint(steerMotorRotations(state[i]), spinAzimuths[i]);
+          DriveConstants.steerSetpoint(
+              DriveConstants.steerMotorRotations(state[i].azimuthRotations()), spinAzimuths[i]);
     }
     steerOpenLoop = false;
   }

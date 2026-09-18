@@ -29,7 +29,6 @@ import first.robot.FieldConstants;
 import first.robot.Hardware;
 import first.robot.HolonomicPathFollower;
 import first.robot.sim.OnboardLoopSim;
-import first.robot.sim.SimModuleState;
 import first.robot.sim.SwerveDriveSim;
 import first.robot.sysid.SysIdRoutine;
 import first.robot.sysid.SysIdRoutine.Direction;
@@ -672,7 +671,7 @@ public class Drive implements Mechanism {
   }
 
   // The steer encoders carry the azimuth and the absolute sensors carry the truth, so the two are
-  // reconciled on the robot's clock rather than only at construction. See ADR 0008.
+  // reconciled on the robot's clock rather than only at construction.
   public void updateSteerSeeds() {
     for (var module : modules) {
       module.updateSteerSeed();
@@ -773,7 +772,8 @@ public class Drive implements Mechanism {
             state[i].wheelVelocityRadPerSec()
                 * DriveConstants.WHEEL_RADIUS.in(Meters)
                 / DriveConstants.DRIVE_VELOCITY_FACTOR;
-        double steerMotorRotations = steerMotorRotations(state[i]);
+        double steerMotorRotations =
+            DriveConstants.steerMotorRotations(state[i].azimuthRotations());
         if (!modules[i].isClosingLoops()) {
           // Zero volts into a DCMotorSim is a shorted motor, which is what idleMode kBrake makes
           // a stopped SPARK. Coasting would have to zero the current instead.
@@ -812,7 +812,8 @@ public class Drive implements Mechanism {
           state[i].wheelVelocityRadPerSec()
               * DriveConstants.WHEEL_RADIUS.in(Meters)
               / DriveConstants.DRIVE_VELOCITY_FACTOR);
-      steerEncoderSims[i].setPosition(steerMotorRotations(state[i]));
+      steerEncoderSims[i].setPosition(
+          DriveConstants.steerMotorRotations(state[i].azimuthRotations()));
       steerEncoderSims[i].setVelocity(
           state[i].azimuthRadPerSec() / (2 * Math.PI) / DriveConstants.STEER_MOTOR_VELOCITY_FACTOR);
       steerSensorSims[i].setPosition(
@@ -842,11 +843,6 @@ public class Drive implements Mechanism {
       slip[i] = state[i].slipping();
     }
     simLog.log("ModuleSlip", slip);
-  }
-
-  // The plant turns a module; the steer encoder counts the motor that turns it, unwrapped.
-  private static double steerMotorRotations(SimModuleState state) {
-    return DriveConstants.steerMotorRotations(state.azimuthRad() / (2 * Math.PI));
   }
 
   private SwerveModuleVelocity[] desiredStates() {

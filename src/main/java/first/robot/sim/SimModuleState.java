@@ -21,4 +21,10 @@ public record SimModuleState(
   public Rotation2d azimuth() {
     return new Rotation2d(azimuthRad);
   }
+
+  // Still unwrapped: this is the turns the module has made, which is what a model of an
+  // accumulating encoder is driven from.
+  public double azimuthRotations() {
+    return azimuthRad / (2 * Math.PI);
+  }
 }

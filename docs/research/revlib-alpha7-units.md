@@ -41,7 +41,7 @@ Conversion factors are gone from `EncoderConfig` and `AnalogSensorConfig`, which
 So the analog sensor's position and its voltage are now the same number, and every conversion,
 setpoint and gain that used to be written in converted units moves into Java.
 
-## 2. `positionWrappingEnabled` wraps over exactly 1.0 native unit **[V]**
+## 2. `positionWrappingEnabled` wraps over exactly 1.0 native unit **[V for the driver, [?] for the firmware]**
 
 `ClosedLoopConfig.positionWrappingInputRange`, `positionWrappingMinInput` and
 `positionWrappingMaxInput` are gone, and `SparkParameters` lost `kPositionPIDMinInput` and
@@ -77,8 +77,25 @@ constant is read from a parameter and neither depends on which feedback sensor i
 **So the wrap range is one native unit of whatever sensor the loop closes on.** For a duty-cycle
 absolute encoder, one native unit is one rotation and the behaviour is unchanged. For our steer
 sensor it is **one volt**, which the Thrifty analog covers in a fifth of a module turn
-(`STEER_SENSOR_SPAN` is 5 V), so enabling it is strictly worse than leaving it off. For a primary
-encoder it is one **motor** rotation, which is `1/STEER_REDUCTION` of a module turn.
+(`STEER_SENSOR_SPAN` is 5 V). For a primary encoder it is one **motor** rotation, which is
+`1/STEER_REDUCTION` of a module turn.
+
+Two steps in that are inference rather than reading, and both are worth naming:
+
+- **The driver is not the firmware.** `_c_SIM_Spark_CalculatePID` is REVLib's simulation of the
+  loop. That the device behaves the same way is **[unverified]** — it is corroborated by the
+  parameter description and by the removal of the two bound parameters, and nothing contradicts
+  it, but only a bench SPARK settles it.
+- **That the analog feeds the loop in volts** is taken from the *getter's* javadoc, not from the
+  feedback path. It is the natural reading with conversion factors gone, and it is still
+  **[unverified]** for what the closed loop consumes.
+
+**Neither step is load-bearing for the decision #130 takes.** If the firmware differed, or if the
+analog reached the loop already normalised, the encoder path would still be correct: one motor
+rotation is `1/26` of a module turn under every reading of the above, so the device's wrap is no
+use on the sensor we chose either way, and the shortest path has to come from the setpoint. What
+the uncertainty *would* change is whether the analog path remained available — that is, whether
+this was forced or merely preferred.
 
 ## 3. What this costs, and what it does not **[V]**
 

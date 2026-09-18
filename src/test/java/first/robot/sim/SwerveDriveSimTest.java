@@ -80,7 +80,8 @@ class SwerveDriveSimTest {
     var targets = kinematics.toSwerveModuleVelocities(new ChassisVelocities(0, 0, 1));
     for (int i = 0; i < MODULES; i++) {
       steerLoops[i].setSetpoint(
-          DriveConstants.steerSetpoint(steerMotorRotations(state[i]), targets[i].angle));
+          DriveConstants.steerSetpoint(
+              DriveConstants.steerMotorRotations(state[i].azimuthRotations()), targets[i].angle));
     }
 
     advance(SETTLE);
@@ -303,15 +304,11 @@ class SwerveDriveSimTest {
     for (int step = 0; step < SUB_STEPS; step++) {
       double rail = sim.batteryVoltage().in(Volts);
       for (int i = 0; i < MODULES; i++) {
-        steerVolts[i] = steerLoops[i].calculate(steerMotorRotations(state[i]), SUB_STEP, rail);
+        steerVolts[i] =
+            steerLoops[i].calculate(
+                DriveConstants.steerMotorRotations(state[i].azimuthRotations()), SUB_STEP, rail);
       }
       state = sim.update(driveVolts, steerVolts, SUB_STEP);
     }
-  }
-
-  // The steer loop closes on the motor's own encoder, so the model of it measures motor rotations
-  // and is built from the gains in the units the device uses.
-  private static double steerMotorRotations(SimModuleState state) {
-    return DriveConstants.steerMotorRotations(state.azimuthRad() / (2 * Math.PI));
   }
 }

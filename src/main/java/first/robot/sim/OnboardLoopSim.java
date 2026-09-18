@@ -29,8 +29,7 @@ public final class OnboardLoopSim {
   }
 
   // kV is not applied in position mode on the controller, so it is not a parameter here. Neither
-  // is wrapping: since alpha-7 the device wraps a position error over exactly one native unit, and
-  // nothing on this robot closes a loop whose sensor turns once per native unit.
+  // is wrapping, which nothing on this robot configures.
   public static OnboardLoopSim position(double kP, double kD, double dFilter) {
     return new OnboardLoopSim(kP, kD, 0, 0, dFilter);
   }

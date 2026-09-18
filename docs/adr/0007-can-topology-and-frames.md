@@ -32,7 +32,9 @@ periods it runs on are `[source]`. See Open.
 ⚠️ **Three rows of #28's frame table do not survive a re-read of the
 REVLib and Phoenix sources, and are corrected in the table below rather
 than narrated around it.** The corrections move the standing total from
-~3680 to ~3920 and change no decision. What each one was, and why it
+~3680 to ~3920 and change no decision. *#130 moved it again, to ~3960,
+when steer's feedback sensor changed; see* Module angle rides Status2. *#130 moved it again, to ~3960,
+when steer's feedback sensor changed; see* Module angle rides Status2. What each one was, and why it
 was wrong, is in Rejected under *#28's frame table as written*.
 
 ## Context
@@ -93,17 +95,17 @@ That is the ceiling every number below is measured against.
 | Source | Frames | Period | Frames/s |
 |---|---|---|---|
 | **Status2** — drive primary encoder position + velocity × 4 | 4 | 5 ms | 800 |
-| **Status3** — steer analog position + velocity + voltage × 4 | 4 | 5 ms | 800 |
+| **Status2** — steer primary encoder position + velocity × 4 | 4 | 5 ms | 800 |
 | **Setpoint writes** × 8 | 8 | 5 ms | 1600 |
 | **Pigeon2** — the quaternion frame and the yaw-rate frame | 2 | 5 ms | 400 |
 | **Status1** — faults, warnings × 8 | 8 | 50 ms | 160 |
 | **Status0** — applied output, bus voltage, current, temperature, limits × 8 | 8 | 100 ms | 80 |
 | **Status8** — setpoint readback × 8 | 8 | 100 ms | 80 |
+| **Status3** — steer analog position + velocity + voltage × 4 | 4 | 100 ms | 40 |
 | **Status5** — absolute encoder: never requested, never enabled | 0 | — | 0 |
-| **Status2 on steer** — relative encoder, diagnostic: never requested | 0 | — | 0 |
-| | | **total** | **~3920** |
+| | | **total** | **~3960** |
 
-**~3920 frames/s is 52–61% of the ceiling** **[unverified —
+**~3960 frames/s is 52–62% of the ceiling** **[unverified —
 arithmetic]**, plus the Pigeon's 0–5% diagnostic floor **[source, via
 #5 — CTRE's `canbus-utilization` migration doc]**. The two 5 ms encoder
 rows plus the setpoint writes are 82% of the traffic and are
@@ -134,29 +136,29 @@ are Status2 (`SignalsConfig.java:303-304, 267-268`);
 155-156, 175-176`; `setpointPeriodMs` is Status8 (`:708-709`).
 **[source]**
 
-### Module angle rides Status3, and that is ADR 0008's doing
+### Module angle rides Status2, and that is ADR 0008's doing
 
-This is the one line of the table a reader will not predict, and it is
-worth stating as a consequence rather than a coincidence.
+*Amended 2026-09-18 by #130. Through alpha-6 this said Status3, because
+steer closed on the analog. Both halves swapped when the feedback sensor
+did, and the total moved by 40 frames/s.*
 
-With steer closing on the SPARK against the analog absolute encoder,
-the angle odometry needs is the **analog** position — Status3 — not the
-primary encoder's — Status2. So the eight controllers split: **four
-drive SPARKs publish Status2 at 5 ms, four steer SPARKs publish Status3
-at 5 ms.** **[decided]**
+All eight controllers now publish **Status2 at 5 ms**: steer closes on
+its own primary encoder, so the angle odometry needs is the primary
+encoder's position, exactly as the drive side's is. **[decided]**
 
-**Steer's Status2 drops to its default and the steer relative encoder
-becomes diagnostic.** Nothing in the control path or the odometry path
-reads it. It is worth logging when someone is chasing a mechanical
-problem — motor position against module angle is exactly the
-measurement that shows backlash — and it is worth nothing at 5 ms.
+**Status3 drops to the diagnostic rate and the analog becomes a
+diagnostic and a seed.** It is read once a second while the robot is
+disabled, and by a human chasing a mechanical problem — analog position
+against motor position is exactly the measurement that shows backlash,
+which is the cost ADR 0008 now pays. Neither use wants 5 ms. Only the
+analog *position* period is set, because the three analog signals share
+a frame and setting one sets the group.
 
-The net is that ADR 0008's arrangement costs the bus **nothing**
-relative to the naive one: four frames moved from one group to another
-at the same rate. Closing steer on SystemCore instead would have needed
-Status3 at 5 ms **in addition to** Status2 on all four steer
-controllers — **+800 frames/s to ~4720, 62–74%** **[unverified —
-arithmetic; #28 and #29]**.
+The net is that ADR 0008's arrangement still costs the bus **nothing**
+worth counting: the 5 ms group is the same size and Status3 at 100 ms
+adds 40 frames/s. Closing steer on SystemCore instead would have needed
+its feedback at 5 ms **in addition to** everything above — **+800
+frames/s to ~4760, 63–74%** **[unverified — arithmetic; #28 and #29]**.
 
 ### PID telemetry is the baseline plus one readback
 
@@ -314,7 +316,7 @@ wrapper is exactly what would let somebody stop noticing that.
   bandwidth: CTRE measured FD 8-byte frames dropping from **43%** on
   S3+S4 together against 85% on one bus alone **[source —
   `docs/research/vendordeps.md`, quoting SystemcoreTesting #342]**.
-  Irrelevant at 3920 frames/s on one bus. It becomes the first thing to
+  Irrelevant at ~3960 frames/s on one bus. It becomes the first thing to
   read if the multi-bus question under Open is ever answered.
 
 - **Phoenix's diagnostic server is a standing CAN cost we chose not to
@@ -515,7 +517,7 @@ Real benefit: roughly half the utilisation per bus, and the SPI-pairing
 measurements say two buses at ~26% each drop nothing.
 
 Rejected on the failure mode, as the Decision sets out — the gain is
-headroom we do not need at 52–61%, and the cost is a drive base that
+headroom we do not need at 52–62%, and the cost is a drive base that
 can come up half-working and still accept commands.
 
 *Do not re-raise* on utilisation grounds alone. It re-opens when there

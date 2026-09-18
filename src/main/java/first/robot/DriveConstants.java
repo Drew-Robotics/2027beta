@@ -117,9 +117,9 @@ public final class DriveConstants {
   // module, and the Flex's analog input reads to that same rail, so the two cancel.
   public static final Voltage STEER_SENSOR_SPAN = Volts.of(5);
   // Volts to module rotations. The analog seeds the steer encoder rather than closing a loop, so
-  // this converts a reading and never a setpoint.
+  // this converts a reading and never a setpoint, and there is no velocity factor beside it:
+  // nothing reads the analog's rate now that the loop and the characterisation take the encoder's.
   public static final double STEER_SENSOR_POSITION_FACTOR = 1 / STEER_SENSOR_SPAN.in(Volts);
-  public static final double STEER_SENSOR_VELOCITY_FACTOR = STEER_SENSOR_POSITION_FACTOR;
 
   // The steer loop closes on the motor's own encoder, which counts motor rotations and reports
   // RPM. It accumulates rather than wrapping, which is what carries the shortest path.

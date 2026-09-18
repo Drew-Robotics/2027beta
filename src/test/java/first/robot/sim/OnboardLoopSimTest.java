@@ -12,10 +12,9 @@ class OnboardLoopSimTest {
   private static final double SUB_STEP = 0.001;
   private static final double RAIL = 12.0;
 
-  // Since alpha-7 the device wraps a position error over exactly one native unit, and nothing
-  // here closes on a sensor that turns once per native unit, so the model folds nothing: taking
-  // the short way is the setpoint's job. A measurement that has wound past a turn is not the same
-  // measurement as one that has not, and this loop is the thing that has to say so.
+  // The model folds nothing, because the device as configured does not: taking the short way is
+  // the setpoint's job. A measurement that has wound past a turn is not the same measurement as
+  // one that has not, and this loop is the thing that has to say so.
   @Test
   void aPositionLoopTakesTheErrorItIsGiven() {
     var loop = OnboardLoopSim.position(8, 0, 0);

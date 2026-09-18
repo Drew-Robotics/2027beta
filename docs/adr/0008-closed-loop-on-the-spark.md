@@ -158,9 +158,14 @@ What changed is what the SPARK can do with it. A steer loop has to take
 the short way round, and the only wrap the device offers is
 `positionWrappingEnabled`, which since alpha-7 folds a position error
 over **exactly one native unit** — `error -= truncf(error ± 0.5)`, twice,
-with both constants immediate in
-`_c_SIM_Spark_CalculatePID`. **[source — `REVLib-driver 2027.0.0-alpha-7`,
-osxuniversal x86_64; see `docs/research/revlib-alpha7-units.md`]** The
+with both constants immediate in `_c_SIM_Spark_CalculatePID`. **[source —
+`REVLib-driver 2027.0.0-alpha-7`, osxuniversal x86_64]** That function is
+REVLib's *simulation* of the loop, so the firmware behaving the same way
+is **[unverified]**; it agrees with the driver's own parameter
+description and with the removal of `kPositionPIDMinInput` and
+`kPositionPIDMaxInput`, and a bench SPARK would settle it. See
+`docs/research/revlib-alpha7-units.md`, which also records why neither
+that step nor the analog's units is load-bearing here. The
 analog's native unit is the volt **[source — alpha-7 javadoc,
 `SparkAnalogSensor.getPosition()`]** and `STEER_SENSOR_SPAN` is 5 V, so
 that wrap covers a fifth of a module turn: enabling it is worse than

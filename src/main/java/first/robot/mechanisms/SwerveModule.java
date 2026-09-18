@@ -69,6 +69,7 @@ final class SwerveModule {
   private double steerVolts;
   private double lastSeedTimestamp;
   private int seedCount;
+  private boolean seededForReset;
 
   SwerveModule(SwerveModuleConfig config, ModuleGains gains, TelemetryTable log) {
     name = config.name();
@@ -102,6 +103,7 @@ final class SwerveModule {
 
     moduleLog.keepDuplicates("DriveFaults");
     moduleLog.keepDuplicates("SteerFaults");
+    moduleLog.keepDuplicates("SteerStickyWarnings");
   }
 
   private static SparkFlexConfig driveConfig(ModuleGains gains) {
@@ -133,11 +135,11 @@ final class SwerveModule {
         .smartCurrentLimit((int) DriveConstants.STEER_CURRENT_LIMIT.in(Amps));
     config
         .closedLoop
-        // The motor's own encoder, seeded from the analog. It accumulates instead of wrapping, so
-        // the shortest path is an offset from where the module is rather than an angle the device
-        // has to unwrap — which alpha-7 can no longer do, since positionWrappingEnabled wraps a
-        // position error over exactly one native unit and a module turn is STEER_REDUCTION of them.
+        // The motor's own encoder, seeded from the analog: DriveConstants.steerSetpoint is what
+        // carries the shortest path, and says why the device cannot.
         .feedbackSensor(FeedbackSensor.kPrimaryEncoder)
+        // Stated rather than left to kResetSafeParameters, because applyGains does not reset.
+        .positionWrappingEnabled(false)
         .pid(onboard.kP(), 0, onboard.kD())
         .dFilter(onboard.dFilter())
         // kS alone: kV is documented as not applied in position mode and kA only in MAXMotion,
@@ -348,20 +350,27 @@ final class SwerveModule {
 
   void seedSteerFromAbsolute() {
     double motorRotations = DriveConstants.steerMotorRotations(getAbsoluteAngle().getRotations());
-    Hardware.configureSpark(
-        "Swerve" + name + "SteerSeed", () -> steerEncoder.setPosition(motorRotations));
+    Hardware.write("Swerve" + name + "SteerSeed", () -> steerEncoder.setPosition(motorRotations));
     lastSeedTimestamp = Timer.getTimestamp();
     seedCount++;
   }
 
-  // A SPARK that reset lost its count, and the analog has nothing to give in the first
-  // milliseconds after one boots, so the seed is repeated while disabled rather than taken once.
+  // A SPARK that reset is closing its loop on a count that means nothing, so it is reseeded at
+  // once, enabled or not: a module reporting an angle it is not at drives the robot somewhere
+  // else. Everything else waits for the robot to be disabled and the module to be still.
   void updateSteerSeed() {
-    if (steerMotor.getStickyWarnings().get().hasReset) {
+    boolean hasReset = steerMotor.getStickyWarnings().get().hasReset;
+    // On the edge. clearFaults can fail, and a level test would then reseed every loop, mid-slew,
+    // for as long as the bit stayed up. Clearing it is also what makes the *next* reset visible,
+    // which is why the sticky word is logged: this is the one thing that erases it.
+    if (hasReset && !seededForReset) {
       steerMotor.clearFaults();
       seedSteerFromAbsolute();
-      return;
     }
+    seededForReset = hasReset;
+    // No guard on hasReset here: a bit that stayed up because clearFaults failed must not also
+    // cost the module its periodic reseed. The period gate is what stops a second seed this loop,
+    // because the one above has already stamped it.
     if (!RobotState.isDisabled()
         || Timer.getTimestamp() - lastSeedTimestamp
             < DriveConstants.STEER_SEED_PERIOD.in(Seconds)) {
@@ -437,7 +446,11 @@ final class SwerveModule {
     // The seed against what it seeded: the two disagreeing by more than the reduction's backlash
     // is a count that drifted, and there is nothing else in the log that would say so.
     moduleLog.log("SteerAbsolute", getAbsoluteAngle().getMeasure());
+    // The seed count is the only record that a reset happened, because reseeding clears the
+    // sticky word that asked for it; the word itself is logged so the clear erases nothing that
+    // was not already written down.
     moduleLog.log("SteerSeeds", seedCount);
+    moduleLog.log("SteerStickyWarnings", steerMotor.getStickyWarnings().get().rawBits);
     moduleLog.log("SteerCurrent", Amps.of(steerMotor.getOutputCurrent().get()));
     moduleLog.log("SteerTemp", Celsius.of(steerMotor.getMotorTemperature().get()));
     // REVLib's packed fault word; SparkBase.Faults names the bits at the SHA this log carries.

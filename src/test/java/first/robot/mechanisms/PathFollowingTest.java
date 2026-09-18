@@ -182,7 +182,8 @@ class PathFollowingTest {
               * SwerveModule.accelerationAlong(moduleAccelerations[i], desired[i].angle);
       driveLoops[i].setSetpoint(desired[i].velocity / DriveConstants.DRIVE_VELOCITY_FACTOR);
       steerLoops[i].setSetpoint(
-          DriveConstants.steerSetpoint(steerMotorRotations(state[i]), desired[i].angle));
+          DriveConstants.steerSetpoint(
+              DriveConstants.steerMotorRotations(state[i].azimuthRotations()), desired[i].angle));
     }
 
     var driveVolts = new double[MODULES];
@@ -192,7 +193,9 @@ class PathFollowingTest {
       for (int i = 0; i < MODULES; i++) {
         driveVolts[i] =
             driveLoops[i].calculate(driveRpm(state[i]), SUB_STEP, rail) + feedforward[i];
-        steerVolts[i] = steerLoops[i].calculate(steerMotorRotations(state[i]), SUB_STEP, rail);
+        steerVolts[i] =
+            steerLoops[i].calculate(
+                DriveConstants.steerMotorRotations(state[i].azimuthRotations()), SUB_STEP, rail);
       }
       state = physics.update(driveVolts, steerVolts, SUB_STEP);
     }
@@ -202,15 +205,11 @@ class PathFollowingTest {
     return new TrajectoryLoader(Filesystem.getDeployDirectory().toPath()).get(pathName);
   }
 
-  // The loops close in the units the device does: RPM for the drive encoder, motor rotations for
-  // the steer encoder, which is what makes the native gains above the right ones to use.
+  // The drive loop closes in the units the device does, which is what makes the native gains
+  // above the right ones to use.
   private static double driveRpm(SimModuleState state) {
     return state.wheelVelocityRadPerSec()
         * DriveConstants.WHEEL_RADIUS.in(Meters)
         / DriveConstants.DRIVE_VELOCITY_FACTOR;
-  }
-
-  private static double steerMotorRotations(SimModuleState state) {
-    return DriveConstants.steerMotorRotations(state.azimuthRad() / (2 * Math.PI));
   }
 }
