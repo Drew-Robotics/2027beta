@@ -19,6 +19,25 @@ battery is charged the supply current rather than the winding current. The appli
 reported against the rail it was clamped against. A regenerating motor is
 credited as no load rather than as a full one.
 
+Amended 2026-09-18 by #130, on migrating to REVLib alpha-7. Three
+changes, all of them the device's rather than this architecture's. The
+sensor sims are written **native units** — motor rotations, RPM and
+volts — because alpha-7 removed the conversion factors the device used
+to apply, so `setPosition` no longer *"takes the value after the
+conversion factor"*: there is no conversion factor. The steer axis gains
+a fourth sensor sim, a `SparkRelativeEncoderSim` on the steer SPARK,
+because ADR 0008 moved the steer loop's feedback onto that encoder; the
+analog sim stays, as the seed and the cross-check. And the loop model
+**no longer wraps** — alpha-7 folds a position error over exactly one
+native unit and nothing here closes on a sensor that turns once per
+native unit, so `OnboardLoopSim.position` lost its input range. The
+model of a device that does not wrap must not wrap, or the simulation
+passes what the robot would fail.
+
+`SimModuleState` carries the azimuth **unwrapped** for the same reason:
+the encoder accumulates, and a model of it cannot be driven from a value
+that folds.
+
 The *Open* item asking whether CI runs a headless robot program is
 answered by ADR 0013 and now sits under *Consequences*. Amended
 2026-09-06 by #121: the sim task is `./gradlew run`, and the deploy
@@ -153,9 +172,11 @@ three things, and it has all three:
 
 - **The last commanded setpoint.** The `SwerveModule` object *wrote* it,
   so it holds it. No readback, no bus.
-- **A model of the SPARK's loop** — a PID plus position wrapping. Plain
-  arithmetic, no vendor types, so it lives in `first.robot.sim` by the
-  rule above.
+- **A model of the SPARK's loop** — a PID. Plain arithmetic, no vendor
+  types, so it lives in `first.robot.sim` by the rule above. *It carried
+  position wrapping until 2026-09-18; alpha-7 pinned the device's wrap to
+  one native unit and nothing here closes on a sensor that turns once per
+  native unit, so the model wraps nothing either.*
 - **A way to push state into the sensors.**
   `SparkAnalogSensorSim(SparkFlex)`
   (`com/revrobotics/sim/SparkAnalogSensorSim.java:67`) and
@@ -165,7 +186,10 @@ three things, and it has all three:
   (`:120, :140` and `:100, :120`). They import nothing but
   `com.revrobotics.spark` and the HAL's `SimDouble` / `SimBoolean` /
   `SimDeviceSim` (`:31-36` in both files) **[source]**, so they are
-  clean of the chain that breaks `SparkSim`.
+  clean of the chain that breaks `SparkSim`. There are **four** of them
+  per module since #130 — a drive encoder, a steer encoder, the analog,
+  and the applied-output pair below — because ADR 0008 moved the steer
+  loop's feedback onto the steer motor's own encoder.
 
 **`SparkSim` is therefore never loaded at all.** It is not worked
 around, not guarded, not conditionally constructed — the class does not
@@ -567,17 +591,24 @@ not here.
   at all, which sidesteps this as well as the double integration; it is
   written down so that nobody adds the call back as a tidy-up.
 
-- **`setPosition` on a sensor sim takes the value *after* the conversion
-  factor** — *"Set the position of the sensor, after your conversion
-  factor"* (`SparkAnalogSensorSim.java:116-119`). **[source]** Handing
-  it raw rotations while the config sets a conversion factor is a scale
-  error that nothing reports: the model and the mechanism simply
-  disagree about how far the wheel went, consistently, forever.
+- **The sensor sims take native units, and nothing reports it if they
+  do not.** Alpha-7 removed conversion factors from the SPARK, so the
+  javadoc this trap used to quote — *"Set the position of the sensor,
+  after your conversion factor"* (`SparkAnalogSensorSim.java:116-119`)
+  **[source, alpha-6]** — now resolves to "there is no conversion
+  factor": motor rotations and RPM for an encoder sim, volts for the
+  analog. The hazard is unchanged and the direction of the error is
+  merely inverted. Writing metres where the device would report rotations
+  is a scale error that nothing reports: the model and the mechanism
+  simply disagree about how far the wheel went, consistently, forever.
+  Each feed in `updateSim()` is written as the mechanism's own conversion
+  divided back out, for that reason.
 
 - **A sensor sim built before its SPARK exists silently no-ops.** The
   sim device is resolved by a name assembled from the bus and device ids
-  — `"SPARK Flex [" + motor.getBusId() + "," + motor.getDeviceId() + "]
-  ANALOG SENSOR"` (`SparkAnalogSensorSim.java:67-71`) — and
+  — `"SPARK Flex [" + motor.getCanPort().value + "," + motor.getDeviceId()
+  + "] ANALOG SENSOR"` (`SparkAnalogSensorSim.java:67-71`; `getBusId()`
+  was renamed `getCanPort()` in alpha-7) — and
   `SimDeviceSim.getDouble` returns **null** for a handle that does not
   resolve (`wpilibj/.../simulation/SimDeviceSim.java:117-123`).
   **[source]** Every setter then hits `if (checkAndSetupSimDevice())

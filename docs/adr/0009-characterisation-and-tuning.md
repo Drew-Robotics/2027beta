@@ -13,6 +13,16 @@ condition rather than unconditionally. Amended again 2026-08-30: the
 four ramps are held rather than pressed, so a release ends the run — the
 supervision requirement below gains a stop the supervisor can reach.
 
+Amended 2026-09-18 by #130, on migrating to REVLib alpha-7. Conversion
+factors are gone from the SPARK, so the device closes its loops in
+native units. **The gains recorded here do not move**: they stay written
+per metre per second and per module rotation, because that is what the
+analyser produces and what a human tunes. What moves is where they are
+rescaled — `DriveConstants.onboardGains`, once, at the device boundary.
+Steer's feedback sensor changed with it; see ADR 0008. The steer
+position column is now continuous, which is a gain for the fit: see
+*Four routines, and what each one moves*.
+
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
 `v2027.0.0-alpha-6`, the checkout ADR 0003 calls alpha-7. REVLib
@@ -147,6 +157,15 @@ is fitted from. **[decided]**
 a property of one module's azimuth axis, and four modules working the
 carpet at once is three extra ways for the one being measured to be
 pushed. The other three are dropped. **[decided]**
+
+*Amended 2026-09-18 by #130.* The position column is the steer motor's
+own encoder in module rotations, which **accumulates**, so it is
+continuous the way the rotation routine's Pigeon yaw is. It used to be
+the analog's `[0, 1)` reading, where a reverse ramp on a module parked
+near zero stepped a whole rotation on its second sample and the fit had
+to be trimmed around it. The feedforward fit is on voltage against
+velocity and never saw that step; anything read off the position column
+did. This is the one thing ADR 0008's change improves rather than costs.
 
 **Whole-robot rotation — all four modules, wheels tangent to the spin.**
 The columns are the *robot's*: the applied voltage against the Pigeon's
@@ -325,6 +344,23 @@ against the `WPILIB` preset's 20 ms (`:74, 76`). **[source]**
 **Record it once: the on-SPARK gains — drive's `kS`/`kV`/`kP` and
 steer's `kS`/`kP`/`kD` — are closed on the SPARK at 1 kHz.**
 **[decided]**
+
+**Record the units with them.** Since alpha-7 the SPARK has no
+conversion factors and closes in what its sensors report, so a gain has
+two forms and only one of them is tunable by a human. The form written
+in `DriveConstants` is the analyser's: drive `kP` and `kV` per **metre
+per second**, steer `kP` and `kD` per **module rotation**. The form the
+device holds is that one through `DriveConstants.onboardGains` — drive
+multiplied by `DRIVE_VELOCITY_FACTOR` into per-RPM, steer multiplied by
+`STEER_MOTOR_POSITION_FACTOR` into per-motor-rotation. Both `kS` are
+output volts and `dFilter` is a filter coefficient; neither moves.
+**[decided]**
+
+⚠️ **A gain copied off a device and pasted into `DriveConstants` is
+wrong by a factor of the reduction**, and nothing anywhere will say so —
+it configures clean and the module merely feels soft. The rescale is a
+pure scalar, so it is exact in both directions; it is the direction that
+is easy to lose.
 
 ⚠️ ADR 0002's rule keeps full force on the SystemCore side, and `kA` is
 now on that side — ADR 0011's `kA · a` is computed in our loop at
@@ -585,10 +621,14 @@ in Traps.
   112_ms}` (`FeedbackControllerPreset.hpp:137-138`). **[source]** The
   `1_ms` is right and is the reason the preset is the correct one to
   pick. The `1.0/12.0` and `60.0` are assumptions about *our*
-  configuration: with `velocityConversionFactor` set so the encoder
-  reports in our units rather than RPM, the factor of 60 is already
-  applied and applying it again scales the feedback gain by 60. **This
-  reaches the feedback gain the analyser offers, not `kS`/`kV`/`kA`** —
+  configuration, and since alpha-7 they are **met**: the encoder has no
+  conversion factor left to set and reports RPM, which is what the `60.0`
+  is for. That was not true through alpha-6, where a
+  `velocityConversionFactor` put the factor of 60 in already and applying
+  it again scaled the feedback gain by 60. The hazard now runs the other
+  way — a future reader who rescales the logged column into our units
+  before feeding the analyser reintroduces exactly that. **It reaches the
+  feedback gain the analyser offers, not `kS`/`kV`/`kA`** —
   the feedforward fit is on the logged columns and knows nothing about
   the preset. Picking the `WPILIB` preset instead is the quieter
   mistake: it is `DEFAULT`, at `20_ms` (`:74, 76`) **[source]**, which is

@@ -18,7 +18,8 @@ public final class Constants {
   // timescale, so this is the one signal not written every loop.
   public static final Time ALERT_LOG_PERIOD = Milliseconds.of(250);
 
-  // Every device is on this one bus. REVLib wants its .value, Phoenix wants CANBus.systemcore(n).
+  // Every device is on this one bus, and since alpha-7 both vendors take the port itself:
+  // new SparkFlex(CANPort, ...) and new CANBus(CANPort).
   public static final CANPort CAN_BUS = CANPort.CAN_S0;
 
   public static final int DRIVER_PORT = 0;

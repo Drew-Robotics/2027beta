@@ -231,26 +231,30 @@ the routine picks the motor role: drive and rotation instrument that
 module's drive SPARK, steer its steer SPARK. ADR 0009 owns what the
 column is for.
 
-### One project constant per physical bus, converted at each call site
+### One project constant per physical bus, passed to each call site
 
-The two vendors take the bus as different types and there is no
-overload that hides it:
+`Constants` holds **one constant per physical bus**, typed as WPILib's
+`org.wpilib.hardware.bus.CANPort`, and every call site takes it.
+**[decided]**
 
 ```java
-new SparkFlex(busId, deviceId, MotorType.kBrushless)   // int, first argument
-new Pigeon2(deviceId, CANBus.systemcore(0))            // a CTRE CANBus object
+new SparkFlex(Constants.CAN_BUS, deviceId, MotorType.kBrushless)
+new Pigeon2(deviceId, new CANBus(Constants.CAN_BUS))
 ```
 
-**[source, via #5]**
+*Amended 2026-09-18 by #130.* Both vendors converged on `CANPort` in
+their alpha-7-era releases — REVLib's device constructors take it
+directly, and Phoenix replaced `CANBus.systemcore(int)` with
+`new CANBus(CANPort)` **[source — Phoenix 6 `26.70.0-alpha-2` release
+notes; REVLib `2027.0.0-alpha-7` release notes]** — so neither call site
+converts any more and the `.value`/`systemcore(n)` split below is
+history. The one place `.value` survives is `SparkOutputSim`, which
+assembles a `SimDevice` name the way `SparkSim` does.
 
-So `Constants` holds **one constant per physical bus**, typed as
-WPILib's `org.wpilib.hardware.bus.CANPort`, and each call site converts:
-`.value` for REVLib, `CANBus.systemcore(n)` for Phoenix. **[decided]**
-The numbering agrees exactly across the two vendors — `CAN_S0(0)`
-through `CAN_S4(4)`, and CTRE's `systemcore(int)` validates 0–4
-(`com/ctre/phoenix6/CANBus.java:129-132`) **[source]** — so the
-conversion is mechanical and there is no off-by-five between our SPARKs
-and our gyro.
+The numbering agreed exactly across the two vendors while they were
+separate — `CAN_S0(0)` through `CAN_S4(4)`, and CTRE's `systemcore(int)`
+validated 0–4 (`com/ctre/phoenix6/CANBus.java:129-132`) **[source]** — so
+there was no off-by-five between our SPARKs and our gyro to inherit.
 
 The constant exists so that *"which bus is the drive base on"* has one
 answer in the repository rather than nine literals. It is deliberately
@@ -358,7 +362,9 @@ wrapper is exactly what would let somebody stop noticing that.
   and `CANBus.systemcore(0)` were each valid in their own file and
   neither was valid in the other's. alpha-7 renamed the WPILib half to
   `CANPort` **[source — `c9c73f34a`]**, so both now import cleanly into
-  one file and nothing objects. Every 2026-era sample and every model
+  one file and nothing objects. *This got better on 2026-09-18: the
+  vendors' current releases both take `CANPort`, so a file that writes
+  WPILib's half as `CANBus` no longer compiles at all.* Every 2026-era sample and every model
   completion still writes WPILib's half as `CANBus`, and in a file that
   imports Phoenix that name now resolves — to CTRE's class, silently.
   What used to be a compile error the collision forced is now a working

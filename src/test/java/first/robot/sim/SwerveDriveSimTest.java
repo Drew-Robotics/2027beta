@@ -46,10 +46,9 @@ class SwerveDriveSimTest {
 
   @BeforeEach
   void buildSteerLoops() {
-    var gains = DriveConstants.SIM_GAINS.steer();
+    var gains = DriveConstants.onboardGains(DriveConstants.SIM_GAINS).steer();
     for (int i = 0; i < MODULES; i++) {
-      // The wrap range is the converted analog sensor's, which is not Rotation2d's.
-      steerLoops[i] = OnboardLoopSim.position(gains.kP(), gains.kD(), gains.dFilter(), 0, 1);
+      steerLoops[i] = OnboardLoopSim.position(gains.kP(), gains.kD(), gains.dFilter());
     }
     state = sim.moduleStates();
   }
@@ -80,7 +79,8 @@ class SwerveDriveSimTest {
     var kinematics = new SwerveDriveKinematics(config.moduleLocations());
     var targets = kinematics.toSwerveModuleVelocities(new ChassisVelocities(0, 0, 1));
     for (int i = 0; i < MODULES; i++) {
-      steerLoops[i].setSetpoint(MathUtil.inputModulus(targets[i].angle.getRotations(), 0, 1));
+      steerLoops[i].setSetpoint(
+          DriveConstants.steerSetpoint(steerMotorRotations(state[i]), targets[i].angle));
     }
 
     advance(SETTLE);
@@ -145,7 +145,7 @@ class SwerveDriveSimTest {
   @Test
   void aQuarterTurnStepSettlesInsideTheTimeADriverWouldNotice() {
     for (int i = 0; i < MODULES; i++) {
-      steerLoops[i].setSetpoint(0.25);
+      steerLoops[i].setSetpoint(DriveConstants.steerMotorRotations(0.25));
     }
 
     double settled = settleTime(0.25, Degrees.of(5), Seconds.of(1));
@@ -221,7 +221,7 @@ class SwerveDriveSimTest {
     Arrays.fill(driveVolts, 12.0);
     // Half a turn of error, which asks the steer loop for more volts than the rail has.
     for (int i = 0; i < MODULES; i++) {
-      steerLoops[i].setSetpoint(0.5);
+      steerLoops[i].setSetpoint(DriveConstants.steerMotorRotations(0.5));
     }
 
     int ticks = (int) Math.round(1.0 / Constants.LOOP_PERIOD.in(Seconds));
@@ -280,10 +280,7 @@ class SwerveDriveSimTest {
       boolean all = true;
       for (int i = 0; i < MODULES; i++) {
         double error =
-            MathUtil.inputModulus(
-                setpointRotations - MathUtil.inputModulus(state[i].azimuth().getRotations(), 0, 1),
-                -0.5,
-                0.5);
+            MathUtil.inputModulus(setpointRotations - state[i].azimuth().getRotations(), -0.5, 0.5);
         all &= Math.abs(error) <= tolerance.in(Rotations);
       }
       if (all) {
@@ -306,11 +303,15 @@ class SwerveDriveSimTest {
     for (int step = 0; step < SUB_STEPS; step++) {
       double rail = sim.batteryVoltage().in(Volts);
       for (int i = 0; i < MODULES; i++) {
-        // Rotation2d reads back over [-0.5, 0.5) and the analog sensor over [0, 1).
-        double azimuth = MathUtil.inputModulus(state[i].azimuth().getRotations(), 0, 1);
-        steerVolts[i] = steerLoops[i].calculate(azimuth, SUB_STEP, rail);
+        steerVolts[i] = steerLoops[i].calculate(steerMotorRotations(state[i]), SUB_STEP, rail);
       }
       state = sim.update(driveVolts, steerVolts, SUB_STEP);
     }
+  }
+
+  // The steer loop closes on the motor's own encoder, so the model of it measures motor rotations
+  // and is built from the gains in the units the device uses.
+  private static double steerMotorRotations(SimModuleState state) {
+    return DriveConstants.steerMotorRotations(state.azimuthRad() / (2 * Math.PI));
   }
 }

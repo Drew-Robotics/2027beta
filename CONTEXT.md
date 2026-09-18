@@ -233,8 +233,9 @@ The index of the ADRs themselves is
 - **Kinematics** — the arithmetic that converts between one chassis
   velocity and four module velocities.
 - **Module angle** — where a module is pointing. Because steer closes
-  against the analog absolute encoder, the angle odometry consumes is
-  the analog one ([ADR 0008](docs/adr/0008-closed-loop-on-the-spark.md)).
+  against the steer motor's own encoder, the angle odometry consumes is
+  that encoder's, seeded from the analog absolute sensor
+  ([ADR 0008](docs/adr/0008-closed-loop-on-the-spark.md)).
 - **Module position** — how far that module's wheel has rolled,
   together with its module angle. It is what
   `Drive.getModulePositions()` hands the pose estimator, and it is a
@@ -323,17 +324,28 @@ The index of the ADRs themselves is
   ([ADR 0011](docs/adr/0011-autonomous-and-choreo.md)).
 - **`kP` / `kD`** — the feedback gains: output proportional to the
   error, and to how fast the error is changing.
+- **Native units** — what a SPARK reports and closes its loops in, with
+  nothing converting it: motor rotations and RPM for an encoder, volts
+  for the analog. It used to be configurable per sensor; since REVLib
+  alpha-7 it is not, so every conversion and every gain rescale happens
+  in this repo ([ADR 0008](docs/adr/0008-closed-loop-on-the-spark.md)).
 - **Position wrapping** — telling a position loop that the sensor runs
   in a circle, so a target 10° away is reached by turning 10° rather
-  than 350°. Steer closes on a sensor that jumps from 1 back to 0
-  every revolution, so a loop on it must wrap
+  than 350°. The SPARK's own wrapping folds over one native sensor unit
+  and is no use to us, so steer wraps in the setpoint instead: it closes
+  on an encoder that counts up forever and is told to move by an offset
   ([ADR 0008](docs/adr/0008-closed-loop-on-the-spark.md)).
+- **Seeding** — writing the absolute sensor's angle into a relative
+  encoder, so a count that has no zero of its own acquires one. Steer is
+  seeded at boot, whenever its SPARK reports that it reset, and
+  periodically while the robot is disabled and the module is still.
 - **Module zero offset** — the per-module constant that turns a raw
-  steer sensor reading into a module angle. It lives in this repo and
-  is added into the setpoint, because the device cannot hold one.
+  steer sensor reading into a module angle. It lives in this repo,
+  because the device cannot hold one, and it is applied in the seed.
 - **Backlash** — the slack in a gearbox: the band the output shaft can
-  sit anywhere inside while the motor does not move. It is why steer
-  closes on the module's own shaft rather than on the motor.
+  sit anywhere inside while the motor does not move. Steer closes on the
+  motor rather than on the module's own shaft, so the module can settle
+  anywhere inside that band; it is the price of the point above.
 - **Stiction** — the friction that has to be beaten before anything
   moves at all. `kS` measures it, and it is a property of the whole
   robot, which is why characterisation runs on the ground rather than

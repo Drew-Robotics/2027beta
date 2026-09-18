@@ -47,21 +47,22 @@ Field hazards that still compile:
 - Use `spark.setThrottle(...)`, not `set(...)`.
 - Getters return `Signal<T>`, not plain doubles.
 - `configure()` can throw or return an error. Check for both.
-- Analog sensors have no zero offset. Apply the module offset to the setpoint.
-
-alpha-7 changed the API and the unit model. `src` has not been migrated yet, so
-the build is red; the migration is
-[#130](https://github.com/Drew-Robotics/2027beta/issues/130).
-
+- Analog sensors have no zero offset. The module offset is applied in the seed.
 - The SPARK constructors take an `org.wpilib.hardware.bus.CANPort`, not an int.
-- `SparkBase.getBusId()` is gone.
+- `SparkBase.getBusId()` is now `SparkLowLevel.getCanPort()`.
 - Conversion factors are gone outright, with no replacement: `EncoderConfig` and
   `AnalogSensorConfig` have no `positionConversionFactor`/
   `velocityConversionFactor`. Sensors report native units — motor rotations and
-  RPM for the encoder, volts for the analog — so every conversion, and every
-  setpoint and gain that was written in converted units, moves into Java.
-- `ClosedLoopConfig.positionWrappingInputRange` is gone;
-  `positionWrappingEnabled` remains.
+  RPM for the encoder, volts for the analog — so every conversion lives in
+  Java. `DriveConstants.onboardGains` is the one place a gain is rescaled;
+  everything in `DriveConstants` itself is per metre per second and per module
+  rotation.
+- `ClosedLoopConfig.positionWrappingInputRange` is gone, and
+  `positionWrappingEnabled` now folds an error over **exactly one native unit**
+  — one volt on the analog, one *motor* rotation on the encoder. Nothing here
+  uses it: steer closes on the motor's own encoder and takes the short way by
+  writing an offset (`DriveConstants.steerSetpoint`). See ADR 0008 and
+  `docs/research/revlib-alpha7-units.md`.
 
 ## Vendor deps
 

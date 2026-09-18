@@ -29,6 +29,7 @@ import first.robot.FieldConstants;
 import first.robot.Hardware;
 import first.robot.HolonomicPathFollower;
 import first.robot.sim.OnboardLoopSim;
+import first.robot.sim.SimModuleState;
 import first.robot.sim.SwerveDriveSim;
 import first.robot.sysid.SysIdRoutine;
 import first.robot.sysid.SysIdRoutine.Direction;
@@ -102,6 +103,7 @@ public class Drive implements Mechanism {
   private final OnboardLoopSim[] driveLoops = new OnboardLoopSim[MODULES];
   private final OnboardLoopSim[] steerLoops = new OnboardLoopSim[MODULES];
   private final SparkRelativeEncoderSim[] driveEncoderSims = new SparkRelativeEncoderSim[MODULES];
+  private final SparkRelativeEncoderSim[] steerEncoderSims = new SparkRelativeEncoderSim[MODULES];
   private final SparkAnalogSensorSim[] steerSensorSims = new SparkAnalogSensorSim[MODULES];
   private final SparkOutputSim[] driveOutputSims = new SparkOutputSim[MODULES];
   private final SparkOutputSim[] steerOutputSims = new SparkOutputSim[MODULES];
@@ -141,7 +143,7 @@ public class Drive implements Mechanism {
         new SwerveDriveKinematics(
             Arrays.stream(corners).map(SwerveModuleConfig::location).toArray(Translation2d[]::new));
 
-    gyro = new Pigeon2(config.gyroId(), CANBus.systemcore(Constants.CAN_BUS.value));
+    gyro = new Pigeon2(config.gyroId(), new CANBus(Constants.CAN_BUS));
     Hardware.configurePhoenix(
         "SwerveGyro", () -> gyro.getConfigurator().apply(new Pigeon2Configuration()));
     // Every one of these publishes below the loop rate at its Phoenix default — the yaw rate at
@@ -200,6 +202,7 @@ public class Drive implements Mechanism {
         // Built below the SPARK it names: a sensor sim whose device does not resolve drops every
         // write, and the mechanism's encoders then read zero forever with nothing thrown.
         driveEncoderSims[i] = new SparkRelativeEncoderSim(modules[i].getDriveMotor());
+        steerEncoderSims[i] = new SparkRelativeEncoderSim(modules[i].getSteerMotor());
         steerSensorSims[i] = new SparkAnalogSensorSim(modules[i].getSteerMotor());
         driveOutputSims[i] = new SparkOutputSim(modules[i].getDriveMotor());
         steerOutputSims[i] = new SparkOutputSim(modules[i].getSteerMotor());
@@ -210,18 +213,16 @@ public class Drive implements Mechanism {
     }
   }
 
+  // The device closes in native units, so the model of it is built from the native gains and
+  // measured in RPM and motor rotations.
   private void buildLoops(ModuleGains moduleGains) {
+    var onboard = DriveConstants.onboardGains(moduleGains);
     for (int i = 0; i < MODULES; i++) {
       driveLoops[i] =
-          OnboardLoopSim.velocity(
-              moduleGains.drive().kP(), moduleGains.drive().kS(), moduleGains.drive().kV());
+          OnboardLoopSim.velocity(onboard.drive().kP(), onboard.drive().kS(), onboard.drive().kV());
       steerLoops[i] =
           OnboardLoopSim.position(
-              moduleGains.steer().kP(),
-              moduleGains.steer().kD(),
-              moduleGains.steer().dFilter(),
-              0,
-              1);
+              onboard.steer().kP(), onboard.steer().kD(), onboard.steer().dFilter());
     }
   }
 
@@ -670,6 +671,14 @@ public class Drive implements Mechanism {
         gyro.getRoll().getValue(), gyro.getPitch().getValue(), gyro.getYaw().getValue());
   }
 
+  // The steer encoders carry the azimuth and the absolute sensors carry the truth, so the two are
+  // reconciled on the robot's clock rather than only at construction. See ADR 0008.
+  public void updateSteerSeeds() {
+    for (var module : modules) {
+      module.updateSteerSeed();
+    }
+  }
+
   public void updateYawRateHistory() {
     yawRateHistory.addSample(
         // The monotonic clock, because a vision timestamp and the estimator's own buffer are both
@@ -758,9 +767,13 @@ public class Drive implements Mechanism {
     for (int step = 0; step < SUB_STEPS; step++) {
       double rail = physics.batteryVoltage().in(Volts);
       for (int i = 0; i < MODULES; i++) {
-        double wheelSpeed =
-            state[i].wheelVelocityRadPerSec() * DriveConstants.WHEEL_RADIUS.in(Meters);
-        double sensor = modules[i].toSensorRotations(state[i].azimuth());
+        // In the units the device closes in: the drive encoder's RPM and the steer encoder's
+        // motor rotations, which is what makes the native gains above the right ones to use.
+        double driveRpm =
+            state[i].wheelVelocityRadPerSec()
+                * DriveConstants.WHEEL_RADIUS.in(Meters)
+                / DriveConstants.DRIVE_VELOCITY_FACTOR;
+        double steerMotorRotations = steerMotorRotations(state[i]);
         if (!modules[i].isClosingLoops()) {
           // Zero volts into a DCMotorSim is a shorted motor, which is what idleMode kBrake makes
           // a stopped SPARK. Coasting would have to zero the current instead.
@@ -772,11 +785,11 @@ public class Drive implements Mechanism {
           driveVolts[i] =
               modules[i].isDriveVoltageMode()
                   ? modules[i].getDriveVolts()
-                  : driveLoops[i].calculate(wheelSpeed, SUB_STEP, rail);
+                  : driveLoops[i].calculate(driveRpm, SUB_STEP, rail);
           steerVolts[i] =
               modules[i].isSteerVoltageMode()
                   ? modules[i].getSteerVolts()
-                  : steerLoops[i].calculate(sensor, SUB_STEP, rail);
+                  : steerLoops[i].calculate(steerMotorRotations, SUB_STEP, rail);
         }
       }
       state = physics.update(driveVolts, steerVolts, SUB_STEP);
@@ -788,13 +801,23 @@ public class Drive implements Mechanism {
     // duty outside [-1, 1].
     double appliedRail = physics.appliedRailVoltage().in(Volts);
     for (int i = 0; i < MODULES; i++) {
-      // setPosition takes the value after the conversion factor, so these are the metres and the
-      // rotations the mechanism will read back, not raw encoder units.
+      // Native units, since alpha-7 removed the conversion factors the device used to apply:
+      // motor rotations and RPM for the encoders, volts for the analog. Each is written as the
+      // mechanism's own conversion inverted, so the two cannot drift apart.
       driveEncoderSims[i].setPosition(
-          state[i].wheelPositionRad() * DriveConstants.WHEEL_RADIUS.in(Meters));
+          state[i].wheelPositionRad()
+              * DriveConstants.WHEEL_RADIUS.in(Meters)
+              / DriveConstants.DRIVE_POSITION_FACTOR);
       driveEncoderSims[i].setVelocity(
-          state[i].wheelVelocityRadPerSec() * DriveConstants.WHEEL_RADIUS.in(Meters));
-      steerSensorSims[i].setPosition(modules[i].toSensorRotations(state[i].azimuth()));
+          state[i].wheelVelocityRadPerSec()
+              * DriveConstants.WHEEL_RADIUS.in(Meters)
+              / DriveConstants.DRIVE_VELOCITY_FACTOR);
+      steerEncoderSims[i].setPosition(steerMotorRotations(state[i]));
+      steerEncoderSims[i].setVelocity(
+          state[i].azimuthRadPerSec() / (2 * Math.PI) / DriveConstants.STEER_MOTOR_VELOCITY_FACTOR);
+      steerSensorSims[i].setPosition(
+          modules[i].toSensorRotations(state[i].azimuth())
+              / DriveConstants.STEER_SENSOR_POSITION_FACTOR);
       // The plant's applied volts, not the mechanism's commanded ones: the model clamps where the
       // controller does, and this is the signal that reports the clamp.
       driveOutputSims[i].set(state[i].driveAppliedVolts(), appliedRail);
@@ -819,6 +842,11 @@ public class Drive implements Mechanism {
       slip[i] = state[i].slipping();
     }
     simLog.log("ModuleSlip", slip);
+  }
+
+  // The plant turns a module; the steer encoder counts the motor that turns it, unwrapped.
+  private static double steerMotorRotations(SimModuleState state) {
+    return DriveConstants.steerMotorRotations(state.azimuthRad() / (2 * Math.PI));
   }
 
   private SwerveModuleVelocity[] desiredStates() {

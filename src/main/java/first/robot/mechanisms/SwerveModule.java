@@ -9,8 +9,10 @@ import static org.wpilib.units.Units.Celsius;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Milliseconds;
+import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.Rotations;
 import static org.wpilib.units.Units.RotationsPerSecond;
+import static org.wpilib.units.Units.Seconds;
 import static org.wpilib.units.Units.Volts;
 
 import com.revrobotics.PersistMode;
@@ -32,11 +34,13 @@ import first.robot.DriveConstants;
 import first.robot.DriveConstants.ModuleGains;
 import first.robot.DriveConstants.SwerveModuleConfig;
 import first.robot.Hardware;
+import org.wpilib.driverstation.RobotState;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.kinematics.SwerveModuleAcceleration;
 import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.math.util.MathUtil;
+import org.wpilib.system.Timer;
 import org.wpilib.telemetry.TelemetryTable;
 import org.wpilib.units.measure.Angle;
 import org.wpilib.units.measure.AngularVelocity;
@@ -49,6 +53,7 @@ final class SwerveModule {
   private final SparkFlex driveMotor;
   private final SparkFlex steerMotor;
   private final RelativeEncoder driveEncoder;
+  private final RelativeEncoder steerEncoder;
   private final SparkAnalogSensor steerSensor;
   private final SparkClosedLoopController driveController;
   private final SparkClosedLoopController steerController;
@@ -56,21 +61,24 @@ final class SwerveModule {
   private final TelemetryTable moduleLog;
 
   private SwerveModuleVelocity desired = new SwerveModuleVelocity();
-  private double steerSetpointRotations;
+  private double steerSetpointMotorRotations;
   private boolean closingLoops;
   private boolean driveVoltageMode;
   private boolean steerVoltageMode;
   private double driveVolts;
   private double steerVolts;
+  private double lastSeedTimestamp;
+  private int seedCount;
 
   SwerveModule(SwerveModuleConfig config, ModuleGains gains, TelemetryTable log) {
     name = config.name();
     moduleLog = log;
     steerOffsetRotations = config.steerZeroOffset().in(Rotations);
 
-    driveMotor = new SparkFlex(Constants.CAN_BUS.value, config.driveId(), MotorType.kBrushless);
-    steerMotor = new SparkFlex(Constants.CAN_BUS.value, config.steerId(), MotorType.kBrushless);
+    driveMotor = new SparkFlex(Constants.CAN_BUS, config.driveId(), MotorType.kBrushless);
+    steerMotor = new SparkFlex(Constants.CAN_BUS, config.steerId(), MotorType.kBrushless);
     driveEncoder = driveMotor.getEncoder();
+    steerEncoder = steerMotor.getEncoder();
     steerSensor = steerMotor.getAnalog();
     driveController = driveMotor.getClosedLoopController();
     steerController = steerMotor.getClosedLoopController();
@@ -90,26 +98,25 @@ final class SwerveModule {
                 ResetMode.kResetSafeParameters,
                 PersistMode.kPersistParameters));
 
+    seedSteerFromAbsolute();
+
     moduleLog.keepDuplicates("DriveFaults");
     moduleLog.keepDuplicates("SteerFaults");
   }
 
   private static SparkFlexConfig driveConfig(ModuleGains gains) {
+    var onboard = DriveConstants.onboardGains(gains).drive();
     var config = new SparkFlexConfig();
     config
         .idleMode(IdleMode.kBrake)
         .smartCurrentLimit((int) DriveConstants.DRIVE_CURRENT_LIMIT.in(Amps));
     config
-        .encoder
-        .positionConversionFactor(DriveConstants.DRIVE_POSITION_FACTOR)
-        .velocityConversionFactor(DriveConstants.DRIVE_VELOCITY_FACTOR);
-    config
         .closedLoop
         .feedbackSensor(FeedbackSensor.kPrimaryEncoder)
-        .p(gains.drive().kP())
+        .p(onboard.kP())
         // kS and kV live here and nowhere else. arbFeedforward carries an already-computed
         // voltage rather than a gain, so a term written in both places doubles and nothing throws.
-        .apply(new FeedForwardConfig().sv(gains.drive().kS(), gains.drive().kV()));
+        .apply(new FeedForwardConfig().sv(onboard.kS(), onboard.kV()));
     config
         .signals
         .primaryEncoderPositionPeriodMs(odometryFramePeriodMs())
@@ -119,31 +126,33 @@ final class SwerveModule {
   }
 
   private static SparkFlexConfig steerConfig(ModuleGains gains) {
+    var onboard = DriveConstants.onboardGains(gains).steer();
     var config = new SparkFlexConfig();
     config
         .idleMode(IdleMode.kBrake)
         .smartCurrentLimit((int) DriveConstants.STEER_CURRENT_LIMIT.in(Amps));
     config
-        .analogSensor
-        .positionConversionFactor(DriveConstants.STEER_POSITION_FACTOR)
-        .velocityConversionFactor(DriveConstants.STEER_VELOCITY_FACTOR);
-    config
         .closedLoop
-        .feedbackSensor(FeedbackSensor.kAnalogSensor)
-        .pid(gains.steer().kP(), 0, gains.steer().kD())
-        .dFilter(gains.steer().dFilter())
+        // The motor's own encoder, seeded from the analog. It accumulates instead of wrapping, so
+        // the shortest path is an offset from where the module is rather than an angle the device
+        // has to unwrap — which alpha-7 can no longer do, since positionWrappingEnabled wraps a
+        // position error over exactly one native unit and a module turn is STEER_REDUCTION of them.
+        .feedbackSensor(FeedbackSensor.kPrimaryEncoder)
+        .pid(onboard.kP(), 0, onboard.kD())
+        .dFilter(onboard.dFilter())
         // kS alone: kV is documented as not applied in position mode and kA only in MAXMotion,
         // and both would configure clean and do nothing.
-        .apply(new FeedForwardConfig().kS(gains.steer().kS()))
-        // The analog runs 0 to 1 and drops to 0 every revolution with no accumulator, so a
-        // non-wrapping loop sees a one-rotation error at the boundary and applies full output.
-        .positionWrappingEnabled(true)
-        .positionWrappingInputRange(0, 1);
+        .apply(new FeedForwardConfig().kS(onboard.kS()));
     config
         .signals
-        .analogPositionPeriodMs(odometryFramePeriodMs())
-        .analogVelocityPeriodMs(odometryFramePeriodMs())
-        .analogVoltagePeriodMs(odometryFramePeriodMs());
+        .primaryEncoderPositionPeriodMs(odometryFramePeriodMs())
+        .primaryEncoderVelocityPeriodMs(odometryFramePeriodMs());
+    // The analog is the seed and a cross-check, not the loop's feedback, so it rides with the
+    // diagnostics. Position alone: it shares its frame with the analog's velocity and voltage, and
+    // setting one of a group sets the group. The seed's stillness gate reads the encoder, which is
+    // already at the odometry rate, rather than this.
+    config.signals.analogPositionPeriodMs(
+        (int) DriveConstants.DIAGNOSTIC_FRAME_PERIOD.in(Milliseconds));
     diagnosticFrames(config);
     return config;
   }
@@ -192,7 +201,7 @@ final class SwerveModule {
 
   private void command(SwerveModuleVelocity resolved, double arbFeedforwardVolts, boolean open) {
     desired = resolved;
-    steerSetpointRotations = toSensorRotations(desired.angle, steerOffsetRotations);
+    steerSetpointMotorRotations = toSteerSetpoint(desired.angle);
     driveVoltageMode = open;
 
     if (open) {
@@ -200,14 +209,14 @@ final class SwerveModule {
       driveMotor.setVoltage(driveVolts);
     } else {
       driveController.setSetpoint(
-          desired.velocity,
+          desired.velocity / DriveConstants.DRIVE_VELOCITY_FACTOR,
           ControlType.kVelocity,
           ClosedLoopSlot.kSlot0,
           arbFeedforwardVolts,
           ArbFFUnits.kVoltage);
     }
     steerVoltageMode = false;
-    steerController.setSetpoint(steerSetpointRotations, ControlType.kPosition);
+    steerController.setSetpoint(steerSetpointMotorRotations, ControlType.kPosition);
     closingLoops = true;
   }
 
@@ -224,9 +233,9 @@ final class SwerveModule {
     driveMotor.setVoltage(driveVolts);
 
     desired = new SwerveModuleVelocity(0, azimuth);
-    steerSetpointRotations = toSensorRotations(azimuth, steerOffsetRotations);
+    steerSetpointMotorRotations = toSteerSetpoint(azimuth);
     steerVoltageMode = false;
-    steerController.setSetpoint(steerSetpointRotations, ControlType.kPosition);
+    steerController.setSetpoint(steerSetpointMotorRotations, ControlType.kPosition);
     closingLoops = true;
   }
 
@@ -238,7 +247,7 @@ final class SwerveModule {
     desired = new SwerveModuleVelocity(0, getAngle());
     // No loop is reaching for anything here, so the logged setpoint follows the module: a frozen
     // target against a turning wheel reads as a setpoint the controller cannot reach.
-    steerSetpointRotations = toSensorRotations(desired.angle, steerOffsetRotations);
+    steerSetpointMotorRotations = steerEncoder.getPosition().get();
     driveVolts = 0;
     driveVoltageMode = true;
     driveMotor.setVoltage(0);
@@ -323,18 +332,56 @@ final class SwerveModule {
     desired = new SwerveModuleVelocity(0, getAngle());
     // The logged setpoint's whole job is to tell a setpoint the SPARK never received from one it
     // cannot reach, and a stale angle against a coasting module reads as the second.
-    steerSetpointRotations = toSensorRotations(desired.angle, steerOffsetRotations);
+    steerSetpointMotorRotations = steerEncoder.getPosition().get();
     driveVolts = 0;
     steerVolts = 0;
     closingLoops = false;
   }
 
+  // The absolute sensor's own reading with the module offset taken out: what the steer encoder is
+  // seeded from, and the only azimuth that survives a SPARK losing its count.
+  Rotation2d getAbsoluteAngle() {
+    return Rotation2d.fromRotations(
+        steerSensor.getPosition().get() * DriveConstants.STEER_SENSOR_POSITION_FACTOR
+            - steerOffsetRotations);
+  }
+
+  void seedSteerFromAbsolute() {
+    double motorRotations = DriveConstants.steerMotorRotations(getAbsoluteAngle().getRotations());
+    Hardware.configureSpark(
+        "Swerve" + name + "SteerSeed", () -> steerEncoder.setPosition(motorRotations));
+    lastSeedTimestamp = Timer.getTimestamp();
+    seedCount++;
+  }
+
+  // A SPARK that reset lost its count, and the analog has nothing to give in the first
+  // milliseconds after one boots, so the seed is repeated while disabled rather than taken once.
+  void updateSteerSeed() {
+    if (steerMotor.getStickyWarnings().get().hasReset) {
+      steerMotor.clearFaults();
+      seedSteerFromAbsolute();
+      return;
+    }
+    if (!RobotState.isDisabled()
+        || Timer.getTimestamp() - lastSeedTimestamp
+            < DriveConstants.STEER_SEED_PERIOD.in(Seconds)) {
+      return;
+    }
+    // Seeding mid-slew writes an angle the module has already left, and the wheel coasts for a
+    // while after a match: the offset that lands is the travel between the read and the write.
+    if (Math.abs(getSteerRate().in(RadiansPerSecond))
+        <= DriveConstants.STEER_SEED_MAX_RATE.in(RadiansPerSecond)) {
+      seedSteerFromAbsolute();
+    }
+  }
+
   Distance getDriveDistance() {
-    return Meters.of(driveEncoder.getPosition().get());
+    return Meters.of(driveEncoder.getPosition().get() * DriveConstants.DRIVE_POSITION_FACTOR);
   }
 
   LinearVelocity getDriveSpeed() {
-    return MetersPerSecond.of(driveEncoder.getVelocity().get());
+    return MetersPerSecond.of(
+        driveEncoder.getVelocity().get() * DriveConstants.DRIVE_VELOCITY_FACTOR);
   }
 
   // What the controller put on the motor, which is below what it was asked for whenever the
@@ -347,16 +394,17 @@ final class SwerveModule {
     return Volts.of(steerMotor.getAppliedOutput().get() * steerMotor.getBusVoltage().get());
   }
 
-  // The sensor's own reading, before the module offset: it is the signal the steer loop closes on.
-  // It runs 0 to 1 and wraps, so a reverse ramp on a module parked near zero steps a whole
-  // rotation on its second sample. The feedforward fit is on voltage against velocity and does not
-  // see it; anything read off the position column does.
+  // The signal the steer loop closes on, in module rotations. It accumulates rather than wrapping,
+  // so a characterisation ramp that carries a module past zero reads as continuous travel instead
+  // of stepping a whole rotation part way through.
   Angle getSteerRotation() {
-    return Rotations.of(steerSensor.getPosition().get());
+    return Rotations.of(
+        steerEncoder.getPosition().get() * DriveConstants.STEER_MOTOR_POSITION_FACTOR);
   }
 
   AngularVelocity getSteerRate() {
-    return RotationsPerSecond.of(steerSensor.getVelocity().get());
+    return RotationsPerSecond.of(
+        steerEncoder.getVelocity().get() * DriveConstants.STEER_MOTOR_VELOCITY_FACTOR);
   }
 
   String getName() {
@@ -364,15 +412,16 @@ final class SwerveModule {
   }
 
   Rotation2d getAngle() {
-    return Rotation2d.fromRotations(steerSensor.getPosition().get() - steerOffsetRotations);
+    return Rotation2d.fromRotations(
+        steerEncoder.getPosition().get() * DriveConstants.STEER_MOTOR_POSITION_FACTOR);
   }
 
   SwerveModuleVelocity getMeasuredVelocity() {
-    return new SwerveModuleVelocity(driveEncoder.getVelocity().get(), getAngle());
+    return new SwerveModuleVelocity(getDriveSpeed().in(MetersPerSecond), getAngle());
   }
 
   SwerveModulePosition getPosition() {
-    return new SwerveModulePosition(driveEncoder.getPosition().get(), getAngle());
+    return new SwerveModulePosition(getDriveDistance().in(Meters), getAngle());
   }
 
   SwerveModuleVelocity getDesiredVelocity() {
@@ -383,10 +432,12 @@ final class SwerveModule {
     moduleLog.log("DriveOutput", driveMotor.getAppliedOutput().get());
     moduleLog.log("DriveCurrent", Amps.of(driveMotor.getOutputCurrent().get()));
     moduleLog.log("DriveTemp", Celsius.of(driveMotor.getMotorTemperature().get()));
-    // The module angle, not the sensor rotations the SPARK was handed: the sensor frame runs
-    // [0, 1) and SteerAngle runs [-0.5, 0.5), so the logged pair could not be subtracted.
     moduleLog.log("SteerSetpoint", desired.angle.getMeasure());
     moduleLog.log("SteerAngle", getAngle().getMeasure());
+    // The seed against what it seeded: the two disagreeing by more than the reduction's backlash
+    // is a count that drifted, and there is nothing else in the log that would say so.
+    moduleLog.log("SteerAbsolute", getAbsoluteAngle().getMeasure());
+    moduleLog.log("SteerSeeds", seedCount);
     moduleLog.log("SteerCurrent", Amps.of(steerMotor.getOutputCurrent().get()));
     moduleLog.log("SteerTemp", Celsius.of(steerMotor.getMotorTemperature().get()));
     // REVLib's packed fault word; SparkBase.Faults names the bits at the SHA this log carries.
@@ -417,8 +468,10 @@ final class SwerveModule {
     return steerVoltageMode;
   }
 
+  // In RPM and motor rotations: the numbers the SPARK was handed, not the metres and module
+  // angles they were written from.
   double getDriveSetpoint() {
-    return desired.velocity;
+    return desired.velocity / DriveConstants.DRIVE_VELOCITY_FACTOR;
   }
 
   double getDriveVolts() {
@@ -430,16 +483,21 @@ final class SwerveModule {
   }
 
   double getSteerSetpoint() {
-    return steerSetpointRotations;
+    return steerSetpointMotorRotations;
+  }
+
+  private double toSteerSetpoint(Rotation2d azimuth) {
+    return DriveConstants.steerSetpoint(steerEncoder.getPosition().get(), azimuth);
   }
 
   double toSensorRotations(Rotation2d azimuth) {
     return toSensorRotations(azimuth, steerOffsetRotations);
   }
 
-  // getRotations() returns [-0.5, 0.5] and the converted sensor reads [0, 1): the two agree on the
-  // first half turn and differ by exactly one rotation on the second, and a value one rotation out
-  // is outside the configured wrapping range entirely, so wrapping does not rescue it.
+  // What the absolute sensor reads at a given module angle: getRotations() returns [-0.5, 0.5] and
+  // the analog runs [0, 1), so the two agree on the first half turn and differ by exactly one
+  // rotation on the second. Only the seed and the simulation's sensor feed go through here; the
+  // loop's setpoint does not, because the encoder it closes on has no such range.
   static double toSensorRotations(Rotation2d azimuth, double offsetRotations) {
     return MathUtil.inputModulus(azimuth.getRotations() + offsetRotations, 0, 1);
   }
