@@ -32,8 +32,6 @@ import org.wpilib.units.measure.Time;
 import org.wpilib.util.AlertDataJNI;
 import org.wpilib.util.AlertDataJNI.AlertInfo;
 
-// This is the check that says whether src/main/native/revshim is still needed: run it with no
-// LD_PRELOAD set, and a green run means REVLib's native binds on its own and the shim can go.
 @ResourceLock("timing")
 class WiringTest {
   private static final String OPMODE = "DrivePathCheck";

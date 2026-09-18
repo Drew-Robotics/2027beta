@@ -39,19 +39,6 @@ deploy {
                 wpilibJava(getArtifactTypeClass('WPILibJavaArtifact')) {
                     // Set to true to use debug including JNI, which will drastically impact performance.
                     debugJni = false
-
-                    // Departs from the template: see src/main/native/revshim. wpiutil comes
-                    // first because the shim forwards a symbol into it and the JVM loads it
-                    // RTLD_LOCAL, where a preloaded library cannot see it; this is the copy on
-                    // java.library.path, not /usr/lib's, so the process holds only one wpiutil.
-                    javaCommand = "LD_PRELOAD=/home/systemcore/wpilib/third-party/lib/libwpiutil.so:/home/systemcore/deploy/librevshim.so /usr/bin/java"
-                }
-
-                // Departs from the template: the aarch64 shim the line above preloads.
-                revShim(getArtifactTypeClass('FileTreeArtifact')) {
-                    files = project.fileTree('src/main/native/revshim/linuxsystemcore')
-                    directory = '/home/systemcore/deploy'
-                    deleteOldFiles = false
                 }
 
                 // Static files artifact
@@ -150,12 +137,6 @@ tasks.withType(ArtifactDeployTask).configureEach {
     dependsOn 'mrcApiPreflight'
 }
 
-// Departs from the template: REVLib alpha-6's native imports two symbols no WPILib this project
-// can compile against exports, and calls two more with signatures that have since changed. Either
-// one kills the JVM. src/main/native/revshim bridges both; every JVM that touches REVLib preloads
-// it. Delete all of this when REVLib publishes against a current WPILib.
-def revShimDesktop = file('src/main/native/revshim/linuxx86-64/librevshim.so').absolutePath
-
 def deployArtifact = deploy.targets.systemcore.artifacts.wpilibJava
 
 // Set to true to use debug for simulation including JNI
@@ -191,11 +172,6 @@ dependencies {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
-    // -PnoRevShim is the check that says whether the shim is still needed: without it, a green
-    // WiringTest means REVLib's native binds on its own and src/main/native/revshim can go.
-    if (!project.hasProperty('noRevShim')) {
-        environment 'LD_PRELOAD', revShimDesktop
-    }
     // A fresh JVM per test class. The HAL, the alert table and the data log are all process-wide
     // and started once: a class that stands up a real Robot claims the data log for the rest of
     // the JVM, and the next class to want its own gets the first one's.
@@ -229,12 +205,6 @@ deployArtifact.configureApplication(application)
 wpi.java.configureApplication(application)
 wpi.java.configureTestTasks(test)
 wpi.java.configureTestTasks(tasks.named('sysidLog').get())
-
-// Departs from the template: simulation runs through the application plugin's JavaExec tasks now,
-// and they need the same preload as the tests.
-tasks.withType(JavaExec).configureEach {
-    environment 'LD_PRELOAD', revShimDesktop
-}
 
 jar {
     from('src') { into 'backup/src' }
@@ -280,12 +250,6 @@ tasks.register('simHitlStage', Sync) {
         // this block's, so lib/ is named again here or the files land beside it.
         eachFile { it.relativePath = new RelativePath(true, 'lib', it.name) }
         includeEmptyDirs = false
-    }
-
-    // The SystemCore shim is aarch64 and the sim natives are the same architecture, so the sim
-    // build needs it for the same reason the deployed one does. See src/main/native/revshim.
-    into('lib') {
-        from 'src/main/native/revshim/linuxsystemcore'
     }
 
     // A simulation reads its deploy directory from the source tree rather than from
