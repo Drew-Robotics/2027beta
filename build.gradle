@@ -195,6 +195,25 @@ tasks.register('sysidLog', Test) {
     outputs.upToDateWhen { false }
 }
 
+// A tool, not a gate, and for the same reason sysidLog is one: it drives the real robot through a
+// scripted match so the command timeline has something in it to look at, and leaves the log where
+// AdvantageScope opens it. Excluded from `test` below because it asserts nothing `check` should
+// depend on, and costs 15 seconds and two megabytes every time it runs.
+tasks.register('commandLog', Test) {
+    group = 'verification'
+    description = 'Drives a scripted match in simulation and writes a command-timeline log to logs/'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    filter { includeTestsMatching 'first.robot.CommandTimelineLog' }
+    testLogging { showStandardStreams = true }
+    // The log is the output and it is written every time; nothing about it is up to date.
+    outputs.upToDateWhen { false }
+}
+
+tasks.named('test') {
+    filter { excludeTestsMatching 'first.robot.CommandTimelineLog' }
+}
+
 // Simulation configuration (e.g. environment variables).
 wpi.sim.addGui().defaultEnabled = true
 wpi.sim.addDriverstation()
@@ -205,6 +224,7 @@ deployArtifact.configureApplication(application)
 wpi.java.configureApplication(application)
 wpi.java.configureTestTasks(test)
 wpi.java.configureTestTasks(tasks.named('sysidLog').get())
+wpi.java.configureTestTasks(tasks.named('commandLog').get())
 
 jar {
     from('src') { into 'backup/src' }
