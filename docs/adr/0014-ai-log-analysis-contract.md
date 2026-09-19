@@ -7,10 +7,16 @@ parser: `robotpy-wpilog` **does** exist for 2027 and works. The decision
 is unchanged and the reason is now coupling rather than absence — see
 *Rejected* and *Source*. Amended 2026-08-30 by #107: a class-1 anchor
 the platform could not source is reported as *unavailable*, never as
-*clear*. Amended 2026-08-30 by #118: `/Robot/BrownedOut` joins that
-set, taking class 1 to three unavailable anchors of five on this image;
-the rule composes over three as it did over two, and there is no
-class-level verdict.
+*clear*. Amended 2026-08-30 by #118: `/Telemetry/Robot/BrownedOut` joins
+that set, taking class 1 to three unavailable anchors of five on this
+image; the rule composes over three as it did over two, and there is no
+class-level verdict. Amended 2026-09-19 by #111: every telemetry path
+quoted here is now the **full on-disk form**, `/Telemetry/...`, which is
+what the file carries and what `logtool` will query; the entries written
+straight to the `DataLog` carry no such root; and
+`/Telemetry/Robot/Alerts` is five entries rather than one. See *Paths
+here are the file's*. The anchors are unchanged as signals — only as
+written.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -258,22 +264,55 @@ Then one in-file section per question class, naming the signals to reach
 for and how to read them. **The skill asks what you are after.** Given a
 specific question it scopes to that; absent one it sweeps all five.
 
+### Paths here are the file's
+
+Every telemetry path in this document is the **full on-disk form**,
+including the `/Telemetry` root: `/Telemetry/Robot/LoopDelta`, never
+`/Robot/LoopDelta`. ADR 0005 constructs both backends with that prefix
+and writes its signal list relative to it, so one signal is
+`/Robot/LoopDelta` there and `/Telemetry/Robot/LoopDelta` here. Nothing
+is renamed between the two documents — the prefix is the backend's, and
+ADR 0005's *Traps* records what becomes of code that writes it a second
+time. **[executed — 21 logs, 2026-09-19, via #111]**
+
+The form matters here and not there because **this tool queries
+strings**. An anchor a reader can hand to `query` unchanged is the
+contract; a relative path is one an implementer either resolves or
+silently does not, and a query against a path no entry carries returns
+nothing — which is the exact shape *Traps* calls indistinguishable from a
+signal with no fault in it.
+
+**What bypasses telemetry carries no root**, because the prefix is
+applied by a backend those entries never reach: `DS:controlWord`,
+`DS:opMode` and `DS:joystickN/*` from
+`DriverStation.startDataLog(log, true)`, the `console` text,
+`DataLogManager`'s own `messages` and `systemTime`, and the `/.schema/*`
+schemas. Both forms appear below, and which one a name takes is a fact
+about its route into the file rather than a convention anybody chose.
+
 ### Five question classes, and nothing is a sixth
 
 1. **Did the robot stay healthy?** — brownouts, CAN utilisation, loop
    overruns, active alerts, config failures, device dropouts.
-   Anchors: `/Robot/BatteryVoltage`, `/Robot/BrownedOut`,
-   `/Robot/LoopDelta`, `/Robot/Can/Bus0/*`, `/Robot/Alerts`.
+   Anchors: `/Telemetry/Robot/BatteryVoltage`,
+   `/Telemetry/Robot/BrownedOut`, `/Telemetry/Robot/LoopDelta`,
+   `/Telemetry/Robot/Can/Bus0/*`, and the alert set as
+   `/Telemetry/Robot/Alerts/{Ids,Levels,StartTimes,Texts,Uptime}` — five
+   entries from one 4 Hz poll, not one signal. The four arrays share a
+   write and deduplicate together, so their sample count is the number of
+   times the alert set *changed*; `Uptime` changes every poll and is the
+   witness that the poll was still running.
 2. **Did it go where we told it?** — ADR 0011's along-track /
    cross-track decomposition and module setpoint-versus-measurement
-   error. Anchors: `/Drive/Following/*`, `/Drive/Odometry/*`,
-   `/Drive/Modules/*`.
+   error. Anchors: `/Telemetry/Drive/Following/*`,
+   `/Telemetry/Drive/Odometry/*`, `/Telemetry/Drive/Modules/*`.
 3. **What happened, in order?** — enable, disable, opmode and which
-   commands ran when. Anchors: `/Commands/Scheduler` (the proto
-   snapshot) and `/Commands/Events` (the one-shot-visible listener),
-   plus `DS:opMode`.
-4. **What was this robot?** — `/Metadata/*`, so a log is attributable to
-   a SHA, a dirty flag and a set of versions.
+   commands ran when. Anchors: `/Telemetry/Commands/Scheduler` (the
+   proto snapshot) and `/Telemetry/Commands/Events/*` (the
+   one-shot-visible listener, four parallel arrays sharing one write),
+   plus `DS:opMode`, which carries no root.
+4. **What was this robot?** — `/Telemetry/Metadata/*`, so a log is
+   attributable to a SHA, a dirty flag and a set of versions.
 5. **What changed since last time?** — the same numbers from two logs,
    side by side.
 
@@ -297,16 +336,19 @@ it, and never opening pose error at all.
 **A missing anchor is reported as *unavailable*, never as *clear*.**
 ADR 0005 lets the platform decide whether a HAL-sourced signal exists
 at all, and class 1 is where that bites: on the SystemCore image ADR
-0002 records, `/Robot/Can/Bus0/*`, `/Robot/BatteryVoltage` and
-`/Robot/BrownedOut` are all absent, which is three of that class's five
-anchors — leaving `/Robot/LoopDelta` and `/Robot/Alerts`. `list` is what makes
+0002 records, `/Telemetry/Robot/Can/Bus0/*`,
+`/Telemetry/Robot/BatteryVoltage` and `/Telemetry/Robot/BrownedOut` are
+all absent, which is three of that class's five anchors — leaving
+`/Telemetry/Robot/LoopDelta` and the alert set. `list` is what makes
 this legible — step 2 of every run exists to stop the agent querying
 signals the log does not have — but a signal that was never recorded
 and a signal that recorded no problem are the same nothing at query
 time. Reporting "clear" for the first is reporting the absence of a
-signal as the absence of a fault. `/Robot/Alerts` carries a
-`hal-unimplemented` entry naming what the platform could not source, so
-the distinction is in the file. **[decided]**
+signal as the absence of a fault. `/Telemetry/Robot/Alerts/Ids` carries a
+`hal-unimplemented` entry — `group/id`, so the group precedes it —
+naming what the platform could not source, with the signal names in the
+matching slot of `Texts`, so the distinction is in the file.
+**[decided]**
 
 ### The skill points at ADR 0005. It never restates it
 
@@ -317,6 +359,14 @@ read it before interpreting paths.* **[decided]**
 ADR 0005 owns the names and the habits. Two copies means the one the
 agent reads is the one that goes stale, and the agent is the reader who
 cannot tell.
+
+**The `/Telemetry` root is the one thing restated here rather than
+pointed at**, because the form ADR 0005 writes is not the form a query
+takes and a reader cannot be left to convert — see *Paths here are the
+file's*. It is a prefix rather than a name, it is fixed in the
+constructor ADR 0005's Decision shows, and it goes stale only if that
+constructor changes, which renames every signal at once and is not the
+silent kind of drift this rule exists to avoid.
 
 ### Answers go in chat; a written report is a judgement call
 

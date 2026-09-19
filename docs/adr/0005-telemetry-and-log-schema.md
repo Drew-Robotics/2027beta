@@ -26,7 +26,16 @@ per-loop mount/yield churn, `/Commands/Scheduler` joins the
 not propagate out of `run()` is **withdrawn** — it does, and it ends the
 robot program. Amended 2026-09-19 by #116's follow-up: the signal list
 gains `/Commands/Mechanisms/<Name>`, a third command surface, and the
-measured size of `/Commands/Scheduler` is corrected.
+measured size of `/Commands/Scheduler` is corrected. Amended
+2026-09-19 by #111: every signal path here is relative to the
+`/Telemetry` root both backends prepend, stated where the signal list
+starts rather than left implicit; the *Consequences* and *Rejected*
+claims that ADR 0014 reads an **unprefixed** path are corrected, and NT
+capture is rejected on the `NT:` prefix and the NT coupling alone; the
+module block names `DriveTemp`, `SteerTemp`, `DriveFaults` and
+`SteerFaults` rather than `Temp` and `Faults`; the alert row names the
+five entries the file carries, including the `Uptime` #129 added without
+amending this document; and *Traps* gains the double-prefix hazard.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -136,6 +145,22 @@ A starting set, not a closed one. Mechanisms will be added and the list
 grows with them; what is fixed is the per-mechanism template and the
 habits below.
 
+**Every path below is relative to `/Telemetry`.** The Decision above
+constructs both backends with that prefix, and a backend concatenates it
+onto the path the table was opened at — `m_prefix + k`
+(`DataLogTelemetryBackend.java:67`,
+`NetworkTablesTelemetryBackend.java:69`) **[source]**. So
+`/Robot/LoopDelta` below is `/Telemetry/Robot/LoopDelta` in the file and
+on the wire **[executed]**, and the relative form is the one code hands
+to `getTable`. Writing the prefix into a table path yields it twice —
+see *Traps*.
+
+ADR 0014 quotes the **full** on-disk form instead, because its reader
+queries path strings and never opens a table; ADR 0013's assertion on
+`/Telemetry/Robot/LoopDelta` and `.github/bench/wpilog-stats.py` already
+do. One fact in two forms, and the `getTable` call is the boundary
+between them.
+
 **Robot-level, always on**
 
 | Signal | Source |
@@ -151,7 +176,8 @@ habits below.
 | `/Robot/Pdh/{Current,Voltage,TotalCurrent,SwitchableChannel}` | `PowerDistribution.logTo` (`PowerDistribution.java:248-254`) |
 | `/Robot/Pdh/{Temperature,TotalEnergy}` | `getTemperature()` (`:108`), `getTotalEnergy()` (`:158`) |
 | `/Robot/Radio/{Connected,Status}` | the radio's own HTTP status page, at 0.2 Hz |
-| `/Robot/Alerts` | the active alert set, at 4 Hz — ADR 0004 |
+| `/Robot/Alerts/{Ids,Levels,StartTimes,Texts}` | the active alert set as four parallel arrays, at 4 Hz — ADR 0004 |
+| `/Robot/Alerts/Uptime` | `RobotController.getTime()` (`:79`), written beside `StartTimes` so an alert's start has a clock to be read against — #129 |
 | `/Match/TimeRemaining` | `MatchState.getMatchTime()` (`:32`) |
 | `/Match/{Alliance,Station,FmsAttached,EventName,MatchType,MatchNumber,ReplayNumber,GameData}` | `MatchState` (`:43-101`), `RobotState.isFMSAttached()` — every loop, never once |
 | `/Match/Mirrored` | the `Mirrored` tunable — every loop, for the same reason `Alliance` is: it decides which half of the field the robot drives at, and it can change between one enable and the next — ADR 0011 |
@@ -185,12 +211,20 @@ second path to the same fact, carrying less. **[decided]**
 ```
 /Drive/Chassis/{DesiredVelocities,MeasuredVelocities}
 /Drive/Modules/{DesiredStates,MeasuredStates}
-/Drive/Modules/FrontLeft/{DriveOutput,DriveCurrent,SteerSetpoint,SteerAngle,SteerAbsolute,SteerSeeds,SteerStickyWarnings,SteerCurrent,Temp,Faults}
+/Drive/Modules/FrontLeft/{DriveOutput,DriveCurrent,DriveTemp,SteerSetpoint,SteerAngle,SteerAbsolute,SteerSeeds,SteerStickyWarnings,SteerCurrent,SteerTemp,DriveFaults,SteerFaults}
 /Drive/Odometry/{EstimatedPose,OdometryOnlyPose,GyroHeading,GyroRate}
 /Drive/Following/{Setpoint,AlongTrackError,CrossTrackError,HeadingError,TimedOut}
 /Auto/{RoutineName,PlannedPath,TimeElapsed,ZoneEntry,Complete}
 /Check/DrivePath/{Residual,ResidualDistance,ResidualRotation,Complete}
 ```
+
+**Current, temperature and faults are qualified per motor**, because a
+module is two mechanisms on one corner and the per-mechanism template
+below applies to each. *An earlier revision of this block wrote `Temp`
+and `Faults` unqualified, which named neither motor and matched no entry
+in any log.* `SwerveModule` writes `DriveTemp`/`SteerTemp` and
+`DriveFaults`/`SteerFaults` beside the `DriveCurrent`/`SteerCurrent`
+pair it always had (`SwerveModule.java:441-458`).
 
 `OdometryOnlyPose` sits beside `EstimatedPose` on purpose: with both
 present, vision divergence is visible as the gap between two lines on
@@ -750,10 +784,14 @@ holds a season.
   against.
 
 - **ADR 0014 inherits these names as its contract.** `/analyze-match`
-  reads signal paths; the unprefixed `/Drive/Modules/FrontLeft/SteerAngle`
-  is what it reads, and it is a better contract than the
-  `NT:/Telemetry/...`-prefixed form NT capture would have produced.
-  Renaming a signal is a breaking change to that tooling.
+  reads signal paths, and what it reads is
+  `/Telemetry/Drive/Modules/FrontLeft/SteerAngle` — the root is in the
+  file, on this path as on every other, which is why ADR 0014 quotes the
+  full form. *An earlier revision of this entry called that path
+  unprefixed and rested the comparison with NT capture on it; the prefix
+  is ours and it is there.* What the explicit backend buys is the absence
+  of the `NT:` prefix and of the coupling behind it — see *Rejected*.
+  Renaming a signal is a breaking change to that tooling either way.
 
 - **`build.gradle` gains one task**, and `Robot` gains one generated
   class to import. That is the whole cost of `/Metadata`.
@@ -809,6 +847,19 @@ holds a season.
   fresh NT backend — but a future edit that "simplifies" it to just the
   DataLog backend silently kills every dashboard on the robot, and the
   robot code will not notice.
+
+- **The `/Telemetry` prefix belongs to the backend, so a table path that
+  repeats it gets it twice.** Both backends concatenate their constructor
+  prefix onto the path they are handed — `m_prefix + k`
+  (`DataLogTelemetryBackend.java:67`,
+  `NetworkTablesTelemetryBackend.java:69`) **[source]**. So
+  `getTable("/Robot")` lands at `/Telemetry/Robot` and
+  `getTable("/Telemetry/Robot")` lands at `/Telemetry/Telemetry/Robot`.
+  Nothing warns, both are valid paths, the signal is written faithfully,
+  and it is simply not where ADR 0014's reader or any dashboard looks for
+  it. This is why the signal list is relative: the prefix is written once,
+  in the constructor the Decision shows, and a mechanism that names it
+  again has no way to find out.
 
 - **The `Scheduler` proto snapshot cannot see one-shot commands.** Its
   own javadoc says so: commands that never call `Coroutine#yield()` are
@@ -931,11 +982,21 @@ mechanism, not a doubt that replay is useful.
 ### NT capture alone — `DataLogManager.start()` and nothing else
 
 One line, and it captures non-telemetry NetworkTables traffic as a
-bonus. Rejected because every path arrives prefixed `NT:/Telemetry/...`,
-and ADR 0014's tooling reads signal names — `/Drive/Modules/FrontLeft/SteerAngle`
-is a better contract than the prefixed form. It also ties the on-disk
-record to NT connectivity and NT's own dedup behaviour, which is exactly
-the coupling a no-replay project should not accept.
+bonus. **Rejected because it ties the on-disk record to NT connectivity
+and to NT's own dedup behaviour**, which is exactly the coupling a
+no-replay project should not accept. A signal reaches the file only while
+a client is connected, and what it does with an unchanged value is NT's
+decision rather than this document's.
+
+The naming half of the original ground was wrong, and correcting it does
+not disturb any of that. It compared the capture form
+`NT:/Telemetry/...` against an *unprefixed*
+`/Drive/Modules/FrontLeft/SteerAngle`; our own paths carry `/Telemetry`
+too, so the whole difference is the `NT:` marker — which records the
+route a value took into the file rather than anything about the signal,
+and which would have to be stripped by every reader of every path.
+Still a worse contract for ADR 0014, and by less than the original
+comparison claimed. **[executed — 2026-09-19, via #111]**
 
 ### Both — NT capture *and* the explicit DataLog backend
 
