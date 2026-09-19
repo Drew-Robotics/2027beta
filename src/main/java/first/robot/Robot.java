@@ -56,6 +56,11 @@ public class Robot extends OpModeRobot {
   public final TrajectoryLoader trajectories;
   public final CommandGamepad driver = new CommandGamepad(Constants.DRIVER_PORT);
 
+  // Built in the constructor body rather than initialised inline: getTable binds to whichever
+  // backend is registered when it is called, and the one this class installs below displaces the
+  // framework's.
+  private final CommandLog commands;
+
   private final TelemetryTable robotLog;
   private final TelemetryTable canLog;
   private final TelemetryTable alertLog;
@@ -126,6 +131,7 @@ public class Robot extends OpModeRobot {
     matchLog = TelemetryRegistry.getTable("/Match");
     railLog = robotLog.getTable("Rail3V3");
     pdhLog = robotLog.getTable("Pdh");
+    commands = new CommandLog(TelemetryRegistry.getTable("/Commands"), Scheduler.getDefault());
     pdh = openPdh();
 
     var unavailable = new ArrayList<String>();
@@ -313,7 +319,15 @@ public class Robot extends OpModeRobot {
     poseEstimator.log();
 
     // OpModeRobot does not run the Commands v3 scheduler.
-    Scheduler.getDefault().run();
+    //
+    // A command that throws leaves run() rather than being absorbed, and RobotBase lets it end the
+    // program. CompletedWithError is the only place that failure surfaces, so the timeline is
+    // flushed on the way out rather than on the next loop there may not be.
+    try {
+      Scheduler.getDefault().run();
+    } finally {
+      commands.log();
+    }
 
     if (hasCanStatus) {
       var can = RobotController.getCANStatus(Constants.CAN_BUS);

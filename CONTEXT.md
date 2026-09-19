@@ -186,6 +186,13 @@ The index of the ADRs themselves is
 - **Struct** — the packed binary form a type like `Pose2d` is logged
   in. The log carries the schema, so a reader can decode one without
   knowing the type.
+- **Command timeline** — `/Commands/Scheduler` and `/Commands/Events`
+  read together, and the only source for *what happened, in order?*
+  The first is a per-loop snapshot of the running tree and is blind to
+  a command that never yields; the second is the transitions between
+  snapshots, and is where a one-shot appears
+  ([ADR 0005](docs/adr/0005-telemetry-and-log-schema.md),
+  [ADR 0014](docs/adr/0014-ai-log-analysis-contract.md)).
 - **Wake-to-wake delta** — `/Robot/LoopDelta`, the time between one
   loop waking and the next. Logged because nothing else in the
   framework can see a swallowed iteration

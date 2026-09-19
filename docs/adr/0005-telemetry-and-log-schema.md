@@ -18,7 +18,13 @@ power interface and only the voltage has a value to probe by. Amended
 2026-09-06 by #121: alpha-7's clock is nanoseconds, so `SchedulerEvent`
 carries `timestampNanos` and `/Robot/LoopDelta` is computed from a
 nanosecond `getLoopStartTime()`. The signal is unchanged — see *The
-clock moved under `LoopDelta`; the file did not*.
+clock moved under `LoopDelta`; the file did not*. Amended 2026-09-18 by
+#116, which built both command surfaces: the signal list gains
+`/Commands/*`, `/Commands/Events` carries transitions and not the
+per-loop mount/yield churn, `/Commands/Scheduler` joins the
+`keepDuplicates` list, and the Traps claim that a throwing command does
+not propagate out of `run()` is **withdrawn** — it does, and it ends the
+robot program.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -147,6 +153,8 @@ habits below.
 | `/Match/TimeRemaining` | `MatchState.getMatchTime()` (`:32`) |
 | `/Match/{Alliance,Station,FmsAttached,EventName,MatchType,MatchNumber,ReplayNumber,GameData}` | `MatchState` (`:43-101`), `RobotState.isFMSAttached()` — every loop, never once |
 | `/Match/Mirrored` | the `Mirrored` tunable — every loop, for the same reason `Alliance` is: it decides which half of the field the robot drives at, and it can change between one enable and the next — ADR 0011 |
+| `/Commands/Scheduler` | `Scheduler.proto`, the running and queued tree with per-command timing — every loop |
+| `/Commands/Events/{Types,Commands,Timestamps,Details}` | `Scheduler.addEventListener`, four parallel arrays written only on the loops that have an event |
 
 **[source]** for the accessors, all in
 `wpilibj/src/main/java/org/wpilib/system/RobotController.java` and
@@ -482,6 +490,17 @@ Opt in, via `table.keepDuplicates(name)` (`TelemetryTable.java:334-338`)
 
 - **`/Commands/Events`** — mandatory. Repeated command names are the
   normal case, and suppression would swallow them silently.
+- **`/Commands/Scheduler`** — mandatory for the same reason one layer
+  up. `DataLogTelemetryBackend.logProtobuf` calls `entry.update()`
+  rather than `entry.append()` unless duplicates are kept
+  (`DataLogTelemetryBackend.java:242-256`) **[source]**, and an idle
+  command tree serialises to the same bytes every loop, so a whole
+  quiet stretch collapses to one sample. On the robot this is free —
+  `lastTimeMs` jitters and every message is already unique — and it is
+  simulation's stepped clock, where a `run()` inside one step measures
+  exactly 0 ms, that makes them equal. Measured: without it a
+  one-second sim slice wrote **1** sample; with it, **201**.
+  **[measured, via #116]**
 - **`/Robot/BrownedOut`** and the enabled/mode signals.
 - **`Faults`**, on every mechanism.
 
@@ -510,6 +529,36 @@ event including one-shots, and carries no tree.
 command exception surfaces. It is logged *and* raises an `Alert`, so a
 failure is visible at the driver's station during the match and in the
 file afterwards. **[decided]**
+
+**`/Commands/Events` carries transitions, not every event.** `Mounted`
+and `Yielded` fire once per running command per `run()`
+(`Scheduler.java:929, 962`) **[source]**, which at the 5 ms period is
+~400 events a second of a command saying it is still running. That is
+the same fact `/Commands/Scheduler` states once a loop with timing
+attached, so logging it twice would bury the five events that are
+transitions — `Scheduled`, `Completed`, `CompletedWithError`, `Canceled`
+and `Interrupted` — under a hundred-to-one ratio of churn. The two
+surfaces are complementary and the split is where that lives: the
+snapshot is steady state, the event stream is change. A one-shot is
+still bracketed by `Scheduled` and `Completed`, which is what makes it
+visible at all. **[decided, via #116]**
+
+**The snapshot is the largest signal in the file.** 201 samples of a
+moving swerve's command tree cost 48 KB **[measured]** — 239 bytes each,
+against a whole-file 175 KB for that one-second slice. At the loop rate
+that is ~7 MB across a 150-second match, which is half again the 13.1 MB
+ADR 0002 measured for ~50 signals. That cost is the *proto snapshot*,
+not the duplicate-keeping: a robot's real clock makes every message
+unique, so it is paid whether or not duplicates are kept. It is what
+"logged once per loop" was always going to cost, now that it is written.
+
+The four arrays are parallel and share one write, the way `/Robot/Alerts`
+does: `Types`, `Commands`, `Timestamps` (seconds, from the event's own
+`timestampNanos`) and `Details` — the interrupter's name on an
+`Interrupted`, the throwable on a `CompletedWithError`, and empty
+otherwise. **A loop with no events writes nothing at all**, because
+duplicates are kept here and an empty batch written every loop would be
+200 samples a second of no events. **[executed]**
 
 ### `/Metadata`, stamped once, from a Gradle task
 
@@ -697,11 +746,36 @@ holds a season.
   `run()` leaves no trace in `/Commands/Scheduler` at all. This is the
   entire reason `/Commands/Events` exists beside it.
 
-- **`CompletedWithError` is the only place a command exception
-  surfaces** (`SchedulerEvent.java:66`). **[source]** A command that
-  throws does not propagate out of `run()`, does not stop the robot, and
-  does not print anything you will find later. If the listener does not
-  log the `Throwable`, the failure is invisible.
+- **A command that throws ends the robot program.** The first half of
+  this entry stands: `CompletedWithError` is the only place a command
+  exception surfaces (`SchedulerEvent.java:66`) **[source]**, so a
+  listener that does not log the `Throwable` loses it. The second half
+  was **wrong from the day it was written** — it said the exception does
+  not propagate out of `run()`. It does.
+  `handleCommandException` emits the event and then rethrows
+  (`Scheduler.java:1019, 1033`) **[source]**, `robotPeriodic` is where our
+  `Scheduler.run()` call sits, and `RobotBase.runRobot` catches what
+  comes out of `startCompetition` only to report a crash and return
+  (`RobotBase.java:500-510`) **[source]**. One command throwing takes
+  the whole program with it. Verified on alpha-7 by
+  `CommandLogTest.aCommandThatThrowsAlertsBeforeTheExceptionLeavesTheScheduler`.
+  **[measured, via #116]**
+
+  Two things follow, and both are executed. The alert is raised inside
+  the listener rather than on the flush, so it is set before the
+  exception leaves the scheduler. And `Robot` flushes the timeline in a
+  `finally` around `Scheduler.run()`, because the next loop it would
+  otherwise be written on may not happen.
+
+  That splits the claim above — *visible at the driver's station and in
+  the file afterwards* — across two routes, and only one of them is the
+  alert. The **Driver Station** half is the alert's, and it does not
+  depend on us: an alert reaches the DS's NetworkTables on `set(true)`,
+  never through our log. The **file** half is `/Commands/Events`', via
+  that `finally`. `/Robot/Alerts` carries neither, because it is polled
+  at 4 Hz on the loop thread and the program ends before its next turn.
+  A reader looking for why a match stopped wants `/Commands/Events`, not
+  the alert set.
 
 - **There are two unrelated `addPeriodic` methods, and ADR 0006 rejects
   only one of them.** `Scheduler.addPeriodic(Runnable)` is a sideload —
@@ -910,6 +984,20 @@ Source read for this ADR, in `~/dev/allwpilib` at `cafb0cc79` (alpha-7):
 `commandsv3/src/main/java/org/wpilib/command3/Scheduler.java`,
 `commandsv3/src/main/java/org/wpilib/command3/SchedulerEvent.java`,
 `commandsv3/src/main/java/org/wpilib/command3/proto/CommandProto.java`.
+
+Re-read for #116 on 2026-09-18. `SchedulerEvent` is at `d44da0dfb`, the
+commit #121 already pins it to — `cafb0cc79` still calls the accessor
+`timestampMicros`, and `timestampNanos` is what the alpha-7 artifact on
+the build classpath carries. The rest is at `cafb0cc79`, and the
+`Scheduler.java` line numbers cited above hold at both:
+`commandsv3/src/main/java/org/wpilib/command3/Scheduler.java`,
+`commandsv3/src/main/java/org/wpilib/command3/proto/SchedulerProto.java`,
+`wpilibj/src/main/java/org/wpilib/framework/RobotBase.java` and
+`telemetry/src/main/java/org/wpilib/telemetry/MockTelemetryBackend.java`.
+The alpha-7 jar's `SchedulerEvent` carries the seven variants named
+above; `main` has since added a `ForkFailure`, which the exhaustive
+switch in `CommandLog` will refuse to compile against when the pin
+moves.
 
 Re-read for #121 at `d44da0dfb`:
 `wpilibj/src/main/java/org/wpilib/internal/UnitTelemetry.java`,
