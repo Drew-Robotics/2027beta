@@ -345,8 +345,9 @@ accelerations. They were steering transients.)
 
 **(b) Common-mode slip** — all four wheels wrong together. **The kinematic
 residual is blind to this by construction**, because the fit is made *from* those
-four wheels. The only handle left is the physical bound: a chassis on carpet
-cannot change speed faster than about 1 g.
+four wheels. The only handle left is the physical bound: a chassis cannot change
+speed faster than μg, which for Grip V2 on carpet is **18.80 m/s², 1.92 g**
+(§4.0) — a bound the measurements below clear by a factor of two to five.
 
 ### 4.1 Result (a): differential residual **[measured]**
 
