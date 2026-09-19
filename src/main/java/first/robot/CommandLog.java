@@ -8,8 +8,11 @@ import static org.wpilib.units.Units.Nanoseconds;
 import static org.wpilib.units.Units.Seconds;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import org.wpilib.command3.Command;
+import org.wpilib.command3.Mechanism;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.command3.SchedulerEvent;
 import org.wpilib.telemetry.TelemetryTable;
@@ -20,11 +23,23 @@ import org.wpilib.util.Alert.Level;
  * The command timeline: {@code /Commands/Scheduler}, the proto snapshot of what is running, and
  * {@code /Commands/Events}, the transitions between one snapshot and the next. The snapshot cannot
  * see a command that never yields, which is why both exist.
+ *
+ * <p>{@code /Commands/Mechanisms/<Name>} is the same snapshot re-keyed: one signal per mechanism
+ * naming the command holding it. A dashboard can only plot the snapshot by array index, and an
+ * index stops being written when the tree shrinks under it, so those stripes go stale. A mechanism
+ * does not.
  */
 public final class CommandLog implements AutoCloseable {
   private final TelemetryTable commandsLog;
   private final TelemetryTable eventsLog;
+  private final TelemetryTable mechanismsLog;
   private final Scheduler scheduler;
+
+  // Discovered from the commands that require them rather than handed in, so a mechanism added to
+  // the robot cannot be forgotten here. Once seen it is written every loop, including the loops it
+  // is idle: a mechanism that stopped being written is the stale stripe this signal exists to
+  // avoid. Mechanism defines no equals, so this is identity, which is what we want.
+  private final Set<Mechanism> mechanisms = new LinkedHashSet<>();
 
   // Filled by the listener as the scheduler runs and drained once per loop, so every event in one
   // batch shares a write timestamp and the events' own stamps order them within it.
@@ -40,6 +55,7 @@ public final class CommandLog implements AutoCloseable {
     this.commandsLog = commandsLog;
     this.scheduler = scheduler;
     eventsLog = commandsLog.getTable("Events");
+    mechanismsLog = commandsLog.getTable("Mechanisms");
 
     // An idle tree serialises to the same bytes every loop, and the backend writes a sample only
     // when they change. Without this, "the same commands ran for the whole match" and "logging
@@ -61,6 +77,7 @@ public final class CommandLog implements AutoCloseable {
 
   public void log() {
     commandsLog.log("Scheduler", scheduler, Scheduler.proto);
+    logMechanisms();
 
     // Most loops have nothing to say, and with duplicates kept an empty batch written every loop
     // would be 200 samples a second of no events.
@@ -75,6 +92,36 @@ public final class CommandLog implements AutoCloseable {
         batch.stream().mapToDouble(e -> Nanoseconds.of(e.timestampNanos()).in(Seconds)).toArray());
     eventsLog.log("Details", batch.stream().map(Event::detail).toArray(String[]::new));
     batch.clear();
+  }
+
+  // Deliberately not keepDuplicates, unlike the two signals above: one sample per change is one
+  // stripe on a dashboard, and the snapshot beside it is already the witness that logging did not
+  // stop.
+  private void logMechanisms() {
+    for (var command : scheduler.getRunningCommands()) {
+      mechanisms.addAll(command.requirements());
+    }
+    for (var mechanism : mechanisms) {
+      mechanismsLog.log(mechanism.getName(), holderOf(mechanism));
+    }
+  }
+
+  // The root of the requiring chain, not the leaf. A command that forks a child onto its own
+  // mechanism leaves both running and requiring it, and the parent is the one that says why the
+  // mechanism is busy — Drive.FollowPath rather than the Drive.DriveFieldRelative underneath it.
+  private String holderOf(Mechanism mechanism) {
+    var holders = scheduler.getRunningCommandsFor(mechanism);
+    if (holders.isEmpty()) {
+      return "";
+    }
+    // They are one parent-and-children chain, so climbing from any of them reaches the same root.
+    var root = holders.get(0);
+    for (var parent = scheduler.getParentOf(root);
+        parent != null && parent.requires(mechanism);
+        parent = scheduler.getParentOf(root)) {
+      root = parent;
+    }
+    return root.name();
   }
 
   @Override

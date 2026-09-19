@@ -42,6 +42,7 @@ class CommandLogTest {
   private static final String TIMESTAMPS = "/Commands/Events/Timestamps";
   private static final String DETAILS = "/Commands/Events/Details";
   private static final String SNAPSHOT = "/Commands/Scheduler";
+  private static final String DRIVE = "/Commands/Mechanisms/TestMechanism";
 
   // A body that never ends, so the command under test stays running until something takes it away.
   private static final Consumer<Coroutine> HOLD =
@@ -168,6 +169,62 @@ class CommandLogTest {
   }
 
   @Test
+  void theMechanismSignalNamesTheRootOfTheRequiringChain() {
+    var mechanism = new TestMechanism();
+    // The shape Drive.FollowPath has: a command that takes the mechanism and forks a child that
+    // takes it too. Both require it, so naming one of them is a choice, and the root is the one
+    // that says why the mechanism is busy.
+    scheduler.schedule(
+        mechanism
+            .run(
+                coroutine -> {
+                  coroutine.fork(held(mechanism, "Test.Child"));
+                  HOLD.accept(coroutine);
+                })
+            .named("Test.Parent"));
+
+    loop();
+
+    assertEquals("Test.Parent", mechanismCommand());
+  }
+
+  @Test
+  void aMechanismWithNothingRunningReadsEmptyRatherThanStale() {
+    var mechanism = new TestMechanism();
+    var command = held(mechanism, "Test.Held");
+    scheduler.schedule(command);
+    loop();
+    assertEquals("Test.Held", mechanismCommand());
+
+    scheduler.cancel(command);
+    loop();
+
+    // The bug this signal exists to avoid: a slot that stops being written keeps its last value
+    // forever, so the log says a command is still running long after it ended.
+    assertEquals("", mechanismCommand(), "the mechanism kept the command that had already ended");
+  }
+
+  @Test
+  void aMechanismIsWrittenEveryLoopOnceItHasBeenSeen() {
+    var mechanism = new TestMechanism();
+    scheduler.schedule(held(mechanism, "Test.Held"));
+    loop();
+    backend.clear();
+
+    loop();
+    loop();
+
+    assertEquals(2, writes(DRIVE), "the mechanism stopped being written while its command ran");
+  }
+
+  @Test
+  void aMechanismNobodyHasRequiredIsNotInvented() {
+    loop();
+
+    assertEquals(0, writes(DRIVE));
+  }
+
+  @Test
   void aLoopWithNoEventsWritesNothingToTheTimeline() {
     loop();
 
@@ -245,6 +302,12 @@ class CommandLogTest {
 
   private static Command held(Mechanism mechanism, String name) {
     return mechanism.run(HOLD).named(name);
+  }
+
+  // A scalar string is wrapped, where a string array is stored as itself.
+  private String mechanismCommand() {
+    var value = backend.getLastValue(DRIVE, MockTelemetryBackend.LogStringValue.class);
+    return value == null ? null : value.value();
   }
 
   private List<String> types() {

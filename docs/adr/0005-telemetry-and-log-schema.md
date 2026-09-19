@@ -24,7 +24,9 @@ clock moved under `LoopDelta`; the file did not*. Amended 2026-09-18 by
 per-loop mount/yield churn, `/Commands/Scheduler` joins the
 `keepDuplicates` list, and the Traps claim that a throwing command does
 not propagate out of `run()` is **withdrawn** — it does, and it ends the
-robot program.
+robot program. Amended 2026-09-19 by #116's follow-up: the signal list
+gains `/Commands/Mechanisms/<Name>`, a third command surface, and the
+measured size of `/Commands/Scheduler` is corrected.
 
 Claim tags are defined in the index. WPILib `[source]` claims here were
 read at `~/dev/allwpilib` commit `cafb0cc79` — main, 366 commits past
@@ -155,6 +157,7 @@ habits below.
 | `/Match/Mirrored` | the `Mirrored` tunable — every loop, for the same reason `Alliance` is: it decides which half of the field the robot drives at, and it can change between one enable and the next — ADR 0011 |
 | `/Commands/Scheduler` | `Scheduler.proto`, the running and queued tree with per-command timing — every loop |
 | `/Commands/Events/{Types,Commands,Timestamps,Details}` | `Scheduler.addEventListener`, four parallel arrays written only on the loops that have an event |
+| `/Commands/Mechanisms/<Name>` | the snapshot re-keyed by mechanism: the command holding it, or `""` — every loop, deduplicated |
 
 **[source]** for the accessors, all in
 `wpilibj/src/main/java/org/wpilib/system/RobotController.java` and
@@ -543,14 +546,25 @@ snapshot is steady state, the event stream is change. A one-shot is
 still bracketed by `Scheduled` and `Completed`, which is what makes it
 visible at all. **[decided, via #116]**
 
-**The snapshot is the largest signal in the file.** 201 samples of a
-moving swerve's command tree cost 48 KB **[measured]** — 239 bytes each,
-against a whole-file 175 KB for that one-second slice. At the loop rate
-that is ~7 MB across a 150-second match, which is half again the 13.1 MB
-ADR 0002 measured for ~50 signals. That cost is the *proto snapshot*,
-not the duplicate-keeping: a robot's real clock makes every message
-unique, so it is paid whether or not duplicates are kept. It is what
-"logged once per loop" was always going to cost, now that it is written.
+**The snapshot is the largest signal in the file.** Across a 15.5-second
+scripted match — disabled, `SweepLeftAuto`, disabled, `DefaultTeleop`,
+disabled — it is 3102 samples and 267 KB, **19% of the whole file** and
+the largest single entry in it, ahead of `/Drive/Modules/MeasuredStates`
+at 12.5%. That averages **88 bytes a sample**, or **~2.5 MB across a
+150-second match** against the 13.1 MB ADR 0002 measured for ~50
+signals. **[measured, via #116]**
+
+The per-sample figure tracks how deep the tree is, so it is a range and
+not a number: a one-second slice with four commands running throughout
+measured 239 bytes a sample, which is the busy ceiling rather than the
+average. *An earlier revision of this section quoted that ceiling as if
+it were the average, and put the match figure at ~7 MB. It is 2.5 MB.*
+
+Either way the cost is the *proto snapshot*, not the duplicate-keeping:
+a robot's real clock makes every message unique, so it is paid whether
+or not duplicates are kept. `/Commands/Events` by contrast came to 1147
+bytes for that entire session **[measured]** — it is free, because it
+only writes when something happens.
 
 The four arrays are parallel and share one write, the way `/Robot/Alerts`
 does: `Types`, `Commands`, `Timestamps` (seconds, from the event's own
@@ -559,6 +573,63 @@ does: `Types`, `Commands`, `Timestamps` (seconds, from the event's own
 otherwise. **A loop with no events writes nothing at all**, because
 duplicates are kept here and an empty batch written every loop would be
 200 samples a second of no events. **[executed]**
+
+### A third command signal, because a dashboard cannot read the other two
+
+`/Commands/Mechanisms/<Name>` is one string per mechanism naming the
+command that holds it, or `""` when none does. It is **derived** — every
+byte of it is already in the snapshot — and it exists because neither of
+the two surfaces above can be read by a dashboard.
+
+AdvantageScope decodes the snapshot (its `ProtoDecoder` registers any
+`FileDescriptorProto` the log carries, and ours carries
+`/.schema/proto:protobuf_commands.proto`), but the only thing it can put
+on a timeline is a leaf field, which means
+`running_commands/<i>/name` — **keyed by array index**. When the tree
+shrinks, index 3 stops being written, and a dashboard holds the last
+value it saw, so a command that ended at 4 s is still drawn at 15 s.
+Verified against the log: `running_commands` goes 1 → 4 → 0 → 1, and the
+stripes for slots 1-3 run unbroken to the end of the session
+**[measured, via #116]**. An index is not an identity. A mechanism is.
+
+`/Commands/Events` cannot serve either: a whole loop's batch renders as
+one stripe labelled with the JSON array and held until the next batch,
+because the four arrays are one write and a dashboard has no notion of
+six things at one instant. That is not a defect to fix — it is the right
+shape for ADR 0014's reader, which wants transitions with nanosecond
+stamps. **The three surfaces have three audiences:** the snapshot is the
+tree, the events are the reader's, and this is the dashboard's.
+
+**It names the root of the requiring chain, not the leaf.** A command
+that forks a child onto its own mechanism leaves both running and both
+requiring it — `Drive.FollowPath[SweepLeft]` over
+`Drive.DriveFieldRelative` — so naming one is a choice. The root says
+*why* the mechanism is busy; the leaf is plumbing that appears under
+half a dozen parents. Depth stays available in the snapshot.
+**[decided, via #116]**
+
+**Mechanisms are discovered, not handed in.** Every loop, each running
+command's `requirements()` are added to a remembered set, and every
+mechanism in that set is written whether or not it is busy. A list
+passed in from `Robot` would be a second place to forget a mechanism,
+and forgetting one produces exactly the stale signal this exists to
+avoid. **[decided]**
+
+**It is the one command signal that is *not* `keepDuplicates`.** One
+sample per change is exactly one stripe boundary, which is what a
+dashboard wants, and the snapshot beside it is already the witness that
+logging did not stop. Measured: five samples across the 15.5-second
+session. **[executed]**
+
+```
+0.000s  Drive.Idle      1.505s  Drive.FollowPath[SweepLeft]      4.015s  ""
+4.020s  Drive.Idle      9.005s  Drive.DriverControl
+```
+
+Every measurement in this section is from `./gradlew commandLog`, which
+drives that scripted match in simulation and writes the log to `logs/`.
+It is a tool rather than a gate, like `sysidLog`, and is excluded from
+`test` for the same reason.
 
 ### `/Metadata`, stamped once, from a Gradle task
 
