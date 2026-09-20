@@ -34,6 +34,7 @@ public class SweepLeftAuto implements OpMode {
 
   private final Trigger enabled = new Trigger(RobotState::isEnabled);
   private final Trigger pastZoneLine;
+  private final Trigger crossedZoneLine;
   private final TelemetryTable autoLog = TelemetryRegistry.getTable("/Auto");
 
   public SweepLeftAuto(Robot robot) {
@@ -45,14 +46,22 @@ public class SweepLeftAuto implements OpMode {
             () ->
                 FieldConstants.toAuthoredPathFrame(robot.poseEstimator.getEstimatedPose()).getX()
                     >= ZONE_LINE.in(Meters));
-    pastZoneLine.onTrue(markZoneEntry(robot));
+    // Past the line is not across it, and only across it is a zone entry. onTrue counts a trigger
+    // built already past as an edge and risingEdge() does not; see the house style, §11. This
+    // needs sweepLeft's resetPose to seed the robot behind the line, which the SweepLeft path
+    // does — one authored starting past it would log no entry at all.
+    crossedZoneLine = pastZoneLine.risingEdge();
+    crossedZoneLine.onTrue(markZoneEntry(robot));
     enabled.onTrue(sweepLeft(robot));
   }
 
-  // Both triggers were built here, so both are ours to cancel. Without this a disable leaves the
-  // previous opmode's bindings live and the next enable runs two copies of the routine.
+  // Every trigger here was built here, so each is ours to cancel — including the edge, which is
+  // the one holding the zone-entry binding, and its parent, which has to keep polling until then
+  // for the edge to have anything to read. Without this a disable leaves the previous opmode's
+  // bindings live and the next enable runs two copies of the routine.
   @Override
   public void close() {
+    crossedZoneLine.unbind();
     pastZoneLine.unbind();
     enabled.unbind();
   }
