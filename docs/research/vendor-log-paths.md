@@ -8,12 +8,17 @@
 - **[source]** — read out of source code, a shipped binary, or official vendor
   documentation, cited by path and line or by URL. Binary claims name the
   function and address they were disassembled from; §9 has the commands.
-- **[executed]** — observed by running something on this workstation.
+- **[executed]** — observed by running something, on this workstation or on the
+  robot. §8 marks which.
 - **[decided]** — a project decision.
 - **[unverified]** — believed but unconfirmed. Each one says what would confirm it.
 
 A claim about a *string inside a binary* is `[source]`. A claim about what the
-robot *does* on the device is `[unverified]` until §8 is filled in.
+robot *does* is `[executed]` only where §8 ran it on the device.
+
+§1–§7 are the source and binary pass. **§8 is the device pass, and it overrides
+them where they disagree** — it corrects §5.1 on REVLib's actual path and §0 on
+whether REVLib writes anything at all.
 
 ### What was under test
 
@@ -41,16 +46,19 @@ names a real C++ symbol rather than a guessed offset. **[source]**
 2. **Phoenix's default on SystemCore is `/u/logs` if `/u` is a mounted
    directory, otherwise `/home/systemcore/logs`.** Exactly one mount point is
    probed — `/u` — which is the same rule WPILib's own `DataLogManager` uses at
-   the alpha-7 tag. **[source]** §2. That this resolves to
-   `/home/systemcore/logs` on *our* bench Pi with no USB attached is
-   **[unverified]** until §8.
-3. **REVLib does write a file.** `.revlog`, opened through `std::basic_filebuf`,
-   in a directory REVLib computes as **`current_working_directory + "/logs"`**.
-   On SystemCore the robot process's cwd is `/home/systemcore`
-   (`WorkingDirectory=/home/systemcore` in `robot.service`), so REVLib and
-   Phoenix's fallback land in **the same directory**. **[source]** §4, §5.
+   the alpha-7 tag. **[source]** §2. Confirmed on our bench Pi, which has no
+   USB attached: both the robot's own hoots and a probe run from `/tmp` land in
+   `/home/systemcore/logs`. **[executed]** §8.1.
+3. **REVLib creates a file, in the wrong place, and never writes to it.** It
+   computes a directory as `current_working_directory + "/logs"` and creates it
+   **[source]**, then composes the filename onto that string without a
+   separator, so the file lands *beside* the directory as
+   `<cwd>/logsREV_<stamp>.revlog` — `/home/systemcore/logsREV_*.revlog` under
+   `robot.service`. **[executed]** §8.4. All 55 on the device are **zero
+   bytes**, because REVLib's daemon thread segfaults at its first error flush
+   before writing anything. **[executed]** §8.5.
 4. **`.revlog` is proprietary and `logtool` cannot read it** — unchanged from
-   ADR 0009. §6.
+   ADR 0009 — and on this platform there is nothing in one to read. §6, §8.5.
 
 Two findings that were not in the ticket and matter more than the answers:
 
@@ -387,15 +395,19 @@ The global at `GOT+0xed0` is the same object `StatusLoggerDriver_read` compares
 against `/home/lvuser/logs/` in §4.4, and the same one
 `_GLOBAL__sub_I_StatusLoggerDriver.cpp` (`0x14340`) registers for destruction.
 So the log directory is **`cwd + "/logs"`, created if absent**, with no
-environment variable and no override. **[source]**
+environment variable and no override. **[source]** The directory is created; the
+`.revlog` does not go in it. See §8.4 — the string this builds has no trailing
+slash, §5.2's filename is concatenated straight onto it, and the file lands as a
+sibling named `logsREV_…`. **[executed]**
 
 `robot.service` sets `WorkingDirectory=/home/systemcore`
 (`docs/research/systemcore-deploy.md:541`, **[VERIFIED-DEVICE]** there), so on a
-deployed robot REVLib's directory is **`/home/systemcore/logs`** — the same
-directory Phoenix falls back to and the same one `DataLogManager` uses. Three
-vendors, one directory. Calling that the *actual* runtime directory is
-**[unverified]** until §8; the derivation is `[source]` + a `[VERIFIED-DEVICE]`
-unit file.
+deployed robot REVLib's *intended* directory is **`/home/systemcore/logs`** —
+the same directory Phoenix falls back to and the same one `DataLogManager` uses.
+It does not get there. **§8.4 corrects this: the file is written to
+`/home/systemcore/logsREV_<stamp>.revlog`, one character short of the shared
+directory.** **[executed]** Phoenix and `DataLogManager` do share it; REVLib
+creates it, leaves it empty and writes beside it.
 
 Note what this does **not** do: REVLib never probes `/u`. If a USB drive is
 mounted, Phoenix and WPILib move to `/u/logs` and REVLib stays on internal
@@ -458,17 +470,22 @@ Stated as consequences, not decisions — #114 owns the decision.
    directory for everything, `SignalLogger.setPath(dir)` before the first
    Phoenix device is constructed is sufficient, and the directory must be
    `mkdir`'d first because `setPath` will not create it (§1.4).
-2. **Doing nothing already converges.** With no USB attached, Phoenix,
-   `DataLogManager` and REVLib all write under `/home/systemcore/logs`
-   (§2.1, §5.1). A `pull` that globs that one directory for
-   `*.hoot`, `*.wpilog` and `*.revlog` gets everything. **[unverified]** until
-   §8 confirms the three actual paths.
+2. **Doing nothing converges for two of the three.** With no USB attached,
+   Phoenix and `DataLogManager` both write under `/home/systemcore/logs`
+   — confirmed on the device (§8.1). **REVLib does not**: it writes
+   `/home/systemcore/logsREV_*.revlog`, a sibling of that directory, not a
+   child (§8.4). **[executed]** A `pull` that globs the one directory for
+   `*.hoot` and `*.wpilog` gets everything worth having; it will not see a
+   `.revlog`, and §8.5 says there is nothing in one to see. Note also that the
+   hoot sits one `<timestamp>/` level down (§8.2), so the glob must recurse.
 3. **A USB drive splits them.** Mount one at `/u` and Phoenix and WPILib move to
    `/u/logs` while REVLib stays put (§5.1). Any `pull` that assumes one
    directory breaks the moment someone plugs in a stick.
-4. **`.revlog` is not worth transferring today** (§5.4). It is worth *deleting*:
-   REVLib's rotation competes for the same free space as Phoenix's, and both
-   delete oldest-first on the same disk.
+4. **`.revlog` is not worth transferring today** (§5.4), and on this platform
+   it is empty besides (§8.5). It is worth *deleting*: REVLib's rotation
+   competes for the same free space as Phoenix's, and both delete oldest-first
+   on the same disk. 55 zero-byte files and an unused `logs/` directory are the
+   whole of what REVLib has produced here since 2026-09-06.
 5. **REVLib's auto-start is one CAN-device constructor away** and on by default
    (§4.3). If #114 decides it is not worth the bytes,
    `StatusLogger.disableAutoLogging()` must run before *any* REVLib call — the
@@ -489,8 +506,9 @@ Stated as consequences, not decisions — #114 owns the decision.
 2. **Phoenix's and REVLib's free-space thresholds in *these* builds.** CTRE
    documents 5 MB; REVLib documents nothing; neither constant was read out of
    the binary (§3, §5.3).
-3. **Does anything rewrite `%F_%T`'s colons?** The on-disk directory names use
-   dashes (§2.3).
+3. ~~**Does anything rewrite `%F_%T`'s colons?**~~ Settled on the device: the
+   directory names are `2026-09-20_14-07-56`, dashes throughout, so something
+   does (§8.7). **[executed]**
 4. **Is REVLib's `default` literal the event-name placeholder?** (§5.2)
 5. **Does REVLib have any removable-media handling on SystemCore at all?** The
    only one found is dead (§4.4), and absence-of-string is weak evidence.
@@ -499,13 +517,168 @@ Stated as consequences, not decisions — #114 owns the decision.
 
 ## 8. On the device
 
-> **Placeholder.** Device-side evidence is gathered by the parent session and
-> appended here. Nothing below this line was written by this research pass.
->
-> The three cheapest confirmations, for whoever fills it in:
-> `journalctl -u robot | grep 'Signal Logger Started at'` (Phoenix's resolved
-> path, §3), `journalctl -u robot | grep 'Logging REVLOG to'` (REVLib's, §4.2),
-> and `ls -la /home/systemcore/logs /u/logs`.
+Run against the team's SystemCore at `systemcore@192.168.1.202` on 2026-09-20,
+while `robot.service` ran this project's own `2027beta.jar` (`first.Main`,
+deployed 13:58 PDT the same day) with no Driver Station attached.
+
+`LIMELIGHTOS_SYSTEMCORE_BETA`, kernel `6.12.77-v8-16k` aarch64 PREEMPT_RT,
+Temurin 25.0.2 **JDK** (so `javac` and single-file source launch are available
+on the device). Single ext4 root on `/dev/nvme0n1p5`. **No removable media was
+mounted** — `/u`, `/U`, `/v`, `/V` do not exist, `/media` and `/mnt` are empty —
+so every path below is §2.1's no-USB branch. **[executed]**
+
+### 8.1 Phoenix's default is `/home/systemcore/logs`, and it is absolute
+
+Three `.hoot` files predate this session, one per robot run on 2026-09-07:
+
+```
+/home/systemcore/logs/2026-09-07_03-55-08/can_s0_2026-09-07_17-02-32.hoot   409111
+/home/systemcore/logs/2026-09-07_10-10-01/can_s0_2026-09-07_10-10-06.hoot   244933
+/home/systemcore/logs/2026-09-07_10-14-01/can_s0_2026-09-07_10-14-06.hoot   689355
+```
+
+§2.1's rule, confirmed: `/u` absent → `/home/systemcore/logs`, with §2.3's
+`<dir>/<%F_%T>/<…>.hoot` layout and one file per CAN bus. **[executed]**
+
+The directory is **not** cwd-relative. A probe calling `SignalLogger.start()`
+with cwd `/tmp/hootprobe/ctrl` wrote
+`/home/systemcore/logs/2026-09-20_14-07-11/2026-09-20_14-07-12.hoot` and left
+nothing under cwd. **[executed]** Its leaf was `<timestamp>.hoot`, not
+`can_s0_*`, because the probe constructed no CTRE device — the bus prefix tracks
+what is being logged, not the platform. **[executed]**
+
+### 8.2 `setPath` works, and fails silently on a missing directory
+
+Same probe, `setPath` before `start()`:
+
+| call | returned | result on disk |
+| --- | --- | --- |
+| `setPath("/tmp/hootprobe/target/")`, directory **absent** | `DirectoryMissing` | nothing at the target; the hoot went to `/home/systemcore/logs/2026-09-20_14-07-33/` |
+| `setPath("/tmp/hootprobe/target/")`, directory **present** | `OK` | `/tmp/hootprobe/target/2026-09-20_14-07-56/2026-09-20_14-07-56.hoot` |
+| `setPath("/tmp/hootprobe/target2")`, no trailing slash | `OK` | `/tmp/hootprobe/target2/2026-09-20_14-08-08/` |
+
+**[executed]** §1.4's decoded return paths are exactly what the device does.
+Three consequences for a caller:
+
+- It does not create the directory, and **a `DirectoryMissing` that nobody reads
+  looks exactly like success** — logging still happens, just somewhere else.
+- The trailing slash does not matter.
+- It sets the *parent*. The hoot still lands one `<timestamp>/` level below the
+  path given, so anything copying hoots has to recurse.
+
+### 8.3 Auto-logging never fires without a Driver Station
+
+No robot run since 2026-09-07 has produced a `.hoot`, though every run since
+constructs a `Pigeon2` (`Drive.java:145`). That is the documented trigger, not a
+fault: auto-logging starts at 1 s **if the robot is enabled**, or at 5 s **if
+the Driver Station is connected** (`docs/research/vendordeps.md`, quoting the
+`enableAutoLogging` javadoc). A bench boot with neither reaches no trigger and
+writes no hoot at all. Consistent with the filenames: the 2026-09-07 runs are
+the only ones whose WPILOGs carry real timestamps — `WPILIB_20260907_*` rather
+than `WPILIB_TBD_*` — i.e. the only runs a Driver Station ever attached to.
+**[executed]**
+
+### 8.4 REVLib creates `logs/`, then writes its file *beside* it
+
+§5.1 derives the directory as `current_path() + "/logs"`, created if absent.
+The device confirms the `create_directory` — and shows that the file does not
+go in it. `/home/systemcore` holds **55** files named
+
+```
+logsREV_<YYYYMMDD>_<HHMMSS>.revlog
+```
+
+one per robot process start since 2026-09-06, as **siblings** of
+`/home/systemcore/logs`, not inside it. A probe run from a directory that had no
+`logs/` produced both an **empty** `logs/` directory and a
+`logsREV_TBD_a21bf1d38b8a3774.revlog` file beside it. **[executed]**
+
+So the global log-dir string §5.1 builds is `"<cwd>/logs"` with **no trailing
+slash**, and §5.2's filename is concatenated straight onto it. The roboRIO
+literal in §4.4, `/home/lvuser/logs/`, carries its trailing slash and composes
+correctly; the computed fallback does not. On a roboRIO REVLib writes
+`/home/lvuser/logs/REV_<stamp>.revlog`; here it writes `<cwd>/logsREV_<stamp>.revlog`.
+**[executed]** This is a REVLib defect, not a configuration choice, and it means
+**§5.1's "three vendors, one directory" is wrong**: Phoenix and `DataLogManager`
+share `/home/systemcore/logs`, and REVLib misses it by one character.
+
+§5.2's naming is confirmed in both states: the probe's file kept the
+`REV_TBD_<16 hex>` form because its JVM died before the rename, and every file
+the robot produced carries the renamed `REV_<%Y%m%d_%H%M%S>` form in **UTC** —
+`logsREV_20260920_210025.revlog` for a process that started at 14:00:25 PDT.
+**[executed]**
+
+### 8.5 Every `.revlog` on the device is zero bytes, because the daemon dies first
+
+**All 55 are empty.** Not a flush artifact caught mid-write: the live robot JVM
+held its `.revlog` open on fd 111 with `pos: 0` after ten minutes of running
+(`/proc/<pid>/fdinfo/111`), and no `.revlog` anywhere on the device exceeds zero
+bytes. **[executed]**
+
+The reason is in the crash logs `/home/systemcore` is littered with. Every robot
+process dies with a SIGSEGV on REVLib's daemon thread:
+
+```
+C  [libc.so.6+0x9c944]
+C  [libREVLibWpi.so+0x3df4]   RevLibWpiDriver::sendError(int, char const*, bool)+0x54
+C  [libREVLibDriver.so+0x35ca0] c_REVLib_FlushErrors+0x1dc
+C  [libREVLibDriver.so+0x34b40] (anonymous namespace)::REVLibDaemon::Main()+0x274
+```
+
+**[executed]** `REVLibDaemon::Main` is the same daemon §4.3 identifies as the
+logger's only starter. It opens the file, renames it, and then dies at its first
+error flush — so the file is created, named correctly, and never written to.
+`robot.service` carries `Restart=always` / `RestartSec=3`, so the count of
+`.revlog` files is a **count of crashes**, not of sessions: 55 since 2026-09-06,
+three of them during this investigation. **[executed]**
+
+This is the `HAL_SendError` half of the ABI break ADR 0015 was written for,
+alive on alpha-7 after that ADR was retired and its shim deleted. It is a robot
+defect well outside this ticket; it is recorded here only because it is the
+mechanism behind the empty files. A separate probe calling
+`StatusLogger.start()` outside a robot program crashes the other way, at the
+startup banner — `StatusLoggerDriver_start` → `HAL_SendConsoleLine` — which is
+the *other* symbol ADR 0015 bridged. **[executed]**
+
+### 8.6 REVLib's output does not reach the WPILOG either
+
+The banner crash shows REVLib routing status text through `HAL_SendConsoleLine`,
+which is the pipe `DataLogManager` drains into the WPILOG's `console` entry. So
+"the `.revlog` is empty because the text went to the console instead" is the
+natural reading. It is wrong.
+
+Four robot-written WPILOGs, parsed record by record:
+
+| log | size | `console` records | `messages` records |
+| --- | --- | --- | --- |
+| `WPILIB_20260907_170237.wpilog` | 158,580,070 | **0** | 0 |
+| `WPILIB_20260907_171003.wpilog` | 1,410,208 | **0** | 0 |
+| `WPILIB_20260907_171402.wpilog` | 3,669,328 | **0** | 0 |
+| `WPILIB_TBD_e5bae797b16fe035.wpilog` (live) | 8,078,355 | **0** | 0 |
+
+**[executed]** The `console` entry is *declared* in all four — `DataLogManager`
+starts it unconditionally — and never receives a record. Two of the four are
+Driver-Station-attached runs. Nothing REVLib emits lands in the WPILOG, and
+ADR 0014's **"The console is in the log"**, tagged `[source]`, does not hold on
+this platform.
+
+### 8.7 What §7's open questions look like from here
+
+Question 1 (`/u` permissions) is untouched — no stick was mounted. Question 3 is
+settled: the on-disk directory names use dashes, `2026-09-20_14-07-56`, so
+something does rewrite `%F_%T`'s colons. **[executed]** Questions 2, 4 and 5
+are untouched.
+
+The two `journalctl` checks §8's placeholder suggested return nothing: the unit
+logs neither `Signal Logger Started at` nor `Logging REVLOG to`, consistent with
+§8.3 (Phoenix never started) and §8.5 (REVLib died before flushing). **[executed]**
+
+### 8.8 What was left on the device
+
+The two `.hoot` directories the probes created under `/home/systemcore/logs/`
+were removed afterwards, so the robot's log directory is as it was found. Probe
+sources remain at `/tmp/hootprobe/` (tmpfs, cleared on reboot). `robot.service`
+was not stopped, restarted or reconfigured at any point.
 
 ---
 
