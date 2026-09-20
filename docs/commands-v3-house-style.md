@@ -405,11 +405,43 @@ by position (`faceUp()`, `rightBumper()`) rather than by the letters
 printed on one brand of controller, so the code reads the same after
 someone brings a DualSense to a competition. Ports go in `Constants`.
 
-`onTrue` already detects the edge for you. `risingEdge()` and
-`fallingEdge()` exist for the other case — when you need an edge as a
-*value*, from a sensor or a pose predicate. An edge trigger is true for
-exactly one scheduler cycle, so bind it with `onTrue`; `whileTrue` on an
-edge cancels the command one cycle later.
+`onTrue` already detects the edge for you — with one exception, below,
+for the first poll. `risingEdge()` and `fallingEdge()` exist for the
+other case: when you need an edge as a *value*, from a sensor or a pose
+predicate. An edge trigger is true for exactly one scheduler cycle, so
+bind it with `onTrue`; `whileTrue` on an edge cancels the command one
+cycle later.
+
+**`onTrue` and `risingEdge()` disagree about the first poll, and a
+condition that is already true when you build the trigger is the case
+where it shows.** A trigger has no previous signal before it is first
+polled, and `poll()` schedules a rising edge whenever the current signal
+differs from the previous one — `null` differs from high, so `onTrue`
+fires. `risingEdge()` asks for the low-to-high pair instead
+(`m_previousSignal == Signal.LOW`), so it does not. Neither is obviously
+the wrong answer: a signal nobody was watching before *has* gone up.
+
+It matters here because of the rebuild above. The opmode is reconstructed
+on every disable with the robot sitting wherever it stopped, so "already
+true at construction" is the ordinary case for anything reading a sensor
+or a pose, not a corner. `SweepLeftAuto` logged `/Auto/ZoneEntry` three
+times for this reason — once at the default pose before `resetPose` ran,
+once at the real crossing, and once on the rebuild after the disable —
+and a consumer reads the last one (#134).
+
+So: **bind a level predicate through `risingEdge()` when you mean the
+transition and not the state.** Keep the edge trigger in a field, because
+it is the one holding the binding and therefore the one `close()` has to
+unbind:
+
+```java
+pastZoneLine = new Trigger(() -> /* ... */);
+crossedZoneLine = pastZoneLine.risingEdge();
+crossedZoneLine.onTrue(markZoneEntry(robot));
+```
+
+`onTrue` on the level is still right for a button, where the trigger is
+built before anyone is touching it.
 
 ## 12. Three ways this bites
 

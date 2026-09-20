@@ -29,6 +29,15 @@ every pose trigger reads through `toAuthoredPathFrame`, and its example is
 corrected to show it — the example predated `toAuthoredPathFrame` and read a raw
 estimate.
 
+Amended again 2026-09-20 by #134, which adds the second half of the pose
+trigger rule beside the frame: *the edge*. *No splits, no event markers*
+gains **a pose trigger binds through `risingEdge()`**, because `onTrue`
+counts a condition that is already true when the trigger is built as a
+rising edge and an opmode is rebuilt on every disable. The ⚠️ there said
+a wrong trigger "fires early, late, or not at all" and left out the case
+that actually shipped — firing three times, twice at poses the robot
+never crossed anything at.
+
 Amended by ADR 0012, which owns the pose
 estimator: `Drive.getGyroOrientation()` returns a `Rotation3d` rather than a
 `Rotation2d`, and the estimator beside `Drive` is
@@ -313,6 +322,7 @@ and a pose trigger —
 ```java
 public final Trigger inNeutralZone =
     new Trigger(() -> inZone(FieldConstants.toAuthoredPathFrame(poseEstimator.getEstimatedPose())));
+public final Trigger crossedIntoNeutralZone = inNeutralZone.risingEdge();
 ```
 
 A **pose**-triggered action beats a **time**-triggered one for the
@@ -335,11 +345,29 @@ inverse and
 alliance flip and the side mirror together and will cover whatever is
 added beside them.
 
+⚠️ **A pose trigger binds through `risingEdge()`, not through `onTrue`
+on the predicate itself.** The predicate answers *is the robot past the
+line*; a zone entry is *did the robot cross it*. Those differ exactly
+when the trigger is built with the robot already past — which is the
+ordinary case, because a disable rebuilds the opmode wherever the robot
+stopped (§11 of the house style). alpha-7's `Trigger` answers the two
+questions differently and both compile: `poll()` schedules a rising edge
+when `m_cachedSignal != m_previousSignal`, and the previous signal is
+`null` before the first poll, so a first-observed high is an edge
+(`Trigger.java:405-412`); `risingEdge()` asks for the pair instead —
+`m_previousSignal == Signal.LOW` (`:314`). **[source]** `TriggerEdgeTest`
+pins both, because the fix is correct only for as long as they disagree.
+
 This is a rule and not a mechanism. There is nothing to stop a trigger
-reading `getEstimatedPose()` directly, and a wrong one throws nothing —
-it fires early, late, or not at all. The only pose trigger that exists
-reads through
-`toAuthoredPathFrame`; the next one has to as well.
+reading `getEstimatedPose()` directly or binding `onTrue` on the level,
+and a wrong one throws nothing — it fires early, late, not at all, or,
+in the case #134 found, three times, of which the two spurious ones are
+the first and the *last*. Last is what makes it expensive: a consumer
+reading `/Auto/ZoneEntry` after the match reads the value left in the
+log, so the routine reported a zone entry at a pose the robot was merely
+sitting at when the opmode was last rebuilt. The only pose trigger that
+exists reads through `toAuthoredPathFrame` and binds through
+`risingEdge()`; the next one has to as well.
 
 ### Trajectories arrive in the robot's frame; the alliance flip happens at follower construction
 
