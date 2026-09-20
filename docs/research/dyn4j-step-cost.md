@@ -51,9 +51,12 @@ thing in this project that would give the collector work, and ADR 0002 names
 exactly that as the condition for re-opening
 **[source — `docs/adr/0002-loop-rate-and-jvm.md:371-373`]**.
 
-**No Pi number was measured.** The bench Pi at `192.168.1.202` did not answer ssh
-or ICMP from this workstation **[measured]**, and §7.4 records the exact recipe
-for someone on the bench LAN to re-run this.
+**No Pi number was measured by this ticket.** The bench Pi at `192.168.1.202`
+did not answer ssh or ICMP from this workstation **[measured]**, and §7.4
+records the exact recipe for someone on the bench LAN to re-run this.
+[#155](https://github.com/Drew-Robotics/2027beta/issues/155) has since followed
+that recipe — **[`dyn4j-step-cost-pi.md`](dyn4j-step-cost-pi.md)**, and §6
+below carries the summary and the two corrections it forced.
 
 ---
 
@@ -266,7 +269,22 @@ the Pi number in §6 is the one that was wanted.
 
 ---
 
-## 6. The bench Pi — not measured
+## 6. The bench Pi — not measured here; measured since
+
+> **Answered by [#155](https://github.com/Drew-Robotics/2027beta/issues/155) on
+> 2026-09-20 — see [`dyn4j-step-cost-pi.md`](dyn4j-step-cost-pi.md).** The rest
+> of this section records what *this* ticket could and could not do, and is kept
+> because the recipe in §7.4 is what #155 followed. **Two things in the last
+> paragraph below are now known to be wrong, and are struck through rather than
+> deleted: the Pi has 8 GB, not 4, and the 5–10× extrapolation was too
+> pessimistic for dyn4j.** The headline results, for anyone reading only this
+> far: one chassis at 5 × 1 ms costs **10.00 µs per 5 ms period, 0.200 % of the
+> budget**, ten bodies **49.5 µs, 0.990 %**, and the per-step *byte* counts are
+> bit-identical to the workstation's — allocation turns out to be a property of
+> the bytecode, not the silicon, so there was no different Pi number to find.
+> The context around it does differ: the robot deploys with `-XX:+UseZGC`, ZGC
+> ergonomically disables compressed oops, and every allocation figure in §5
+> below therefore **understates the deployed configuration by 20–39 %**.
 
 **The bench Pi was unreachable from this workstation. [measured]**
 
@@ -285,16 +303,38 @@ from the bench LAN — `docs/bench-runner.md` says the runner is "a Linux box on
 the same LAN as the bench Pi", and this workstation is not on it
 **[source — `docs/bench-runner.md`]**. §7.4 is the recipe.
 
-**No Pi figure is given, and none should be inferred from this document.** For
-what it is worth and tagged accordingly: `physics-sim.md` §8 extrapolates a
-conservative 5–10× per-core slowdown from a desktop to a Cortex-A76
-**[source — `docs/research/physics-sim.md:612-620`]**, which would put the
-one-body step somewhere in 12–25 µs per 5 ms period, 0.25–0.5 % of the budget
-**[unverified — arithmetic on a number measured on different silicon; not a
-measurement]**. The headroom is large enough that the time answer is unlikely to
-flip. **The allocation answer is the one that could**, because the Pi has 4 GB
-and a different collector profile, and a 4 MB/s allocation rate is a different
-proposition there than it is here.
+**No Pi figure is given by this ticket, and none should be inferred from the
+paragraph below.** For what it was worth and tagged accordingly at the time:
+`physics-sim.md` §8 extrapolates a conservative 5–10× per-core slowdown from a
+desktop to a Cortex-A76 **[source — `docs/research/physics-sim.md:612-620`]**,
+which would put the one-body step somewhere in 12–25 µs per 5 ms period,
+0.25–0.5 % of the budget **[unverified — arithmetic on a number measured on
+different silicon; not a measurement]**. ~~The headroom is large enough that the
+time answer is unlikely to flip. **The allocation answer is the one that
+could**, because the Pi has 4 GB and a different collector profile, and a
+4 MB/s allocation rate is a different proposition there than it is here.~~
+
+**Corrected by [#155](https://github.com/Drew-Robotics/2027beta/issues/155):**
+
+- **The Pi has 8056 MB, not 4 GB. [measured — #155]** That figure was never
+  measured; it came from `physics-sim.md:609` naming a Compute Module 5 variant,
+  and [`jvm-tuning.md:4`](jvm-tuning.md) had already recorded *"4 CPUs, 8 GB"*
+  on this same box since 2026-08-25 **[source]**. A bare `java` there gets a
+  **2016 MB** heap and G1; the robot gets ZGC. Nothing about this box's memory
+  makes 4 MB/s a different proposition than it is on a workstation.
+- **The time answer did not flip, and the extrapolation was too pessimistic.**
+  Measured 10.00 µs per 5 ms period for one body — a flat **3.8–5.1×** this
+  workstation, below the 5–10× band, and under the low end of the 12–25 µs it
+  predicted. **[measured — #155]**
+- **The allocation answer did not flip either, because it could not.** The
+  per-step byte counts are bit-identical on both machines (184.0 against 184,
+  717.4 against 717, 4350.5 against 4328) — same bytecode, same object graph,
+  same compressed oops under G1. **[measured — #155]** What #155 found instead
+  is that the *deployed* collector is ZGC, that ZGC switches compressed oops off
+  and so allocates **20–39 % more** than every figure in §5, and that the only
+  configuration which runs on Pi hardware — `sim-hitl`'s disabled loop with the
+  chassis at rest — sits on **184.0 B/step, the empty-world floor exactly**.
+  ADR 0002's collector question is declined rather than reopened.
 
 ---
 
