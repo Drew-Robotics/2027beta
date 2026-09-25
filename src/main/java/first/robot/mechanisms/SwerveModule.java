@@ -58,6 +58,7 @@ final class SwerveModule {
   private final SparkClosedLoopController driveController;
   private final SparkClosedLoopController steerController;
   private final double steerOffsetRotations;
+  private final boolean driveInverted;
   private final TelemetryTable moduleLog;
 
   private SwerveModuleVelocity desired = new SwerveModuleVelocity();
@@ -75,6 +76,7 @@ final class SwerveModule {
     name = config.name();
     moduleLog = log;
     steerOffsetRotations = config.steerZeroOffset().in(Rotations);
+    driveInverted = config.driveInverted();
 
     driveMotor = new SparkFlex(Constants.CAN_BUS, config.driveId(), MotorType.kBrushless);
     steerMotor = new SparkFlex(Constants.CAN_BUS, config.steerId(), MotorType.kBrushless);
@@ -88,7 +90,7 @@ final class SwerveModule {
         "Swerve" + name + "Drive",
         () ->
             driveMotor.configure(
-                driveConfig(gains),
+                driveConfig(gains, driveInverted),
                 ResetMode.kResetSafeParameters,
                 PersistMode.kPersistParameters));
     Hardware.configureSpark(
@@ -106,11 +108,12 @@ final class SwerveModule {
     moduleLog.keepDuplicates("SteerStickyWarnings");
   }
 
-  private static SparkFlexConfig driveConfig(ModuleGains gains) {
+  private static SparkFlexConfig driveConfig(ModuleGains gains, boolean inverted) {
     var onboard = DriveConstants.onboardGains(gains).drive();
     var config = new SparkFlexConfig();
     config
         .idleMode(IdleMode.kBrake)
+        .inverted(inverted)
         .smartCurrentLimit((int) DriveConstants.DRIVE_CURRENT_LIMIT.in(Amps));
     config
         .closedLoop
@@ -297,7 +300,7 @@ final class SwerveModule {
         "Swerve" + name + "DriveGains",
         () ->
             driveMotor.configure(
-                driveConfig(gains),
+                driveConfig(gains, driveInverted),
                 ResetMode.kNoResetSafeParameters,
                 PersistMode.kNoPersistParameters));
     Hardware.configureSpark(

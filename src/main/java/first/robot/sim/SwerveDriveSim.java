@@ -30,6 +30,8 @@ public final class SwerveDriveSim {
   private final double driveCurrentLimit;
   private final double steerCurrentLimit;
   private final double wheelRadius;
+  // Halves a 12 V bracket to under a microvolt.
+  private static final int RAIL_ITERATIONS = 24;
   private final double[] driveAppliedVolts = new double[MODULES];
   private final double[] steerAppliedVolts = new double[MODULES];
 
@@ -52,19 +54,20 @@ public final class SwerveDriveSim {
   }
 
   public SimModuleState[] update(double[] driveVolts, double[] steerVolts, double dtSeconds) {
+    // DCMotorSim.setInputVoltage clamps against RobotController's battery, which is a HAL read.
+    // The sag is modelled here instead, solved against this step's own draw.
+    batteryVolts = solveRail(driveVolts, steerVolts);
     appliedRailVolts = batteryVolts;
     for (int i = 0; i < MODULES; i++) {
-      driveAppliedVolts[i] = applied(drive[i], driveMotor, driveCurrentLimit, driveVolts[i]);
-      steerAppliedVolts[i] = applied(steer[i], steerMotor, steerCurrentLimit, steerVolts[i]);
+      driveAppliedVolts[i] =
+          applied(drive[i], driveMotor, driveCurrentLimit, driveVolts[i], batteryVolts);
+      steerAppliedVolts[i] =
+          applied(steer[i], steerMotor, steerCurrentLimit, steerVolts[i], batteryVolts);
       drive[i].setInput(driveAppliedVolts[i]);
       steer[i].setInput(steerAppliedVolts[i]);
       drive[i].update(dtSeconds);
       steer[i].update(dtSeconds);
     }
-
-    // DCMotorSim.setInputVoltage clamps against RobotController's battery, which is a HAL read.
-    // The sag is modelled here instead, and reaches the motors on the next step's inputs.
-    batteryVolts = BatterySim.calculateDefaultBatteryLoadedVoltage(currents());
 
     var states = moduleStates();
     velocity = kinematics.toChassisVelocities(velocities(states));
@@ -121,20 +124,44 @@ public final class SwerveDriveSim {
         axis.motor());
   }
 
-  private double applied(DCMotorSim axis, DCMotor motor, double currentLimit, double volts) {
+  private static double applied(
+      DCMotorSim axis, DCMotor motor, double currentLimit, double volts, double rail) {
     // The controller enforces the current limit, not physics: free space has nothing to stop a
     // motor drawing stall current from a stop, which collapses the battery model to zero volts.
     double backEmf = axis.getAngularVelocity() * axis.getGearing() / motor.Kv;
     double span = currentLimit * motor.R;
-    return Math.clamp(
-        Math.clamp(volts, backEmf - span, backEmf + span), -batteryVolts, batteryVolts);
+    return Math.clamp(Math.clamp(volts, backEmf - span, backEmf + span), -rail, rail);
   }
 
-  private double[] currents() {
+  // The rail and the draw decide each other, so the rail is the one where they agree. Taking the
+  // draw from the step before instead is a loop whose gain is the motors' combined conductance
+  // over the pack's: four drives at full duty through 20 milliohms is about 1.4, so every step
+  // overcorrects the last and the rail rings between the sag and the nominal on alternate steps.
+  //
+  // Bisection, because the draw only grows as the rail rises and the root is bracketed by a dead
+  // rail, which draws nothing, and the nominal, which cannot be exceeded.
+  private double solveRail(double[] driveVolts, double[] steerVolts) {
+    double low = 0;
+    double high = BatterySim.calculateDefaultBatteryLoadedVoltage();
+    for (int iteration = 0; iteration < RAIL_ITERATIONS; iteration++) {
+      double rail = (low + high) / 2;
+      double loaded =
+          BatterySim.calculateDefaultBatteryLoadedVoltage(currents(driveVolts, steerVolts, rail));
+      if (loaded > rail) {
+        low = rail;
+      } else {
+        high = rail;
+      }
+    }
+    return low;
+  }
+
+  private double[] currents(double[] driveVolts, double[] steerVolts, double rail) {
     var currents = new double[MODULES * 2];
     for (int i = 0; i < MODULES; i++) {
-      currents[i] = supplyCurrent(drive[i], driveAppliedVolts[i]);
-      currents[MODULES + i] = supplyCurrent(steer[i], steerAppliedVolts[i]);
+      currents[i] = supplyCurrent(drive[i], driveMotor, driveCurrentLimit, driveVolts[i], rail);
+      currents[MODULES + i] =
+          supplyCurrent(steer[i], steerMotor, steerCurrentLimit, steerVolts[i], rail);
     }
     return currents;
   }
@@ -144,17 +171,21 @@ public final class SwerveDriveSim {
   // couple of volts costs the pack a fraction of that current. Charging the pack with the winding
   // current instead collapses the rail at exactly the moment a robot launches, and the sag then
   // caps the volts that were going to accelerate it.
-  private double supplyCurrent(DCMotorSim axis, double appliedVolts) {
-    double motorAmps = axis.getCurrentDraw();
-    // getCurrentDraw is signed against the bus: negative is a motor pushing power back into it.
+  private static double supplyCurrent(
+      DCMotorSim axis, DCMotor motor, double currentLimit, double volts, double rail) {
+    double appliedVolts = applied(axis, motor, currentLimit, volts, rail);
+    double motorAmps =
+        motor.getCurrent(axis.getAngularVelocity() * axis.getGearing(), appliedVolts)
+            * Math.signum(appliedVolts);
+    // The current is signed against the bus: negative is a motor pushing power back into it.
     // A braking motor is credited as nothing rather than as charge, because a simulation whose
     // battery gains voltage under braking accelerates out of a stop better than the robot ever
     // will — but nothing is also not a full load, which is what taking the magnitude made it. A
     // hard stop then sagged the rail into the clamp that was holding the wheels back.
-    if (motorAmps <= 0 || batteryVolts == 0) {
+    if (motorAmps <= 0 || rail == 0) {
       return 0;
     }
-    return motorAmps * Math.abs(appliedVolts) / batteryVolts;
+    return motorAmps * Math.abs(appliedVolts) / rail;
   }
 
   private SwerveModuleVelocity[] velocities(SimModuleState[] states) {

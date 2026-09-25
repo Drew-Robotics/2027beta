@@ -14,6 +14,7 @@ import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Milliseconds;
 import static org.wpilib.units.Units.Pounds;
+import static org.wpilib.units.Units.Radians;
 import static org.wpilib.units.Units.RadiansPerSecond;
 import static org.wpilib.units.Units.RadiansPerSecondPerSecond;
 import static org.wpilib.units.Units.Rotations;
@@ -45,15 +46,16 @@ import org.wpilib.units.measure.Velocity;
 import org.wpilib.units.measure.Voltage;
 
 public final class DriveConstants {
-  public static final int FRONT_LEFT_DRIVE_ID = 1;
-  public static final int FRONT_LEFT_STEER_ID = 2;
+  // The 2026 chassis's wiring, which this runs on until a 2027 one exists.
+  public static final int FRONT_LEFT_DRIVE_ID = 5;
+  public static final int FRONT_LEFT_STEER_ID = 6;
   public static final int FRONT_RIGHT_DRIVE_ID = 3;
   public static final int FRONT_RIGHT_STEER_ID = 4;
-  public static final int BACK_LEFT_DRIVE_ID = 5;
-  public static final int BACK_LEFT_STEER_ID = 6;
-  public static final int BACK_RIGHT_DRIVE_ID = 7;
-  public static final int BACK_RIGHT_STEER_ID = 8;
-  public static final int GYRO_ID = 9;
+  public static final int BACK_LEFT_DRIVE_ID = 7;
+  public static final int BACK_LEFT_STEER_ID = 8;
+  public static final int BACK_RIGHT_DRIVE_ID = 1;
+  public static final int BACK_RIGHT_STEER_ID = 2;
+  public static final int GYRO_ID = 10;
 
   // REV's documented SPARK control loop period, which is not the robot's.
   public static final Time CONTROLLER_PERIOD = Milliseconds.of(1);
@@ -77,10 +79,10 @@ public final class DriveConstants {
 
   // === SDS Mk5i, off the manufacturer's layout drawing =========================================
 
-  // The three ratios are the manufacturer's; which of them this robot runs is not confirmed, and
-  // it is the 14T first-stage pinion that says R2. Swapping the pinion is the only change the
-  // ratio needs, so the stages are written as their tooth counts.
-  public static final double DRIVE_REDUCTION = (54.0 / 14.0) * (25.0 / 32.0) * (30.0 / 15.0);
+  // The three ratios are the manufacturer's, and this robot runs R3: the 16T first-stage pinion.
+  // Swapping the pinion is the only change the ratio needs, so the stages are written as their
+  // tooth counts.
+  public static final double DRIVE_REDUCTION = (54.0 / 16.0) * (25.0 / 32.0) * (30.0 / 15.0);
   public static final double STEER_REDUCTION = 26.0;
 
   // === Provisional =============================================================================
@@ -91,11 +93,11 @@ public final class DriveConstants {
   public static final Distance WHEEL_RADIUS = Inches.of(2);
   // Centre to centre between the two modules on an axle: TRACK_WIDTH across the robot, WHEELBASE
   // along it. Both are distances between module centres, not the frame's outside dimensions.
-  public static final Distance TRACK_WIDTH = Inches.of(23.5);
-  public static final Distance WHEELBASE = Inches.of(23.5);
+  public static final Distance TRACK_WIDTH = Inches.of(21.25);
+  public static final Distance WHEELBASE = Inches.of(21.25);
 
   public static final Current DRIVE_CURRENT_LIMIT = Amps.of(60);
-  public static final Current STEER_CURRENT_LIMIT = Amps.of(40);
+  public static final Current STEER_CURRENT_LIMIT = Amps.of(60);
 
   // Competition weight with bumpers and battery.
   public static final Mass ROBOT_MASS = Pounds.of(125);
@@ -227,8 +229,10 @@ public final class DriveConstants {
   // module's coupling and that motion lands in the low-voltage samples kS is fitted from. And long
   // enough for the robot to stop, at zero volts against the motor's own back-EMF — several
   // response timescales — because a step test begun on the move spends its first samples
-  // arresting, which the analyser reads as measurement delay.
-  public static final Time CHARACTERISATION_SETTLE = Seconds.of(1);
+  // arresting, which the analyser reads as measurement delay. On R3 the wheel brakes with a
+  // timescale near 0.27 s, the robot's inertia reflected through less reduction, so a second is
+  // under four of them and the robot is still rolling when the step begins.
+  public static final Time CHARACTERISATION_SETTLE = Seconds.of(1.5);
 
   // The rotation routine spins the robot on the spot, so its step is gentler than the drive's: a
   // step that translates a robot in a straight line spins it into whatever is beside it.
@@ -279,11 +283,14 @@ public final class DriveConstants {
             gains.steer().dFilter()));
   }
 
-  // No characterisation has run. kV is 12 V over the free speed at this reduction and kS is a
-  // guess; both are the nameplate rather than a measurement.
+  // 12 V over the free speed at this reduction, so it follows a pinion swap on its own.
+  private static final double NAMEPLATE_KV =
+      NOMINAL_VOLTAGE.in(Volts) / MAX_VELOCITY.in(MetersPerSecond);
+
+  // No characterisation has run. kV is the nameplate and kS is a guess; neither is a measurement.
   public static final ModuleGains REAL_GAINS =
       new ModuleGains(
-          new DriveMotorGains(0.05, 0.15, 2.0), new SteerMotorGains(3.0, 0.05, 0.0, 0.0));
+          new DriveMotorGains(0.05, 0.15, NAMEPLATE_KV), new SteerMotorGains(3.0, 0.05, 0.0, 0.0));
 
   // Chosen so the model tracks its setpoint. These are not a prediction of the real robot's gains,
   // and turning them until a test passes turns that test into a tautology. A characterisation run
@@ -294,10 +301,18 @@ public final class DriveConstants {
   // break, so both kS terms are zero, and nothing to damp, so steer needs no kD. The feedback
   // gains themselves match, because the loop model reads them in the same units the device does.
   public static final ModuleGains SIM_GAINS =
-      new ModuleGains(new DriveMotorGains(0.05, 0.0, 2.0), new SteerMotorGains(3.0, 0.0, 0.0, 0.0));
+      new ModuleGains(
+          new DriveMotorGains(0.05, 0.0, NAMEPLATE_KV), new SteerMotorGains(3.0, 0.0, 0.0, 0.0));
 
+  // driveInverted flips the drive motor on the SPARK, so a positive setpoint and a positive count
+  // both mean the wheel rolling forward whichever way round the motor is mounted.
   public record SwerveModuleConfig(
-      String name, int driveId, int steerId, Angle steerZeroOffset, Translation2d location) {}
+      String name,
+      int driveId,
+      boolean driveInverted,
+      int steerId,
+      Angle steerZeroOffset,
+      Translation2d location) {}
 
   public record DriveConfig(
       SwerveModuleConfig frontLeft,
@@ -309,31 +324,37 @@ public final class DriveConstants {
   private static final Distance HALF_TRACK = TRACK_WIDTH.div(2);
   private static final Distance HALF_BASE = WHEELBASE.div(2);
 
+  // Steer offsets are the 2026 chassis's, measured there in radians against the same analog and
+  // the same raw-minus-offset convention, so they carry over unconverted.
   public static final DriveConfig DRIVE =
       new DriveConfig(
           new SwerveModuleConfig(
               "FrontLeft",
               FRONT_LEFT_DRIVE_ID,
+              false,
               FRONT_LEFT_STEER_ID,
-              Rotations.of(0),
+              Radians.of(3.595),
               new Translation2d(HALF_BASE, HALF_TRACK)),
           new SwerveModuleConfig(
               "FrontRight",
               FRONT_RIGHT_DRIVE_ID,
+              true,
               FRONT_RIGHT_STEER_ID,
-              Rotations.of(0),
+              Radians.of(4.955),
               new Translation2d(HALF_BASE, HALF_TRACK.unaryMinus())),
           new SwerveModuleConfig(
               "BackLeft",
               BACK_LEFT_DRIVE_ID,
+              false,
               BACK_LEFT_STEER_ID,
-              Rotations.of(0),
+              Radians.of(1.035),
               new Translation2d(HALF_BASE.unaryMinus(), HALF_TRACK)),
           new SwerveModuleConfig(
               "BackRight",
               BACK_RIGHT_DRIVE_ID,
+              true,
               BACK_RIGHT_STEER_ID,
-              Rotations.of(0),
+              Radians.of(3.114),
               new Translation2d(HALF_BASE.unaryMinus(), HALF_TRACK.unaryMinus())),
           GYRO_ID);
 

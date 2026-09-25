@@ -156,7 +156,8 @@ class SwerveDriveSimTest {
   }
 
   // Both SPARKs idle in brake, and zero volts into the plant is the short across the motor that
-  // makes. A coasting module would hold its speed here instead.
+  // makes. A coasting module would hold its speed here instead. The short decays with a timescale
+  // near 0.27 s on R3, so the window is several of them long.
   @Test
   void aWheelHandedZeroVoltsBrakesRatherThanCoasting() {
     Arrays.fill(driveVolts, DRIVE_VOLTS);
@@ -165,7 +166,7 @@ class SwerveDriveSimTest {
     assertTrue(rolling > 1, "the wheel never spun up");
 
     Arrays.fill(driveVolts, 0);
-    advance(Seconds.of(1));
+    advance(Seconds.of(1.5));
 
     assertTrue(
         state[0].wheelVelocityRadPerSec() < rolling * 0.02,
@@ -190,15 +191,20 @@ class SwerveDriveSimTest {
   }
 
   // A launch is current-limited, and a motor at its limit down at a couple of volts is a small
-  // load on the pack. A rail that collapses here is charging the battery the winding's amps.
+  // load on the pack. A rail that collapses here is charging the battery the winding's amps, which
+  // is four times the limit into the pack's 20 milliohms: about 7 V from the first step on.
+  //
+  // Read early, while the motors really are down at a couple of volts. Later in a launch the duty
+  // climbs toward full at the limit, the pack does carry the limit, and a correct model sags as far
+  // as the broken one did.
   @Test
   void aLaunchDoesNotCollapseTheRail() {
     Arrays.fill(driveVolts, 12.0);
 
-    advance(Seconds.of(1));
+    advance(Seconds.of(0.1));
 
     assertTrue(
-        sim.batteryVoltage().gt(Volts.of(10)),
+        sim.batteryVoltage().gt(Volts.of(9)),
         "four current-limited modules sagged the pack to " + sim.batteryVoltage());
   }
 
